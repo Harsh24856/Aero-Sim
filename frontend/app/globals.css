@@ -1,0 +1,34 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: #0a0a0a;
+  --color-surface: #111111;
+  --color-surface-container: #111111;
+  --color-surface-container-high: #1a1a1a;
+  --color-surface-container-highest: #1f1f1f;
+  --color-surface-container-lowest: #000000;
+  --color-primary: #ffffff;
+  --color-on-surface: #ffffff;
+  --color-on-surface-variant: #9ca3af;
+  --color-outline-variant: #333333;
+  --color-tertiary: #FF9100;
+
+  --font-headline-md: "Space Grotesk", sans-serif;
+  --font-headline-display: "Space Grotesk", sans-serif;
+  --font-headline-lg: "Space Grotesk", sans-serif;
+  --font-body-md: "Inter", sans-serif;
+  --font-data-sm: "JetBrains Mono", monospace;
+  --font-data-lg: "JetBrains Mono", monospace;
+  --font-label-caps: "JetBrains Mono", monospace;
+}
+
+.grid-bg {
+  background-image: linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px),
+                    linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+body {
+  background: #0a0a0a;
+  color: #ffffff;
+}
