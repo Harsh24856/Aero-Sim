@@ -26,6 +26,7 @@ from collections import deque
 from typing import TypedDict, Optional, Any
 
 import numpy as np
+import pandas as pd
 import joblib
 from tensorflow import keras
 from fastapi import FastAPI
@@ -104,9 +105,16 @@ class EngineState:
         return len(self.buffer) == WINDOW_SIZE
 
     def get_window(self) -> np.ndarray:
-        """Returns the SCALED (128, 24) window ready for model input."""
+        """Returns the SCALED (128, 24) window ready for model input.
+
+        Wrapped in a DataFrame with FEATURE_COLS as column names because the scaler
+        was originally fit on a named DataFrame during training - passing a plain
+        array (no names) is what caused the sklearn UserWarning. This is not just a
+        cosmetic fix: it also means a future column-order mistake here would raise a
+        real error instead of silently transforming with the wrong per-column stats."""
         raw_matrix = np.array([[step[c] for c in FEATURE_COLS] for step in self.buffer], dtype=np.float32)
-        return scaler.transform(raw_matrix).astype(np.float32)
+        raw_df = pd.DataFrame(raw_matrix, columns=FEATURE_COLS)
+        return scaler.transform(raw_df).astype(np.float32)
 
     def get_rul_aux(self) -> np.ndarray:
         """The 6 auxiliary features, computed identically to training."""

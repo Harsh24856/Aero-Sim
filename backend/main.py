@@ -15,7 +15,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from physics import UAVEngineTwin
+from physics import UAVEngineTwin, ENGINE_CONFIGS
 
 # ai.py runs as its OWN process under a different Python environment (see ai.py's
 # module docstring - the models segfault under this backend's TF version). Calls are
@@ -41,8 +41,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-twin = UAVEngineTwin(dt=0.01)
+CURRENT_ENGINE_MODEL = "Rotax_914_ULF"
+twin = UAVEngineTwin(dt=0.01, engine_model=CURRENT_ENGINE_MODEL)
 STEPS_PER_BROADCAST = 5  # 0.01s * 5 = 20Hz telemetry rate
+
+# Every trained AI model was fit ONLY on Rotax_914_ULF physics data - the other 3
+# engines are real, correctly-simulated physics options, but predictions on them
+# would be meaningless (different torque/power regime the model never saw).
+AI_VALID_ENGINE = "Rotax_914_ULF"
+
 
 state = {
     "running": False,
@@ -192,6 +199,58 @@ async def reset_sim():
     return {"status": "reset"}
 
 
+@app.get("/engines")
+async def list_engines():
+    """Single source of truth is physics.py's ENGINE_CONFIGS - the frontend never
+    hardcodes a duplicate list, it just asks this endpoint."""
+    return {
+        "engines": list(ENGINE_CONFIGS.keys()),
+        "current": CURRENT_ENGINE_MODEL,
+        "ai_valid_engine": AI_VALID_ENGINE,
+    }
+
+
+class EngineSelect(BaseModel):
+    engine_model: str
+
+
+@app.post("/select_engine")
+async def select_engine(sel: EngineSelect):
+    """Switches the physics twin to a different engine model. Always does a full
+    reset (not a live swap) - a different engine has a genuinely different torque
+    curve/power output, so continuing mid-flight with old telemetry would not make
+    physical sense. Also resets the AI service's rolling buffer, since straddling
+    a discontinuous engine-switch across its 128-step window would corrupt it -
+    and predictions are only meaningful for AI_VALID_ENGINE regardless."""
+    global twin, CURRENT_ENGINE_MODEL
+    if sel.engine_model not in ENGINE_CONFIGS:
+        return {"status": "error", "message": f"Unknown engine_model. Options: {list(ENGINE_CONFIGS)}"}
+
+    was_running = state["running"]
+    state["running"] = False
+    await asyncio.sleep(0.05)
+    CURRENT_ENGINE_MODEL = sel.engine_model
+    twin = UAVEngineTwin(dt=0.01, engine_model=CURRENT_ENGINE_MODEL)
+    state["last_telemetry"] = None
+    state["last_ai_result"] = None
+    state["ai_step_counter"] = 0
+    state["ai_warmed_up"] = False
+    try:
+        await ai_client.post(f"{AI_SERVICE_URL}/reset")
+    except Exception:
+        pass
+    if was_running:
+        state["running"] = True
+        state["task"] = asyncio.create_task(simulation_loop())
+
+    return {
+        "status": "ok",
+        "engine_model": CURRENT_ENGINE_MODEL,
+        "ai_valid": CURRENT_ENGINE_MODEL == AI_VALID_ENGINE,
+        "max_power_kw": twin.MAX_POWER_KW,
+    }
+
+
 @app.post("/params")
 async def update_params(p: ParamUpdate):
     if p.altitude is not None:
@@ -215,6 +274,8 @@ async def update_params(p: ParamUpdate):
 async def get_state():
     return {
         "running": state["running"],
+        "engine_model": CURRENT_ENGINE_MODEL,
+        "ai_valid": CURRENT_ENGINE_MODEL == AI_VALID_ENGINE,
         "params": {"altitude": twin.altitude, "throttle": twin.throttle,
                     "airspeed": twin.airspeed, "aoa": twin.aoa},
         "telemetry": state["last_telemetry"],

@@ -2,39 +2,108 @@
 UAV Piston Engine Digital Twin -- Python/NumPy port of the validated Simulink model
 (UAV_Piston_Engine.slx). Every formula below was extracted directly from the Simulink
 block diagram (not re-derived), so this is a faithful 1:1 port of the golden model.
+
+Multi-engine support: ENGINE_CONFIGS holds the full spec set for each selectable
+engine. IMPORTANT CAVEAT - every trained AI model (Detection/Diagnosis/Severity/RUL)
+was trained ONLY on Rotax_914_ULF physics data. The 912/915/916 have genuinely
+different torque curves and power output, so AI predictions will NOT be meaningful
+for those engines - this is a real physics-simulation capability, not a claim that
+the AI generalizes to them.
 """
 import numpy as np
 
 
+ENGINE_CONFIGS = {
+    "Rotax_914_ULF": {
+        "RPM_POINTS": [4300, 4800, 5000, 5500, 5800],
+        "TORQUE_POINTS": [90, 95, 105, 128, 139],
+        "GEAR_RATIO": 2.43, "BSFC": 0.300, "INV_INERTIA": 2.0,
+        "RPM_MAX": 5800.0, "RPM_MIN": 1400.0,
+        "D_PROP": 2.0, "CT": 0.05, "CQ": 0.005,
+        "THRUST_SAT": (0.0, 2000.0), "PROPTORQUE_SAT": (0.0, 400.0),
+        "S_WING": 25.0, "AIRCRAFT_MASS_KG": 450.0, "G": 9.81,
+        "AOA_POINTS": [-15,-10,-5,0,5,10,12,15,20,25],
+        "CL_POINTS": [-0.8,-0.5,-0.25,0.25,0.686,1.123,1.15,1.0,0.7,0.4],
+        "CD0": 0.03, "CD_K": 0.045,
+    },
+    "Rotax_912_ULS": {
+        "RPM_POINTS": [4300, 4800, 5000, 5500, 5800],
+        "TORQUE_POINTS": [84.3, 88.7, 97.4, 119.8, 121.0],
+        "GEAR_RATIO": 2.43, "BSFC": 0.300, "INV_INERTIA": 2.0,
+        "RPM_MAX": 5800.0, "RPM_MIN": 1400.0,
+        "D_PROP": 2.0, "CT": 0.05, "CQ": 0.005,
+        "THRUST_SAT": (0.0, 2000.0), "PROPTORQUE_SAT": (0.0, 400.0),
+        "S_WING": 25.0, "AIRCRAFT_MASS_KG": 450.0, "G": 9.81,
+        "AOA_POINTS": [-15,-10,-5,0,5,10,12,15,20,25],
+        "CL_POINTS": [-0.8,-0.5,-0.25,0.25,0.686,1.123,1.15,1.0,0.7,0.4],
+        "CD0": 0.03, "CD_K": 0.045,
+    },
+    "Rotax_915_iS": {
+        "RPM_POINTS": [4300, 4800, 5000, 5500, 5800],
+        "TORQUE_POINTS": [170.0, 180.0, 185.0, 172.0, 171.0],
+        "GEAR_RATIO": 2.54, "BSFC": 0.300, "INV_INERTIA": 2.0,
+        "RPM_MAX": 5800.0, "RPM_MIN": 1400.0,
+        "D_PROP": 2.0, "CT": 0.05, "CQ": 0.005,
+        "THRUST_SAT": (0.0, 2000.0), "PROPTORQUE_SAT": (0.0, 400.0),
+        "S_WING": 25.0, "AIRCRAFT_MASS_KG": 450.0, "G": 9.81,
+        "AOA_POINTS": [-15,-10,-5,0,5,10,12,15,20,25],
+        "CL_POINTS": [-0.8,-0.5,-0.25,0.25,0.686,1.123,1.15,1.0,0.7,0.4],
+        "CD0": 0.03, "CD_K": 0.045,
+    },
+    "Rotax_916_iS": {
+        "RPM_POINTS": [4300, 4800, 5000, 5500, 5800],
+        "TORQUE_POINTS": [150.0, 165.0, 180.0, 175.0, 193.0],
+        "GEAR_RATIO": 2.54, "BSFC": 0.300, "INV_INERTIA": 2.0,
+        "RPM_MAX": 5800.0, "RPM_MIN": 1400.0,
+        "D_PROP": 2.0, "CT": 0.05, "CQ": 0.005,
+        "THRUST_SAT": (0.0, 2000.0), "PROPTORQUE_SAT": (0.0, 400.0),
+        "S_WING": 25.0, "AIRCRAFT_MASS_KG": 450.0, "G": 9.81,
+        "AOA_POINTS": [-15,-10,-5,0,5,10,12,15,20,25],
+        "CL_POINTS": [-0.8,-0.5,-0.25,0.25,0.686,1.123,1.15,1.0,0.7,0.4],
+        "CD0": 0.03, "CD_K": 0.045,
+    },
+}
+
+
 class UAVEngineTwin:
-    # ---- Rotax 914 UL/F spec (exact match to Simulink TorqueMap) ----
-    RPM_POINTS = np.array([4300, 4800, 5000, 5500, 5800], dtype=float)
-    TORQUE_POINTS = np.array([90, 95, 105, 128, 139], dtype=float)
-    GEAR_RATIO = 2.43
-    BSFC = 0.300  # kg/kWh
-    INV_INERTIA = 2.0  # PisTon Engine/Gain1 (=1/J)
-    RPM_MAX = 5800.0   # rev-limiter, exact spec Max RPM
-    RPM_MIN = 1400.0   # idle floor (assumption, not in spec sheet)
-
-    # ---- Propeller ----
-    D_PROP = 2.0
-    CT = 0.05
-    CQ = 0.005
-    THRUST_SAT = (0.0, 2000.0)
-    PROPTORQUE_SAT = (0.0, 400.0)
-
-    # ---- Aerodynamics ----
-    S_WING = 25.0
-    AIRCRAFT_MASS_KG = 450.0
-    G = 9.81
-    AOA_POINTS = np.array([-15,-10,-5,0,5,10,12,15,20,25], dtype=float)
-    CL_POINTS = np.array([-0.8,-0.5,-0.25,0.25,0.686,1.123,1.15,1.0,0.7,0.4], dtype=float)
-    CD0 = 0.03
-    CD_K = 0.045
-
     FAULT_CHANNELS = ["egt","cht","oil_pressure","oil_temp","vibx","viby","vibz","rpm"]
 
-    def __init__(self, dt=0.01):
+    def __init__(self, dt=0.01, engine_model="Rotax_914_ULF"):
+        if engine_model not in ENGINE_CONFIGS:
+            raise ValueError(f"Unknown engine_model {engine_model!r}. Options: {list(ENGINE_CONFIGS)}")
+        self.engine_model = engine_model
+        cfg = ENGINE_CONFIGS[engine_model]
+
+        # Former class-level constants, now per-instance so each twin can run a
+        # DIFFERENT engine model simultaneously if needed (e.g. comparing two at once).
+        self.RPM_POINTS = np.array(cfg["RPM_POINTS"], dtype=float)
+        self.TORQUE_POINTS = np.array(cfg["TORQUE_POINTS"], dtype=float)
+        self.GEAR_RATIO = cfg["GEAR_RATIO"]
+        self.BSFC = cfg["BSFC"]
+        self.INV_INERTIA = cfg["INV_INERTIA"]
+        self.RPM_MAX = cfg["RPM_MAX"]
+        self.RPM_MIN = cfg["RPM_MIN"]
+        self.D_PROP = cfg["D_PROP"]
+        self.CT = cfg["CT"]
+        self.CQ = cfg["CQ"]
+        self.THRUST_SAT = cfg["THRUST_SAT"]
+        self.PROPTORQUE_SAT = cfg["PROPTORQUE_SAT"]
+        self.S_WING = cfg["S_WING"]
+        self.AIRCRAFT_MASS_KG = cfg["AIRCRAFT_MASS_KG"]
+        self.G = cfg["G"]
+        self.AOA_POINTS = np.array(cfg["AOA_POINTS"], dtype=float)
+        self.CL_POINTS = np.array(cfg["CL_POINTS"], dtype=float)
+        self.CD0 = cfg["CD0"]
+        self.CD_K = cfg["CD_K"]
+
+        # Real max power (kW), computed properly across the whole torque curve rather
+        # than assumed at redline - power = torque*rpm/9549 can peak at a MID-range
+        # RPM point even if torque itself peaks elsewhere. Used to normalize fault-
+        # trigger thresholds (_conditions/_update_wear) so they scale correctly per
+        # engine instead of the old hardcoded "85.0" (914-specific) constant.
+        power_at_points = self.TORQUE_POINTS * self.RPM_POINTS / 9549.0
+        self.MAX_POWER_KW = float(np.max(power_at_points))
+
         self.dt = dt
         self.t = 0.0
         self.omega = 3000.0 * 2*np.pi/60.0  # init condition, matches Simulink Integrator IC
@@ -246,7 +315,7 @@ class UAVEngineTwin:
           - RPM sensor: no physical driver -> handled as a rare independent glitch
         """
         rpm_frac = engine_rpm / self.RPM_MAX
-        power_frac = power_kw / 85.0  # Rotax 914 max rated power
+        power_frac = power_kw / self.MAX_POWER_KW  # per-engine rated power, not hardcoded to 914
         cooling = min(1.0, airspeed / 50.0)
         return np.array([
             power_frac > 0.85,                          # EGT
@@ -320,7 +389,7 @@ class UAVEngineTwin:
         if self.failed:
             return
         rpm_frac = engine_rpm / self.RPM_MAX
-        power_frac = power_kw / 85.0
+        power_frac = power_kw / self.MAX_POWER_KW  # per-engine rated power
         severity = 0.5*rpm_frac**2 + 0.5*power_frac**2   # 0 (idle) to ~1 (redline+max power)
         floor = 0.05  # engine wears even at idle, just very slowly
         wear_drive = floor + (1-floor)*severity

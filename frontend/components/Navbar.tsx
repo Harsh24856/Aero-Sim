@@ -6,6 +6,7 @@ import { Settings, CircleUserRound } from "lucide-react";
 
 const NAV_LINKS = [
   { label: "Simulator", href: "/home" },
+  { label: "Simulate", href: "/simulate" },
   { label: "Telemetry", href: "#" },
   { label: "Missions", href: "#" },
 ];
@@ -14,6 +15,8 @@ export default function Navbar() {
   const pathname = usePathname();
 
   // /engine is part of the simulator flow, so "Simulator" stays highlighted there too.
+  // /simulate has its own dedicated "Simulate" tab (the live cockpit dashboard),
+  // separate from the AERO-SIM landing/config pages.
   const isActive = (href: string) =>
     href === "/home" ? pathname === "/home" || pathname === "/engine" : pathname === href;
 
