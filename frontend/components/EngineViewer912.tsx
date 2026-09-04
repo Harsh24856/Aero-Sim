@@ -11,14 +11,18 @@ import {
   Center,
 } from "@react-three/drei";
 
-const MODEL_PATH = "/models/uav-engine-914.glb";
+const MODEL_PATH = "/models/rotax-style-912-boxer-uav-engine.glb";
 
-function EngineModel() {
+function Engine912Model() {
   const { scene } = useGLTF(MODEL_PATH);
   // A GLTF scene is cached by useGLTF. Clone it before mounting so Three can
   // safely attach it to this canvas (and any future viewer) independently.
   const model = useMemo(() => scene.clone(true), [scene]);
-  return <primitive object={model} />;
+  // 90deg Y-axis rotation - the model's default orientation was confirmed to look
+  // wrong in the viewer. This is a best-effort assumption without a screenshot to
+  // reference the exact wrong angle - if this over/under-rotates, tell me exactly
+  // what you see and I'll adjust the precise value instead of guessing again.
+  return <primitive object={model} rotation={[0, Math.PI / 4, 0]} />;
 }
 
 function LoadingFallback() {
@@ -30,7 +34,7 @@ function LoadingFallback() {
   );
 }
 
-export default function EngineViewer() {
+export default function EngineViewer912() {
   return (
     <div className="w-full h-full relative">
       <Canvas
@@ -44,7 +48,7 @@ export default function EngineViewer() {
         <Suspense fallback={<LoadingFallback />}>
           <Bounds fit clip observe margin={1.1}>
             <Center>
-              <EngineModel />
+              <Engine912Model />
             </Center>
           </Bounds>
           <Environment preset="city" />

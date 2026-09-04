@@ -45,10 +45,11 @@ CURRENT_ENGINE_MODEL = "Rotax_914_ULF"
 twin = UAVEngineTwin(dt=0.01, engine_model=CURRENT_ENGINE_MODEL)
 STEPS_PER_BROADCAST = 5  # 0.01s * 5 = 20Hz telemetry rate
 
-# Every trained AI model was fit ONLY on Rotax_914_ULF physics data - the other 3
-# engines are real, correctly-simulated physics options, but predictions on them
-# would be meaningless (different torque/power regime the model never saw).
-AI_VALID_ENGINE = "Rotax_914_ULF"
+# Rotax_912_ULS has real physics simulation but NO trained models yet (912' s split
+# checkpoints do not exist). 914/915/916 each have their OWN genuinely-trained models
+# now - AI predictions ARE meaningful for all three, each using its own weights,
+# scaler, and max-power normalization (see ai.py's ENGINE_MODEL_SETS).
+AI_VALID_ENGINES = {"Rotax_914_ULF", "Rotax_915_iS", "Rotax_916_iS"}
 
 
 state = {
@@ -206,7 +207,7 @@ async def list_engines():
     return {
         "engines": list(ENGINE_CONFIGS.keys()),
         "current": CURRENT_ENGINE_MODEL,
-        "ai_valid_engine": AI_VALID_ENGINE,
+        "ai_valid_engines": list(AI_VALID_ENGINES),
     }
 
 
@@ -221,7 +222,7 @@ async def select_engine(sel: EngineSelect):
     curve/power output, so continuing mid-flight with old telemetry would not make
     physical sense. Also resets the AI service's rolling buffer, since straddling
     a discontinuous engine-switch across its 128-step window would corrupt it -
-    and predictions are only meaningful for AI_VALID_ENGINE regardless."""
+    and predictions are only meaningful for engines in AI_VALID_ENGINES."""
     global twin, CURRENT_ENGINE_MODEL
     if sel.engine_model not in ENGINE_CONFIGS:
         return {"status": "error", "message": f"Unknown engine_model. Options: {list(ENGINE_CONFIGS)}"}
@@ -236,7 +237,11 @@ async def select_engine(sel: EngineSelect):
     state["ai_step_counter"] = 0
     state["ai_warmed_up"] = False
     try:
-        await ai_client.post(f"{AI_SERVICE_URL}/reset")
+        # Tell ai.py WHICH engine's models to switch to as well (not just reset) -
+        # it maintains its own active_engine independently, this keeps the two
+        # services in agreement. ai.py's /select_engine also resets its buffer,
+        # so a separate /reset call here would be redundant.
+        await ai_client.post(f"{AI_SERVICE_URL}/select_engine", json={"engine_model": CURRENT_ENGINE_MODEL})
     except Exception:
         pass
     if was_running:
@@ -246,7 +251,7 @@ async def select_engine(sel: EngineSelect):
     return {
         "status": "ok",
         "engine_model": CURRENT_ENGINE_MODEL,
-        "ai_valid": CURRENT_ENGINE_MODEL == AI_VALID_ENGINE,
+        "ai_valid": CURRENT_ENGINE_MODEL in AI_VALID_ENGINES,
         "max_power_kw": twin.MAX_POWER_KW,
     }
 
@@ -275,7 +280,7 @@ async def get_state():
     return {
         "running": state["running"],
         "engine_model": CURRENT_ENGINE_MODEL,
-        "ai_valid": CURRENT_ENGINE_MODEL == AI_VALID_ENGINE,
+        "ai_valid": CURRENT_ENGINE_MODEL in AI_VALID_ENGINES,
         "params": {"altitude": twin.altitude, "throttle": twin.throttle,
                     "airspeed": twin.airspeed, "aoa": twin.aoa},
         "telemetry": state["last_telemetry"],

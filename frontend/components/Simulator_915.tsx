@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import GamePlane from "@/components/GamePlane";
+import GreyPlane from "@/components/GreyPlane";
 
 type RidgePoint = [number, number];
 type Building = { x: number; w: number; h: number };
@@ -192,9 +192,11 @@ function FlightApproachGame({
   paused,
 }: SimulatorProps) {
   // Ridge data: filled shapes AND open crest paths for highlights
-  const farData = useMemo(() => tiledRidgePathData(11, WORLD_W, 9, 300, 40, 110), []);
-  const midData = useMemo(() => tiledRidgePathData(23, WORLD_W, 10, 340, 70, 170), []);
-  const nearData = useMemo(() => tiledRidgePathData(41, WORLD_W, 12, 400, 110, 260), []);
+  // Ocean waves - much flatter than dunes/mountains, more segments for a
+  // choppier, repetitive swell pattern instead of jagged peaks.
+  const farData = useMemo(() => tiledRidgePathData(11, WORLD_W, 16, 350, 8, 22), []);
+  const midData = useMemo(() => tiledRidgePathData(23, WORLD_W, 18, 400, 14, 34), []);
+  const nearData = useMemo(() => tiledRidgePathData(41, WORLD_W, 20, 460, 22, 55), []);
   const buildings = useMemo(() => buildBuildings(5, WORLD_W, 8), []);
 
   const [status, setStatus] = useState<FlightStatus>("flying");
@@ -487,7 +489,16 @@ function FlightApproachGame({
             position: "absolute",
             inset: 0,
             background:
-              "linear-gradient(to bottom, #b23c22 0%, #d9622f 20%, #ea8a41 40%, #f2a955 57%, #f6c877 72%, #f3c584 82%)",
+              "linear-gradient(to bottom, #2f7fc9 0%, #4a9bd9 30%, #7cbde3 55%, #a8d8ea 72%, #cceaf0 85%, #e0f3f0 93%)",
+          }}
+        />
+        {/* Sun */}
+        <div
+          style={{
+            position: "absolute", top: "8%", right: "18%", width: "8%", aspectRatio: "1",
+            borderRadius: "50%",
+            background: "radial-gradient(circle, #fffef0 0%, #fff4b8 55%, rgba(255,244,184,0) 75%)",
+            boxShadow: "0 0 45px 14px rgba(255,250,220,0.55)",
           }}
         />
 
@@ -496,14 +507,14 @@ function FlightApproachGame({
           <svg viewBox={`0 0 ${WORLD_W * 2} ${SKY_H}`} preserveAspectRatio="none" width="100%" height="100%">
             <defs>
               <linearGradient id="farGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#c8b8a8" stopOpacity="0.5" />
-                <stop offset="100%" stopColor="#a08878" stopOpacity="0.35" />
+                <stop offset="0%" stopColor="#7ec8d4" stopOpacity="0.55" />
+                <stop offset="100%" stopColor="#4fa8bc" stopOpacity="0.5" />
               </linearGradient>
             </defs>
             <path d={farData.fill} fill="url(#farGrad)" />
             {/* Snow-cap highlight: thin stroke along crest only (not
                 the flat baseline edge, which would look wrong) */}
-            <path d={farData.crest} fill="none" stroke="rgba(255,245,235,0.28)" strokeWidth="2.5" strokeLinejoin="round" />
+            <path d={farData.crest} fill="none" stroke="rgba(255,255,255,0.35)" strokeWidth="1.5" strokeLinejoin="round" />
           </svg>
         </div>
 
@@ -512,13 +523,13 @@ function FlightApproachGame({
           <svg viewBox={`0 0 ${WORLD_W * 2} ${SKY_H}`} preserveAspectRatio="none" width="100%" height="100%">
             <defs>
               <linearGradient id="midGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#9a6858" stopOpacity="0.72" />
-                <stop offset="100%" stopColor="#6a4438" stopOpacity="0.6" />
+                <stop offset="0%" stopColor="#2f9cae" stopOpacity="0.78" />
+                <stop offset="100%" stopColor="#1f7488" stopOpacity="0.72" />
               </linearGradient>
             </defs>
             <path d={midData.fill} fill="url(#midGrad)" />
             {/* Subtle ridge-edge highlight */}
-            <path d={midData.crest} fill="none" stroke="rgba(210,170,140,0.18)" strokeWidth="1.5" />
+            <path d={midData.crest} fill="none" stroke="rgba(255,255,255,0.25)" strokeWidth="1.2" />
           </svg>
         </div>
 
@@ -527,8 +538,8 @@ function FlightApproachGame({
           <svg viewBox={`0 0 ${WORLD_W * 2} ${SKY_H}`} preserveAspectRatio="none" width="100%" height="100%">
             <defs>
               <linearGradient id="nearGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#50303a" stopOpacity="0.92" />
-                <stop offset="100%" stopColor="#2c1820" stopOpacity="0.98" />
+                <stop offset="0%" stopColor="#146078" stopOpacity="0.93" />
+                <stop offset="100%" stopColor="#0a3a4a" stopOpacity="0.97" />
               </linearGradient>
             </defs>
             <path d={nearData.fill} fill="url(#nearGrad)" />
@@ -536,12 +547,12 @@ function FlightApproachGame({
         </div>
 
         {/* ── Buildings ──────────────────────────────────────────── */}
-        <div style={{ position: "absolute", left: 0, top: "69%", width: "100%", height: "10.5%", background: "linear-gradient(to bottom, #948656, #756a44)", overflow: "hidden" }}>
+        <div style={{ position: "absolute", left: 0, top: "69%", width: "100%", height: "10.5%", background: "linear-gradient(to bottom, #e8d4a0, #d4b878)", overflow: "hidden" }}>
           <div ref={buildingsRef} style={{ position: "absolute", left: 0, top: 0, width: "200%", height: "100%", willChange: "transform" }}>
             <svg viewBox={`0 0 ${WORLD_W * 2} 100`} preserveAspectRatio="none" width="100%" height="100%">
               {[0, WORLD_W].map((offset) =>
                 buildings.map((b, i) => (
-                  <rect key={`${offset}-${i}`} x={b.x + offset} y={100 - b.h} width={b.w} height={b.h} fill="rgba(45,38,28,0.85)" />
+                  <rect key={`${offset}-${i}`} x={b.x + offset} y={100 - b.h} width={b.w} height={b.h} fill="rgba(180,150,110,0.75)" />
                 ))
               )}
             </svg>
@@ -590,7 +601,7 @@ function FlightApproachGame({
               view down -Z, which was showing the nose instead of the wing
               profile - also confirmed via screenshot. */}
           <div style={{ width: "100%", height: "100%" }}>
-            <GamePlane />
+            <GreyPlane />
           </div>
         </div>
 

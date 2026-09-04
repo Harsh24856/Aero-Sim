@@ -11,9 +11,9 @@ import {
   Center,
 } from "@react-three/drei";
 
-const MODEL_PATH = "/models/uav-engine-914.glb";
+const MODEL_PATH = "/models/rotax-style-915-turbo-uav-engine.glb";
 
-function EngineModel() {
+function Engine915Model() {
   const { scene } = useGLTF(MODEL_PATH);
   // A GLTF scene is cached by useGLTF. Clone it before mounting so Three can
   // safely attach it to this canvas (and any future viewer) independently.
@@ -30,7 +30,7 @@ function LoadingFallback() {
   );
 }
 
-export default function EngineViewer() {
+export default function EngineViewer915() {
   return (
     <div className="w-full h-full relative">
       <Canvas
@@ -44,7 +44,7 @@ export default function EngineViewer() {
         <Suspense fallback={<LoadingFallback />}>
           <Bounds fit clip observe margin={1.1}>
             <Center>
-              <EngineModel />
+              <Engine915Model />
             </Center>
           </Bounds>
           <Environment preset="city" />

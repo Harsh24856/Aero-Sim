@@ -39,7 +39,19 @@ from langgraph.graph import StateGraph, START, END
 # since that is the contract every model was trained against.
 # ---------------------------------------------------------------------------
 MODEL_DIR = "/Users/harsh/Documents/UAV_Engine/backend/models"
-SCALER_PATH = os.path.join(MODEL_DIR, "scaler.pkl")
+
+# Per-engine model registry - each entry has genuinely different weights (trained on
+# that engine's own physics data) and its own scaler (fit on that engine's own value
+# distribution). MAX_POWER_KW matches physics.py's per-engine values exactly, since
+# EngineState.update() below needs it to normalize severity correctly per engine -
+# using 914's hardcoded 85.0 for a 916 (117kW) would badly under-scale its severity.
+# Rotax_912_ULS omitted for now - its split models do not exist yet.
+ENGINE_MODEL_SETS = {
+    "Rotax_914_ULF": {"suffix": "", "scaler": "scaler.pkl", "max_power_kw": 84.4},
+    "Rotax_915_iS":  {"suffix": "_915", "scaler": "scaler_915.pkl", "max_power_kw": 103.9},
+    "Rotax_916_iS":  {"suffix": "_916", "scaler": "scaler_916.pkl", "max_power_kw": 117.2},
+}
+DEFAULT_ENGINE = "Rotax_914_ULF"
 
 FEATURE_COLS = [
     "altitude", "throttle", "airspeed", "aoa", "air_density",
@@ -54,13 +66,25 @@ RECENT_WINDOW_SECONDS = 60   # must match tf_data_pipeline.py's RECENT_WINDOW
 # ---------------------------------------------------------------------------
 # Load models + scaler ONCE at startup, not per-request.
 # ---------------------------------------------------------------------------
-print("Loading scaler and models...")
-scaler = joblib.load(SCALER_PATH)
-detection_model = keras.models.load_model(os.path.join(MODEL_DIR, "phase8_detection.keras"), safe_mode=False)
-diagnosis_model = keras.models.load_model(os.path.join(MODEL_DIR, "phase8_diagnosis.keras"), safe_mode=False)
-severity_model = keras.models.load_model(os.path.join(MODEL_DIR, "phase8_severity.keras"), safe_mode=False)
-rul_model = keras.models.load_model(os.path.join(MODEL_DIR, "phase8_rul.keras"), safe_mode=False)
-print("All 4 models + scaler loaded.")
+# Eager-load ALL available engines' models at startup (not lazy) - the combined
+# footprint is small (a few MB total across 3 engines x 4 heads) and this avoids any
+# risk of a slow first-request load happening mid-flight during actual use.
+print("Loading scaler + models for all available engines...")
+loaded_engines = {}
+for engine_name, cfg in ENGINE_MODEL_SETS.items():
+    suffix = cfg["suffix"]
+    loaded_engines[engine_name] = {
+        "scaler": joblib.load(os.path.join(MODEL_DIR, cfg["scaler"])),
+        "detection_model": keras.models.load_model(os.path.join(MODEL_DIR, f"phase8_detection{suffix}.keras"), safe_mode=False),
+        "diagnosis_model": keras.models.load_model(os.path.join(MODEL_DIR, f"phase8_diagnosis{suffix}.keras"), safe_mode=False),
+        "severity_model": keras.models.load_model(os.path.join(MODEL_DIR, f"phase8_severity{suffix}.keras"), safe_mode=False),
+        "rul_model": keras.models.load_model(os.path.join(MODEL_DIR, f"phase8_rul{suffix}.keras"), safe_mode=False),
+        "max_power_kw": cfg["max_power_kw"],
+    }
+    print(f"  {engine_name}: loaded (max_power_kw={cfg['max_power_kw']})")
+print(f"All {len(loaded_engines)} engine model sets loaded.")
+
+active_engine = DEFAULT_ENGINE
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +116,7 @@ class EngineState:
             self.start_time = raw["time"]
 
         rpm_frac = raw["engine_rpm"] / 5800.0
-        power_frac = raw["power_kw"] / 85.0
+        power_frac = raw["power_kw"] / loaded_engines[active_engine]["max_power_kw"]
         severity_proxy = 0.5 * rpm_frac**2 + 0.5 * power_frac**2
 
         self.cum_severity_sum += severity_proxy
@@ -114,7 +138,7 @@ class EngineState:
         real error instead of silently transforming with the wrong per-column stats."""
         raw_matrix = np.array([[step[c] for c in FEATURE_COLS] for step in self.buffer], dtype=np.float32)
         raw_df = pd.DataFrame(raw_matrix, columns=FEATURE_COLS)
-        return scaler.transform(raw_df).astype(np.float32)
+        return loaded_engines[active_engine]["scaler"].transform(raw_df).astype(np.float32)
 
     def get_rul_aux(self) -> np.ndarray:
         """The 6 auxiliary features, computed identically to training."""
@@ -145,12 +169,14 @@ class InferenceState(TypedDict):
 
 
 def detect_node(state: InferenceState) -> dict:
-    prob = float(np.squeeze(detection_model.predict(state["window"], verbose=0)))
+    model = loaded_engines[active_engine]["detection_model"]
+    prob = float(np.squeeze(model.predict(state["window"], verbose=0)))
     return {"detection_prob": prob}
 
 
 def diagnose_node(state: InferenceState) -> dict:
-    pred = np.asarray(diagnosis_model.predict(state["window"], verbose=0))[0]   # (8, 6)
+    model = loaded_engines[active_engine]["diagnosis_model"]
+    pred = np.asarray(model.predict(state["window"], verbose=0))[0]   # (8, 6)
     classes = np.argmax(pred, axis=-1)
     confidences = np.max(pred, axis=-1)
     result = {
@@ -161,13 +187,15 @@ def diagnose_node(state: InferenceState) -> dict:
 
 
 def severity_node(state: InferenceState) -> dict:
-    pred = np.asarray(severity_model.predict(state["window"], verbose=0))[0]   # (8,)
+    model = loaded_engines[active_engine]["severity_model"]
+    pred = np.asarray(model.predict(state["window"], verbose=0))[0]   # (8,)
     result = {CHANNELS[i]: float(pred[i]) for i in range(8)}
     return {"severity_result": result}
 
 
 def rul_node(state: InferenceState) -> dict:
-    pred = rul_model.predict({"x": state["window"], "x_rul_aux": state["rul_aux"]}, verbose=0)
+    model = loaded_engines[active_engine]["rul_model"]
+    pred = model.predict({"x": state["window"], "x_rul_aux": state["rul_aux"]}, verbose=0)
     return {"rul_hours": float(np.squeeze(pred))}
 
 
@@ -296,9 +324,35 @@ def reset():
     return {"status": "reset"}
 
 
+class EngineSelect(BaseModel):
+    engine_model: str
+
+
+@app.post("/select_engine")
+def select_engine(sel: EngineSelect):
+    """Switches which engine's models this service uses for all subsequent /step
+    calls. Called by main.py's own /select_engine, keeping both services in sync -
+    each maintains its own notion of the active engine independently, this just
+    ensures they agree. Always resets the buffer too, since a discontinuous engine
+    switch mid-window would otherwise mix two different engines' physics in one
+    128-step input, which none of these models were trained to handle."""
+    global active_engine
+    if sel.engine_model not in loaded_engines:
+        return {"status": "error", "message": f"No models loaded for {sel.engine_model!r}. Available: {list(loaded_engines)}"}
+    active_engine = sel.engine_model
+    engine_state.reset()
+    return {"status": "ok", "active_engine": active_engine}
+
+
 @app.get("/health")
 def health():
-    return {"status": "alive", "models_loaded": True, "buffer_fill": len(engine_state.buffer)}
+    return {
+        "status": "alive",
+        "models_loaded": True,
+        "active_engine": active_engine,
+        "available_engines": list(loaded_engines),
+        "buffer_fill": len(engine_state.buffer),
+    }
 
 
 if __name__ == "__main__":

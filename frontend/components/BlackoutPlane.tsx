@@ -1,7 +1,8 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useMemo } from "react";
 import { Canvas } from "@react-three/fiber";
+import * as THREE from "three";
 import {
   useGLTF,
   OrbitControls,
@@ -13,9 +14,37 @@ import {
 
 const MODEL_PATH = "/models/blackout-plane.glb";
 
-function PlaneModel() {
+// Only the body/fuselage materials get tinted - canopy_glass and rubber are left
+// alone so a recolored plane still looks like a real aircraft (a white canopy or
+// orange tires would look wrong, not just differently colored).
+const BODY_MATERIAL_NAMES = new Set(["matte_black", "gunmetal", "gloss_black"]);
+
+function PlaneModel({ tintColor }: { tintColor?: string }) {
   const { scene } = useGLTF(MODEL_PATH);
-  return <primitive object={scene} />;
+  // A GLTF scene is cached by useGLTF - clone before mounting so Three can safely
+  // attach it to this canvas independently, and so each engine's themed viewer
+  // can tint its OWN clone without affecting the shared cached original or any
+  // other simultaneously-mounted viewer.
+  const model = useMemo(() => {
+    const cloned = scene.clone(true);
+    if (tintColor) {
+      const color = new THREE.Color(tintColor);
+      cloned.traverse((child) => {
+        if (!(child instanceof THREE.Mesh)) return;
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        child.material = materials.map((mat) => {
+          if (!BODY_MATERIAL_NAMES.has(mat.name)) return mat;
+          const tinted = mat.clone();
+          if (tinted instanceof THREE.MeshStandardMaterial || tinted instanceof THREE.MeshPhysicalMaterial) {
+            tinted.color.set(color);
+          }
+          return tinted;
+        });
+      });
+    }
+    return cloned;
+  }, [scene, tintColor]);
+  return <primitive object={model} />;
 }
 
 function LoadingFallback() {
@@ -40,20 +69,28 @@ export type BlackoutPlaneProps = {
   // along X instead. Defaults to the original home-page value (undefined = R3F's
   // own default) so the hero showcase is unaffected.
   cameraPosition?: [number, number, number];
+  // Per-engine body color: white for the night theme (916), grey for beach (915),
+  // orange for desert (912). Undefined = the model's own original materials
+  // (the home page hero and the default/914 simulator).
+  tintColor?: string;
 };
 
-export default function BlackoutPlane({ interactive = true, cameraPosition }: BlackoutPlaneProps) {
+export default function BlackoutPlane({ interactive = true, cameraPosition, tintColor }: BlackoutPlaneProps) {
   return (
-    <div className="w-full h-full aspect-[21/8] relative">
+    <div className="relative w-full aspect-[21/8]">
       <div className="absolute inset-0 bg-tertiary/20 blur-[100px] rounded-full z-0 mix-blend-screen pointer-events-none" />
-      <Canvas camera={cameraPosition ? { fov: 40, position: cameraPosition } : { fov: 40 }} className="relative z-10">
+      <Canvas
+        camera={cameraPosition ? { fov: 40, position: cameraPosition } : { fov: 40 }}
+        dpr={[1, 2]}
+        className="absolute inset-0 z-10 block h-full w-full"
+      >
         <ambientLight intensity={0.4} />
         <directionalLight position={[5, 8, 5]} intensity={1.2} castShadow />
         <directionalLight position={[-5, 2, -5]} intensity={0.3} color="#FF9100" />
         <Suspense fallback={<LoadingFallback />}>
-          <Bounds fit clip margin={0.9}>
+          <Bounds fit clip observe margin={0.9}>
             <Center>
-              <PlaneModel />
+              <PlaneModel tintColor={tintColor} />
             </Center>
           </Bounds>
           <Environment preset="city" />

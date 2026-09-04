@@ -1,17 +1,34 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import Sensr from "@/components/Sensr";
-import Simulator, { type SimTelemetry } from "@/components/Simulator";
+import SimulatorDefault, { type SimTelemetry } from "@/components/Simulator";
+import Simulator912 from "@/components/Simulator_912";
+import Simulator915 from "@/components/Simulator_915";
+import Simulator916 from "@/components/Simulator_916";
 import Meters, { type RawTelemetry, mpsToKmh } from "@/components/Meters";
 import Diagnostics, { type AiResult } from "@/components/Diagnostics";
+
+// Which themed Simulator variant to render, based on the ?engine= query param
+// set by /engine's selectEngine() navigation. Falls back to the base (914)
+// variant for the 914 itself or any unrecognized/missing value.
+const SIMULATOR_BY_ENGINE: Record<string, typeof SimulatorDefault> = {
+  Rotax_912_ULS: Simulator912,
+  Rotax_915_iS: Simulator915,
+  Rotax_916_iS: Simulator916,
+};
 
 const API = "http://localhost:8000";
 const WS_URL = "ws://localhost:8000/ws";
 
-export default function SimulatePage() {
-  const [throttle, setThrottle] = useState(75);
+function SimulatePageInner() {
+  const searchParams = useSearchParams();
+  const engineParam = searchParams.get("engine") ?? "";
+  const ActiveSimulator = SIMULATOR_BY_ENGINE[engineParam] ?? SimulatorDefault;
+
+  const [throttle, setThrottle] = useState(5); // initial throttle for every engine - pilot ramps up manually from here
   const [airspeedTarget, setAirspeedTarget] = useState(30); // m/s
   const [started, setStarted] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -110,7 +127,7 @@ export default function SimulatePage() {
             min-h-0 on each so flex children actually shrink to fit. */}
         <div className="flex min-h-0 flex-col gap-2">
           <div className="min-h-0" style={{ flex: '50 1 0%' }}>
-            <Simulator
+            <ActiveSimulator
               onTelemetryChange={onTelemetryChange}
               throttle={throttle}
               onThrottleChange={setThrottle}
@@ -139,5 +156,13 @@ export default function SimulatePage() {
         <Diagnostics ai={aiResult} />
       </div>
     </>
+  );
+}
+
+export default function SimulatePage() {
+  return (
+    <Suspense fallback={null}>
+      <SimulatePageInner />
+    </Suspense>
   );
 }

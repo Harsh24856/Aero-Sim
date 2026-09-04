@@ -4,15 +4,18 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import EngineViewer from "@/components/EngineViewer";
-import { Zap, Cog, AlertTriangle } from "lucide-react";
+import EngineViewer912 from "@/components/EngineViewer912";
+import EngineViewer915 from "@/components/EngineViewer915";
+import EngineViewer916 from "@/components/EngineViewer916";
+import { Zap, AlertTriangle } from "lucide-react";
 
 const API = "http://localhost:8000";
 
 // Real specs for all 4 selectable engines - computed from the same ENGINE_CONFIGS
-// data that drives physics.py (values match the JSON spec sheet exactly). Only
-// Rotax_914_ULF has a real 3D model (uav-engine-914.glb) and AI predictions -
-// the other 3 are genuinely simulated with correct, different physics, but the AI
-// was trained exclusively on 914 data and would not give meaningful output for them.
+// data that drives physics.py (values match the JSON spec sheet exactly). All 4 have
+// real 3D models. AI predictions are genuinely trained + deployed for 914/915/916
+// (matches backend/models/ and main.py's AI_VALID_ENGINES exactly) - only 912 lacks
+// trained models so far (data + notebooks are ready, training has not run yet).
 const ENGINES = [
   {
     id: "Rotax_914_ULF",
@@ -22,7 +25,7 @@ const ENGINES = [
     maxPower: "84 kW",
     config: "4-CYL TURBO",
     aiValid: true,
-    hasModel: true,
+    Viewer: EngineViewer,
   },
   {
     id: "Rotax_912_ULS",
@@ -32,7 +35,7 @@ const ENGINES = [
     maxPower: "74 kW",
     config: "4-CYL N/A",
     aiValid: false,
-    hasModel: false,
+    Viewer: EngineViewer912,
   },
   {
     id: "Rotax_915_iS",
@@ -41,8 +44,8 @@ const ENGINES = [
     maxRpm: "5,800",
     maxPower: "104 kW",
     config: "4-CYL TURBO iS",
-    aiValid: false,
-    hasModel: false,
+    aiValid: true,
+    Viewer: EngineViewer915,
   },
   {
     id: "Rotax_916_iS",
@@ -51,8 +54,8 @@ const ENGINES = [
     maxRpm: "5,800",
     maxPower: "117 kW",
     config: "4-CYL TURBO iS",
-    aiValid: false,
-    hasModel: false,
+    aiValid: true,
+    Viewer: EngineViewer916,
   },
 ];
 
@@ -72,7 +75,7 @@ export default function EnginePage() {
       // Backend down is not a reason to block navigation - /simulate handles a
       // missing backend gracefully already (shows "waiting for data" states).
     }
-    router.push("/simulate");
+    router.push(`/simulate?engine=${engineId}`);
   };
 
   return (
@@ -83,13 +86,18 @@ export default function EnginePage() {
         <div className="absolute inset-0 grid-bg pointer-events-none opacity-50 z-0" />
 
         <div className="relative z-10 max-w-7xl mx-auto px-4 md:px-6 py-12 md:py-16">
-          <header className="mb-10 text-center md:text-left">
-            <h1 className="font-headline-display text-[30px] md:text-[40px] leading-[1.15] font-bold text-primary uppercase tracking-tight mb-2">
-              SELECT PROPULSION SYSTEM
-            </h1>
-            <p className="text-tertiary/80 text-[13px] tracking-[0.15em] uppercase font-mono">
-              Configure your UAV for mission-specific performance parameters.
-            </p>
+          <header className="mb-10 flex flex-col md:flex-row md:items-end md:justify-between gap-3 text-center md:text-left">
+            <div>
+              <h1 className="font-headline-display text-[30px] md:text-[40px] leading-[1.15] font-bold text-primary uppercase tracking-tight mb-2">
+                SELECT PROPULSION SYSTEM
+              </h1>
+              <p className="text-tertiary/80 text-[13px] tracking-[0.15em] uppercase font-mono">
+                Configure your UAV for mission-specific performance parameters.
+              </p>
+            </div>
+            <span className="text-[11px] tracking-[0.15em] uppercase font-mono text-on-surface-variant/60">
+              {ENGINES.length} propulsion options
+            </span>
           </header>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -111,15 +119,11 @@ export default function EnginePage() {
                     <span className={`w-1.5 h-1.5 rounded-full ${engine.aiValid ? "bg-tertiary animate-pulse" : "bg-on-surface-variant/60"}`} />
                     {engine.aiValid ? "AI READY" : "SIM ONLY"}
                   </div>
-                  <div className="h-44 border-b border-outline-variant/30 bg-surface-container-high/40">
-                    {engine.hasModel ? (
-                      <EngineViewer />
-                    ) : (
-                      <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-on-surface-variant/40">
-                        <Cog size={40} />
-                        <span className="text-[10px] uppercase tracking-[0.1em]">No 3D model yet</span>
-                      </div>
-                    )}
+                  <div className="relative h-56 border-b border-outline-variant/30 bg-surface-container-high/40 group/viewer">
+                    <engine.Viewer />
+                    <span className="pointer-events-none absolute bottom-2 right-3 text-[9px] uppercase tracking-[0.1em] text-on-surface-variant/40 opacity-0 group-hover/viewer:opacity-100 transition-opacity">
+                      Drag to rotate
+                    </span>
                   </div>
                 </div>
                 <div className="p-5 flex-grow flex flex-col">

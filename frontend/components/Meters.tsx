@@ -206,14 +206,14 @@ export default function Meters({
           <div className="mt-1.5 h-3.5 border border-[#4c3025] bg-[#1a110d] p-[2px] rounded-sm">
             <div
               className="h-full bg-gradient-to-r from-[#ff971e] via-[#ff5b1c] to-[#ed3919] rounded-[1px] transition-all duration-75"
-              style={{ width: `${(mpsToKmh(airspeedTarget) / MAX_SPEED) * 100}%` }}
+              style={{ width: `${Math.max(0, ((mpsToKmh(airspeedTarget) - 126) / (MAX_SPEED - 126)) * 100)}%` }} // 126 km/h (35 m/s) floor, matching Simulator.tsx's enforced minimum flight speed
             />
           </div>
           <input
             id="airspeed-input"
             className="cockpit-range mt-1.5 w-full"
             type="range"
-            min="0"
+            min="126"
             max={MAX_SPEED}
             step="5"
             value={Math.round(mpsToKmh(airspeedTarget))}

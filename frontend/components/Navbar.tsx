@@ -6,9 +6,10 @@ import { Settings, CircleUserRound } from "lucide-react";
 
 const NAV_LINKS = [
   { label: "Simulator", href: "/home" },
-  { label: "Simulate", href: "/simulate" },
+  { label: "Engines", href: "/engines" },
   { label: "Telemetry", href: "#" },
   { label: "Missions", href: "#" },
+  { label: "About Us", href: "#" },
 ];
 
 export default function Navbar() {

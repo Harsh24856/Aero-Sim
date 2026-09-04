@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import GamePlane from "@/components/GamePlane";
+import OrangePlane from "@/components/OrangePlane";
 
 type RidgePoint = [number, number];
 type Building = { x: number; w: number; h: number };
@@ -192,9 +192,10 @@ function FlightApproachGame({
   paused,
 }: SimulatorProps) {
   // Ridge data: filled shapes AND open crest paths for highlights
-  const farData = useMemo(() => tiledRidgePathData(11, WORLD_W, 9, 300, 40, 110), []);
-  const midData = useMemo(() => tiledRidgePathData(23, WORLD_W, 10, 340, 70, 170), []);
-  const nearData = useMemo(() => tiledRidgePathData(41, WORLD_W, 12, 400, 110, 260), []);
+  // Gentler amplitude than mountains - dunes roll, they don't peak sharply
+  const farData = useMemo(() => tiledRidgePathData(11, WORLD_W, 7, 320, 20, 55), []);
+  const midData = useMemo(() => tiledRidgePathData(23, WORLD_W, 8, 360, 35, 85), []);
+  const nearData = useMemo(() => tiledRidgePathData(41, WORLD_W, 9, 420, 55, 130), []);
   const buildings = useMemo(() => buildBuildings(5, WORLD_W, 8), []);
 
   const [status, setStatus] = useState<FlightStatus>("flying");
@@ -487,7 +488,16 @@ function FlightApproachGame({
             position: "absolute",
             inset: 0,
             background:
-              "linear-gradient(to bottom, #b23c22 0%, #d9622f 20%, #ea8a41 40%, #f2a955 57%, #f6c877 72%, #f3c584 82%)",
+              "linear-gradient(to bottom, #4a90c4 0%, #7bb3d9 25%, #a8cde0 45%, #d9c9a3 65%, #e8d4a8 80%, #ecd9ab 90%)",
+          }}
+        />
+        {/* Sun */}
+        <div
+          style={{
+            position: "absolute", top: "10%", right: "15%", width: "9%", aspectRatio: "1",
+            borderRadius: "50%",
+            background: "radial-gradient(circle, #fff6d8 0%, #ffe17a 55%, rgba(255,225,120,0) 75%)",
+            boxShadow: "0 0 40px 12px rgba(255,230,150,0.5)",
           }}
         />
 
@@ -496,14 +506,14 @@ function FlightApproachGame({
           <svg viewBox={`0 0 ${WORLD_W * 2} ${SKY_H}`} preserveAspectRatio="none" width="100%" height="100%">
             <defs>
               <linearGradient id="farGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#c8b8a8" stopOpacity="0.5" />
-                <stop offset="100%" stopColor="#a08878" stopOpacity="0.35" />
+                <stop offset="0%" stopColor="#e8c896" stopOpacity="0.55" />
+                <stop offset="100%" stopColor="#d4a868" stopOpacity="0.4" />
               </linearGradient>
             </defs>
             <path d={farData.fill} fill="url(#farGrad)" />
             {/* Snow-cap highlight: thin stroke along crest only (not
                 the flat baseline edge, which would look wrong) */}
-            <path d={farData.crest} fill="none" stroke="rgba(255,245,235,0.28)" strokeWidth="2.5" strokeLinejoin="round" />
+            <path d={farData.crest} fill="none" stroke="rgba(255,225,180,0.22)" strokeWidth="2" strokeLinejoin="round" />
           </svg>
         </div>
 
@@ -512,13 +522,13 @@ function FlightApproachGame({
           <svg viewBox={`0 0 ${WORLD_W * 2} ${SKY_H}`} preserveAspectRatio="none" width="100%" height="100%">
             <defs>
               <linearGradient id="midGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#9a6858" stopOpacity="0.72" />
-                <stop offset="100%" stopColor="#6a4438" stopOpacity="0.6" />
+                <stop offset="0%" stopColor="#d4a05c" stopOpacity="0.78" />
+                <stop offset="100%" stopColor="#b57838" stopOpacity="0.65" />
               </linearGradient>
             </defs>
             <path d={midData.fill} fill="url(#midGrad)" />
             {/* Subtle ridge-edge highlight */}
-            <path d={midData.crest} fill="none" stroke="rgba(210,170,140,0.18)" strokeWidth="1.5" />
+            <path d={midData.crest} fill="none" stroke="rgba(255,215,160,0.22)" strokeWidth="1.5" />
           </svg>
         </div>
 
@@ -527,8 +537,8 @@ function FlightApproachGame({
           <svg viewBox={`0 0 ${WORLD_W * 2} ${SKY_H}`} preserveAspectRatio="none" width="100%" height="100%">
             <defs>
               <linearGradient id="nearGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#50303a" stopOpacity="0.92" />
-                <stop offset="100%" stopColor="#2c1820" stopOpacity="0.98" />
+                <stop offset="0%" stopColor="#a86a34" stopOpacity="0.94" />
+                <stop offset="100%" stopColor="#7a4a24" stopOpacity="0.97" />
               </linearGradient>
             </defs>
             <path d={nearData.fill} fill="url(#nearGrad)" />
@@ -590,7 +600,7 @@ function FlightApproachGame({
               view down -Z, which was showing the nose instead of the wing
               profile - also confirmed via screenshot. */}
           <div style={{ width: "100%", height: "100%" }}>
-            <GamePlane />
+            <OrangePlane />
           </div>
         </div>
 

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import GamePlane from "@/components/GamePlane";
+import WhitePlane from "@/components/WhitePlane";
 
 type RidgePoint = [number, number];
 type Building = { x: number; w: number; h: number };
@@ -191,10 +191,8 @@ function FlightApproachGame({
   started,
   paused,
 }: SimulatorProps) {
-  // Ridge data: filled shapes AND open crest paths for highlights
-  const farData = useMemo(() => tiledRidgePathData(11, WORLD_W, 9, 300, 40, 110), []);
-  const midData = useMemo(() => tiledRidgePathData(23, WORLD_W, 10, 340, 70, 170), []);
-  const nearData = useMemo(() => tiledRidgePathData(41, WORLD_W, 12, 400, 110, 260), []);
+  // No ridge data needed for this theme (explicit "no hills" request) - just
+  // buildings + the starfield/moon rendered directly in JSX below.
   const buildings = useMemo(() => buildBuildings(5, WORLD_W, 8), []);
 
   const [status, setStatus] = useState<FlightStatus>("flying");
@@ -487,61 +485,49 @@ function FlightApproachGame({
             position: "absolute",
             inset: 0,
             background:
-              "linear-gradient(to bottom, #b23c22 0%, #d9622f 20%, #ea8a41 40%, #f2a955 57%, #f6c877 72%, #f3c584 82%)",
+              "linear-gradient(to bottom, #050818 0%, #0a1030 25%, #131c42 48%, #1c2850 68%, #26305a 82%, #2f3a62 92%)",
           }}
         />
 
-        {/* ── Far range (atmospheric haze, snow-capped peaks) ────── */}
+        {/* ── No hills for this theme (explicit request) - night sky with
+            stars and a moon instead. The far/mid/near refs are still
+            attached to empty parallax layers so the tick loop's existing
+            style-mutation code (unchanged) has somewhere harmless to write. */}
         <div ref={farRef} style={{ position: "absolute", left: 0, top: 0, width: "200%", height: "76%", willChange: "transform" }}>
           <svg viewBox={`0 0 ${WORLD_W * 2} ${SKY_H}`} preserveAspectRatio="none" width="100%" height="100%">
-            <defs>
-              <linearGradient id="farGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#c8b8a8" stopOpacity="0.5" />
-                <stop offset="100%" stopColor="#a08878" stopOpacity="0.35" />
-              </linearGradient>
-            </defs>
-            <path d={farData.fill} fill="url(#farGrad)" />
-            {/* Snow-cap highlight: thin stroke along crest only (not
-                the flat baseline edge, which would look wrong) */}
-            <path d={farData.crest} fill="none" stroke="rgba(255,245,235,0.28)" strokeWidth="2.5" strokeLinejoin="round" />
+            {/* Starfield - deterministic scatter via the same seeded PRNG used for terrain */}
+            {Array.from({ length: 90 }).map((_, i) => {
+              const rand = mulberry32(1000 + i);
+              const x = rand() * WORLD_W * 2;
+              const y = rand() * SKY_H * 0.65;
+              const r = 0.6 + rand() * 1.4;
+              const op = 0.4 + rand() * 0.6;
+              return <circle key={i} cx={x} cy={y} r={r} fill="#ffffff" opacity={op} />;
+            })}
           </svg>
         </div>
 
-        {/* ── Mid range (warmer, more saturated) ─────────────────── */}
-        <div ref={midRef} style={{ position: "absolute", left: 0, top: 0, width: "200%", height: "76%", willChange: "transform" }}>
-          <svg viewBox={`0 0 ${WORLD_W * 2} ${SKY_H}`} preserveAspectRatio="none" width="100%" height="100%">
-            <defs>
-              <linearGradient id="midGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#9a6858" stopOpacity="0.72" />
-                <stop offset="100%" stopColor="#6a4438" stopOpacity="0.6" />
-              </linearGradient>
-            </defs>
-            <path d={midData.fill} fill="url(#midGrad)" />
-            {/* Subtle ridge-edge highlight */}
-            <path d={midData.crest} fill="none" stroke="rgba(210,170,140,0.18)" strokeWidth="1.5" />
-          </svg>
-        </div>
+        <div ref={midRef} style={{ position: "absolute", left: 0, top: 0, width: "200%", height: "76%", willChange: "transform" }} />
 
-        {/* ── Near range (dark silhouette) ────────────────────────── */}
-        <div ref={nearRef} style={{ position: "absolute", left: 0, top: 0, width: "200%", height: "76%", willChange: "transform" }}>
-          <svg viewBox={`0 0 ${WORLD_W * 2} ${SKY_H}`} preserveAspectRatio="none" width="100%" height="100%">
-            <defs>
-              <linearGradient id="nearGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#50303a" stopOpacity="0.92" />
-                <stop offset="100%" stopColor="#2c1820" stopOpacity="0.98" />
-              </linearGradient>
-            </defs>
-            <path d={nearData.fill} fill="url(#nearGrad)" />
-          </svg>
-        </div>
+        <div ref={nearRef} style={{ position: "absolute", left: 0, top: 0, width: "200%", height: "76%", willChange: "transform" }} />
+
+        {/* Moon */}
+        <div
+          style={{
+            position: "absolute", top: "9%", left: "20%", width: "7%", aspectRatio: "1",
+            borderRadius: "50%",
+            background: "radial-gradient(circle at 38% 38%, #f5f6fa 0%, #d8dce8 55%, #b8bfd4 85%)",
+            boxShadow: "0 0 30px 8px rgba(220,225,245,0.35)",
+          }}
+        />
 
         {/* ── Buildings ──────────────────────────────────────────── */}
-        <div style={{ position: "absolute", left: 0, top: "69%", width: "100%", height: "10.5%", background: "linear-gradient(to bottom, #948656, #756a44)", overflow: "hidden" }}>
+        <div style={{ position: "absolute", left: 0, top: "69%", width: "100%", height: "10.5%", background: "linear-gradient(to bottom, #1c2030, #12141f)", overflow: "hidden" }}>
           <div ref={buildingsRef} style={{ position: "absolute", left: 0, top: 0, width: "200%", height: "100%", willChange: "transform" }}>
             <svg viewBox={`0 0 ${WORLD_W * 2} 100`} preserveAspectRatio="none" width="100%" height="100%">
               {[0, WORLD_W].map((offset) =>
                 buildings.map((b, i) => (
-                  <rect key={`${offset}-${i}`} x={b.x + offset} y={100 - b.h} width={b.w} height={b.h} fill="rgba(45,38,28,0.85)" />
+                  <rect key={`${offset}-${i}`} x={b.x + offset} y={100 - b.h} width={b.w} height={b.h} fill="rgba(15,15,25,0.9)" />
                 ))
               )}
             </svg>
@@ -590,7 +576,7 @@ function FlightApproachGame({
               view down -Z, which was showing the nose instead of the wing
               profile - also confirmed via screenshot. */}
           <div style={{ width: "100%", height: "100%" }}>
-            <GamePlane />
+            <WhitePlane />
           </div>
         </div>
 
