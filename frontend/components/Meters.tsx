@@ -57,6 +57,7 @@ export type MetersProps = {
   onStart: () => void;
   paused: boolean;
   onTogglePause: () => void;
+  isSignedIn?: boolean | null;   // null = auth check still in flight
 };
 
 const TICK_COUNT = 52;
@@ -74,6 +75,7 @@ export default function Meters({
   onStart,
   paused,
   onTogglePause,
+  isSignedIn = true,
 }: MetersProps) {
   const fraction = Math.max(0, Math.min(1, speedKmh / MAX_SPEED));
 
@@ -226,10 +228,16 @@ export default function Meters({
       <div className="relative z-10 pt-1">
         {!started ? (
           <button
-            className="flex w-full items-center justify-center gap-2 rounded-sm bg-[#ff611b] py-2.5 text-[9px] font-bold uppercase tracking-[0.14em] text-[#180b06] shadow-[0_0_15px_rgba(255,97,27,0.3)] transition-all hover:bg-[#ff7c37] active:scale-[0.99] md:py-3 md:text-[11px]"
+            className={`flex w-full items-center justify-center gap-2 rounded-sm py-2.5 text-[9px] font-bold uppercase tracking-[0.14em] transition-all active:scale-[0.99] md:py-3 md:text-[11px] ${
+              isSignedIn
+                ? "bg-[#ff611b] text-[#180b06] shadow-[0_0_15px_rgba(255,97,27,0.3)] hover:bg-[#ff7c37]"
+                : "border border-[#7b3c21] bg-[#25130d] text-[#ff9b69] hover:bg-[#361b11]"
+            }`}
             onClick={onStart}
           >
-            <Play size={14} className="fill-current" /> Start Simulation
+            {/* Clicking while signed out still calls onStart - the actual page.tsx
+                handler redirects to /login itself, this is just the visual cue. */}
+            <Play size={14} className="fill-current" /> {isSignedIn ? "Start Simulation" : "Sign In to Simulate"}
           </button>
         ) : (
           <button

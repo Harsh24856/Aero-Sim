@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import Sensr from "@/components/Sensr";
 import SimulatorDefault, { type SimTelemetry } from "@/components/Simulator";
@@ -10,6 +10,7 @@ import Simulator915 from "@/components/Simulator_915";
 import Simulator916 from "@/components/Simulator_916";
 import Meters, { type RawTelemetry, mpsToKmh } from "@/components/Meters";
 import Diagnostics, { type AiResult } from "@/components/Diagnostics";
+import { supabase } from "@/lib/supabase";
 
 // Which themed Simulator variant to render, based on the ?engine= query param
 // set by /engine's selectEngine() navigation. Falls back to the base (914)
@@ -24,9 +25,22 @@ const API = "http://localhost:8000";
 const WS_URL = "ws://localhost:8000/ws";
 
 function SimulatePageInner() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const engineParam = searchParams.get("engine") ?? "";
   const ActiveSimulator = SIMULATOR_BY_ENGINE[engineParam] ?? SimulatorDefault;
+
+  // Simulating requires being signed in - null while the initial session check is
+  // still in flight (so Start does not briefly appear usable before we actually
+  // know), then true/false once resolved.
+  const [isSignedIn, setIsSignedIn] = useState<boolean | null>(null);
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setIsSignedIn(!!data.session));
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsSignedIn(!!session);
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
 
   const [throttle, setThrottle] = useState(5); // initial throttle for every engine - pilot ramps up manually from here
   const [airspeedTarget, setAirspeedTarget] = useState(30); // m/s
@@ -75,14 +89,30 @@ function SimulatePageInner() {
     });
   }, [started, paused, liveTelemetry, throttle]);
 
+  // Simulating now requires being signed in - checked here (the actual
+  // enforcement point) rather than only hiding/disabling the button, since a
+  // disabled button alone would not stop a direct call to this handler. Not
+  // signed in -> redirect to /login instead of starting anything, matching how
+  // the login page itself already has a "continue without an account" escape
+  // hatch for anyone who genuinely does not want to sign up.
   const onStart = useCallback(async () => {
+    const { data } = await supabase.auth.getSession();
+    const userId = data.session?.user?.id ?? null;
+    if (!userId) {
+      router.push("/login");
+      return;
+    }
     setStarted(true);
     try {
-      await fetch(`${API}/start`, { method: "POST" });
+      await fetch(`${API}/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userId }),
+      });
     } catch {
       // backend optional for the local game/gauges to work
     }
-  }, []);
+  }, [router]);
 
   // Pause must ACTUALLY stop the backend's physics loop, not just the frontend's
   // own game/display state - main.py's simulation_loop() runs independently once
@@ -90,15 +120,41 @@ function SimulatePageInner() {
   // called, regardless of what the frontend UI shows. Without this, "pausing" only
   // stopped the local game while the backend kept silently hammering the AI service.
   const onTogglePause = useCallback(async () => {
+    // Read the session BEFORE the setPaused updater - getSession() is async and
+    // the updater function itself must stay synchronous.
+    const { data: sessionData } = await supabase.auth.getSession();
+    const userId = sessionData.session?.user?.id ?? null;
     setPaused((p) => {
       const next = !p;
       if (next) {
         fetch(`${API}/stop`, { method: "POST" }).catch(() => {});
       } else {
-        fetch(`${API}/start`, { method: "POST" }).catch(() => {});
+        // Backend reuses the existing simulation_id on resume (see main.py's
+        // /start) rather than fragmenting one flight into multiple DB rows - the
+        // user_id here only matters the first time a fresh one gets created.
+        fetch(`${API}/start`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_id: userId }),
+        }).catch(() => {});
       }
       return next;
     });
+  }, []);
+
+  // Explicit "Stop Simulation" - genuinely ends the flight (not a pause): calls
+  // /stop, which main.py already persists to Supabase (closes the simulations row
+  // with outcome="stopped" and the last known health/RUL values), then resets the
+  // frontend UI back to its pre-start state so the game/gauges show "stopped"
+  // rather than leaving a paused-looking UI that implies resuming is still possible.
+  const onStopClick = useCallback(async () => {
+    try {
+      await fetch(`${API}/stop`, { method: "POST" });
+    } catch {
+      // backend optional - local game/gauges still get reset below regardless
+    }
+    setStarted(false);
+    setPaused(false);
   }, []);
 
   // Safety net: if the user navigates away entirely (not just pausing) while the
@@ -135,6 +191,7 @@ function SimulatePageInner() {
               onAirspeedTargetChange={setAirspeedTarget}
               started={started}
               paused={paused}
+              onStop={onStopClick}
             />
           </div>
           <div className="min-h-0" style={{ flex: '50 1 0%' }}>
@@ -149,6 +206,7 @@ function SimulatePageInner() {
               onStart={onStart}
               paused={paused}
               onTogglePause={onTogglePause}
+              isSignedIn={isSignedIn}
             />
           </div>
         </div>

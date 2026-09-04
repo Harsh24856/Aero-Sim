@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { Settings, CircleUserRound } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { Settings, CircleUserRound, LogOut } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 
 const NAV_LINKS = [
   { label: "Simulator", href: "/home" },
@@ -14,10 +16,26 @@ const NAV_LINKS = [
 
 export default function Navbar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
-  // /engine is part of the simulator flow, so "Simulator" stays highlighted there too.
-  // /simulate has its own dedicated "Simulate" tab (the live cockpit dashboard),
-  // separate from the AERO-SIM landing/config pages.
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setUserEmail(data.session?.user?.email ?? null);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUserEmail(session?.user?.email ?? null);
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    setMenuOpen(false);
+    router.push("/home");
+  };
+
   const isActive = (href: string) =>
     href === "/home" ? pathname === "/home" || pathname === "/engine" : pathname === href;
 
@@ -48,9 +66,30 @@ export default function Navbar() {
           <button className="hover:text-tertiary transition-colors" aria-label="Settings">
             <Settings size={22} />
           </button>
-          <button className="hover:text-tertiary transition-colors" aria-label="Account">
-            <CircleUserRound size={22} />
-          </button>
+
+          <div className="relative">
+            <button
+              className="hover:text-tertiary transition-colors"
+              aria-label={userEmail ? "Account menu" : "Sign in"}
+              onClick={() => (userEmail ? setMenuOpen((v) => !v) : router.push("/login"))}
+            >
+              <CircleUserRound size={22} className={userEmail ? "text-tertiary" : undefined} />
+            </button>
+
+            {menuOpen && userEmail && (
+              <div className="absolute right-0 top-full mt-2 w-56 bg-surface border border-outline-variant/40 rounded-lg shadow-lg py-2 z-50">
+                <div className="px-3 py-2 text-[11px] uppercase tracking-[0.08em] text-on-surface-variant border-b border-outline-variant/30 truncate">
+                  {userEmail}
+                </div>
+                <button
+                  onClick={handleSignOut}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-primary hover:bg-surface-container-highest/60 transition-colors"
+                >
+                  <LogOut size={15} /> Sign out
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </nav>

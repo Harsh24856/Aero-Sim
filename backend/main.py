@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from physics import UAVEngineTwin, ENGINE_CONFIGS
+import db
 
 # ai.py runs as its OWN process under a different Python environment (see ai.py's
 # module docstring - the models segfault under this backend's TF version). Calls are
@@ -59,6 +60,8 @@ state = {
     "last_ai_result": None,
     "ai_step_counter": 0,
     "ai_warmed_up": False,   # True once the AI has returned a real (non-warmup) result
+    "simulation_id": None,   # current Supabase simulations.id, or None if not persisted
+    "sim_time_offset": 0.0,  # seconds since this simulation started, for telemetry_logs
 }
 
 # Must match ai.py's FEATURE_COLS exactly - the subset of the physics telemetry dict
@@ -138,12 +141,26 @@ async def simulation_loop():
         state["ai_step_counter"] += 1
         if state["ai_step_counter"] >= AI_STEPS_PER_CALL:
             state["ai_step_counter"] = 0
+            state["sim_time_offset"] += 1.0   # one simulated second has elapsed
             if state["ai_warmed_up"]:
                 asyncio.create_task(call_ai_service(out))   # fire-and-forget, never blocks
+                # Logs the PREVIOUS ai result (last_ai_result), not this call's -
+                # same "eventually consistent" tradeoff broadcast() already makes,
+                # since the fire-and-forget call has not resolved yet at this point.
+                # asyncio.to_thread is REQUIRED here, not optional: supabase-py's
+                # .execute() is a synchronous/blocking HTTP call - calling it directly
+                # in this async loop would stall the whole event loop (100Hz physics +
+                # WebSocket broadcasts to every client) for the duration of each
+                # Supabase round-trip. Running it in a thread keeps persistence fully
+                # fire-and-forget, matching call_ai_service's own non-blocking pattern.
+                asyncio.create_task(asyncio.to_thread(
+                    db.log_telemetry, state["simulation_id"], state["sim_time_offset"], out, state["last_ai_result"]))
             else:
                 result = await call_ai_service(out)   # sequential during warmup - see docstring
                 if result.get("status") == "ok":
                     state["ai_warmed_up"] = True
+                asyncio.create_task(asyncio.to_thread(
+                    db.log_telemetry, state["simulation_id"], state["sim_time_offset"], out, result))
 
         if step_count % STEPS_PER_BROADCAST == 0:
             payload = dict(out)
@@ -162,13 +179,26 @@ async def simulation_loop():
             await asyncio.sleep(0)  # yield control so broadcasts/other requests are not starved
 
 
+class StartRequest(BaseModel):
+    user_id: Optional[str] = None   # Supabase auth.users.id, if the frontend user is logged in
+
+
 @app.post("/start")
-async def start_sim():
+async def start_sim(req: StartRequest = StartRequest()):
     if state["running"]:
         return {"status": "already_running"}
     state["running"] = True
+    # IMPORTANT: /start is also called to RESUME from a pause (see the frontend's
+    # onTogglePause - pausing genuinely calls /stop, resuming genuinely calls /start
+    # again, since the backend loop must actually halt while paused). Without this
+    # check, every pause/resume cycle would fragment one continuous flight into
+    # multiple separate Supabase simulation rows. Only create a new row (and reset
+    # the time offset) if there genuinely isn't one already in progress.
+    if state["simulation_id"] is None:
+        state["sim_time_offset"] = 0.0
+        state["simulation_id"] = db.start_simulation(req.user_id, CURRENT_ENGINE_MODEL)
     state["task"] = asyncio.create_task(simulation_loop())
-    return {"status": "started"}
+    return {"status": "started", "simulation_id": state["simulation_id"]}
 
 
 @app.post("/stop")
@@ -176,6 +206,15 @@ async def stop_sim():
     state["running"] = False
     if state["task"]:
         state["task"] = None
+    if state["simulation_id"] is not None:
+        ai = state["last_ai_result"] or {}
+        # state["last_telemetry"] is the full raw physics dict as it stood at the
+        # exact moment of stopping - already proven JSON-serializable, since this
+        # same dict passes through json.dumps() in every WebSocket broadcast.
+        await asyncio.to_thread(
+            db.end_simulation, state["simulation_id"], "stopped",
+            ai.get("health_percent"), ai.get("rul_hours_internal"), state["last_telemetry"])
+        state["simulation_id"] = None
     return {"status": "stopped"}
 
 
@@ -186,6 +225,16 @@ async def reset_sim():
     state["running"] = False
     await asyncio.sleep(0.05)
     twin = UAVEngineTwin(dt=0.01)
+    # A reset genuinely ends whatever flight was in progress - close out its
+    # Supabase record properly rather than silently abandoning it. This endpoint
+    # relaunches the loop directly (not via /start), so it does not have a user_id
+    # to open a fresh row - the NEXT /start call will create one normally.
+    if state["simulation_id"] is not None:
+        ai = state["last_ai_result"] or {}
+        await asyncio.to_thread(
+            db.end_simulation, state["simulation_id"], "reset",
+            ai.get("health_percent"), ai.get("rul_hours_internal"), state["last_telemetry"])
+        state["simulation_id"] = None
     state["last_telemetry"] = None
     state["last_ai_result"] = None
     state["ai_step_counter"] = 0
@@ -217,19 +266,31 @@ class EngineSelect(BaseModel):
 
 @app.post("/select_engine")
 async def select_engine(sel: EngineSelect):
-    """Switches the physics twin to a different engine model. Always does a full
-    reset (not a live swap) - a different engine has a genuinely different torque
-    curve/power output, so continuing mid-flight with old telemetry would not make
-    physical sense. Also resets the AI service's rolling buffer, since straddling
-    a discontinuous engine-switch across its 128-step window would corrupt it -
-    and predictions are only meaningful for engines in AI_VALID_ENGINES."""
+    """Switches the physics twin to a different engine model. ALWAYS leaves the
+    simulation stopped afterward - selecting an engine is the start of a genuinely
+    new session, and must never auto-continue a previous run's physics state.
+
+    This matters even (especially) when the previous session was simply abandoned -
+    e.g. the user closed the /simulate tab without clicking Stop, so state["running"]
+    was still True on the backend. An earlier version of this endpoint restarted the
+    loop automatically in that case, which silently continued the OLD session's
+    physics under the NEW engine without ever calling /start or creating a fresh
+    Supabase record - the exact bug where "selecting an engine sometimes restarts
+    the old one" came from. Now it always requires an explicit /start."""
     global twin, CURRENT_ENGINE_MODEL
     if sel.engine_model not in ENGINE_CONFIGS:
         return {"status": "error", "message": f"Unknown engine_model. Options: {list(ENGINE_CONFIGS)}"}
 
-    was_running = state["running"]
     state["running"] = False
     await asyncio.sleep(0.05)
+    # A different engine is genuinely a different flight/aircraft - close out
+    # whatever simulation record was open under the OLD engine before switching.
+    if state["simulation_id"] is not None:
+        ai = state["last_ai_result"] or {}
+        await asyncio.to_thread(
+            db.end_simulation, state["simulation_id"], "engine_switched",
+            ai.get("health_percent"), ai.get("rul_hours_internal"), state["last_telemetry"])
+        state["simulation_id"] = None
     CURRENT_ENGINE_MODEL = sel.engine_model
     twin = UAVEngineTwin(dt=0.01, engine_model=CURRENT_ENGINE_MODEL)
     state["last_telemetry"] = None
@@ -244,15 +305,95 @@ async def select_engine(sel: EngineSelect):
         await ai_client.post(f"{AI_SERVICE_URL}/select_engine", json={"engine_model": CURRENT_ENGINE_MODEL})
     except Exception:
         pass
-    if was_running:
-        state["running"] = True
-        state["task"] = asyncio.create_task(simulation_loop())
+    # No auto-restart here, intentionally - see docstring.
 
     return {
         "status": "ok",
         "engine_model": CURRENT_ENGINE_MODEL,
         "ai_valid": CURRENT_ENGINE_MODEL in AI_VALID_ENGINES,
         "max_power_kw": twin.MAX_POWER_KW,
+    }
+
+
+class ContinueFromRequest(BaseModel):
+    user_id: Optional[str] = None
+    engine_model: str
+    final_telemetry: dict   # the exact JSONB snapshot stored in simulations.final_telemetry
+
+
+@app.post("/continue_from")
+async def continue_from(req: ContinueFromRequest):
+    """Genuinely resumes physics from a past simulation's final state - not just
+    the pilot-input params /params already handles (altitude/throttle/airspeed/aoa),
+    but the actual internal dynamics: engine rotational speed (omega, derived back
+    from the stored engine_rpm), the three thermal-lag states (egt/cht/oil_temp -
+    these chase a target over real time, so restoring only the CURRENT value and
+    not the lag state would make them jump discontinuously on the next step), and
+    accumulated wear (irreversible - this is what RUL is actually measuring, so
+    resetting it to 0 would silently give a "continued" flight a fresh engine).
+
+    Known limitation: the AI's 128-step rolling buffer is NOT pre-populated from
+    telemetry_logs history - it starts empty and goes through the same warmup as a
+    fresh /start. The PHYSICS genuinely continues from the exact point; the AI's
+    context window does not (yet) carry over. This is disclosed here, not hidden."""
+    global twin, CURRENT_ENGINE_MODEL
+    if req.engine_model not in ENGINE_CONFIGS:
+        return {"status": "error", "message": f"Unknown engine_model. Options: {list(ENGINE_CONFIGS)}"}
+
+    state["running"] = False
+    await asyncio.sleep(0.05)
+    if state["simulation_id"] is not None:
+        ai = state["last_ai_result"] or {}
+        await asyncio.to_thread(
+            db.end_simulation, state["simulation_id"], "engine_switched",
+            ai.get("health_percent"), ai.get("rul_hours_internal"), state["last_telemetry"])
+        state["simulation_id"] = None
+
+    CURRENT_ENGINE_MODEL = req.engine_model
+    twin = UAVEngineTwin(dt=0.01, engine_model=CURRENT_ENGINE_MODEL)
+
+    snap = req.final_telemetry
+    healthy = snap.get("healthy", {})
+    twin.altitude = snap.get("altitude", twin.altitude)
+    twin.throttle = snap.get("throttle", twin.throttle)
+    twin.airspeed = snap.get("airspeed", twin.airspeed)
+    twin.aoa = snap.get("aoa", twin.aoa)
+    twin.wear = snap.get("wear", twin.wear)
+    twin.t = snap.get("time", twin.t)
+    # engine_rpm -> omega (rad/s): the twin's actual integrated state variable.
+    engine_rpm_snapshot = healthy.get("rpm", snap.get("engine_rpm"))
+    if engine_rpm_snapshot is not None:
+        twin.omega = float(engine_rpm_snapshot) * 2 * np.pi / 60.0
+    # Thermal lag states - restoring only the instantaneous value (not the lag
+    # itself, since the twin has no separate "target" to store) means the very
+    # next step continues chasing correctly, since state == target-so-far here.
+    if "egt" in healthy: twin.egt_state = float(healthy["egt"])
+    if "cht" in healthy: twin.cht_state = float(healthy["cht"])
+    if "oil_temp" in healthy: twin.oiltemp_state = float(healthy["oil_temp"])
+
+    state["last_telemetry"] = None
+    state["last_ai_result"] = None
+    state["ai_step_counter"] = 0
+    state["ai_warmed_up"] = False
+    state["sim_time_offset"] = 0.0
+    state["simulation_id"] = db.start_simulation(req.user_id, CURRENT_ENGINE_MODEL)
+    try:
+        await ai_client.post(f"{AI_SERVICE_URL}/select_engine", json={"engine_model": CURRENT_ENGINE_MODEL})
+    except Exception:
+        pass
+
+    state["running"] = True
+    state["task"] = asyncio.create_task(simulation_loop())
+
+    return {
+        "status": "ok",
+        "simulation_id": state["simulation_id"],
+        "restored": {
+            "altitude": twin.altitude, "throttle": twin.throttle,
+            "airspeed": twin.airspeed, "aoa": twin.aoa,
+            "engine_rpm": twin.omega * 60.0 / (2 * np.pi),
+            "wear": twin.wear, "t": twin.t,
+        },
     }
 
 

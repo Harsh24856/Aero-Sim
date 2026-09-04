@@ -177,6 +177,7 @@ export type SimulatorProps = {
   onAirspeedTargetChange: (v: number) => void;
   started: boolean;
   paused: boolean;
+  onStop: () => void;
 };
 
 /* ───────────────────────────────────────────────────────────────
@@ -190,6 +191,7 @@ function FlightApproachGame({
   onAirspeedTargetChange,
   started,
   paused,
+  onStop,
 }: SimulatorProps) {
   // No ridge data needed for this theme (explicit "no hills" request) - just
   // buildings + the starfield/moon rendered directly in JSX below.
@@ -677,6 +679,7 @@ function FlightApproachGame({
           <button className="fg-btn" {...heldPress("left")}>◀ SPD</button>
           <button className="fg-btn" {...heldPress("right")}>SPD ▶</button>
           <button className="fg-btn" onClick={restart}>RESTART</button>
+          <button className="fg-btn" style={{ background: "#5a2020", borderColor: "#7a3030" }} onClick={onStop}>STOP SIMULATION</button>
         </div>
         <div>Click the display, then ↑↓ = altitude, ←→ = speed. Land under {Math.round(SAFE_LANDING_SPEED * 3.6)} km/h, gently.</div>
       </div>
