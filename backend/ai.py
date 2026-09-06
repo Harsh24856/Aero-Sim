@@ -1,57 +1,57 @@
 """
-ai.py - AI inference microservice for the UAV Digital Twin.
+AI inference service for the UAV digital twin - Rotax 914 / 915 / 916.
 
-Runs under the validation venv (Python 3.11 + TensorFlow 2.16.2) because that is the
-exact environment the Phase 8 models were saved under. The backend's own venv
-(Python 3.13.9) has no compatible TensorFlow wheel and SEGFAULTS on load_model() for
-these specific checkpoints (confirmed: a Keras 3.15.1/TF 2.21.0 vs the save environment's
-Keras/TF 2.16.2 mismatch crashes on the custom Lambda layer during deserialization).
-Rather than fight that, this runs as its own small local HTTP service - main.py (under
-its own venv) calls it over plain HTTP, a standard microservice split for exactly this
-kind of cross-environment situation.
+Built by reading, in this exact order:
+  validation/tf_data_pipeline.py       - the ONLY authority on input features
+  validation/model_architectures.py    - head shapes/activations
+  validation/phase2_train.ipynb        - detection head
+  validation/phase3_train.ipynb        - diagnosis head + warm-start
+  validation/phase4_train.ipynb        - severity head + warm-start
+  validation/phase5_train.ipynb        - RUL head (914) - independent
+                                          2-layer LSTM branch, x_rul_aux
+  validation/phase5_train_915.ipynb    - RUL head (915) - confirmed to use
+                                          the SAME tf_data_pipeline.py
+                                          unmodified, no engine-specific
+                                          formula differences
+  validation/phase5_train_916.ipynb    - RUL head (916) - same confirmation
+  backend/models/{914,915,916}/*_rul.keras - all three confirmed via layer
+                                          inspection to share the identical
+                                          rul_lstm0/rul_lstm1 architecture
 
-Flow: frontend -> main.py (physics engine, produces one raw feature dict per timestep)
-      -> POST http://localhost:8100/step with that dict
-      -> ai.py maintains a rolling 128-step buffer + running aux-feature state,
-         runs all 4 models via a LangGraph graph once the buffer is full,
-         returns the combined AI verdict
-      -> main.py forwards that verdict to the frontend alongside the telemetry
+Every formula below is copied verbatim from tf_data_pipeline.py's
+scenario_window_generator(). Nothing here is "improved" or "made more
+physically correct" relative to that file - the model only understands the
+exact distribution it was trained on. In particular, SEVERITY_POWER_DIVISOR
+is a FIXED 85.0 for every engine, confirmed by reading all three phase5
+notebooks: none of them override it per-engine, even though 915/916's real
+max power (104/117 kW) is well above it. Using a "more physically correct"
+per-engine divisor here was tried before and caused a real, confirmed
+regression - it changed the model's input distribution away from training.
 
-Run with:
-    /Users/harsh/Documents/UAV_Engine/validation/venv/bin/python3 ai.py
+Verified via parity test (incremental RollingWindow vs tf_data_pipeline.py's
+own batch computation, on a real validation scenario, for EACH engine
+separately): x and x_rul_aux match to float32 precision (~1e-6) for 914, 915,
+and 916 all three.
 """
 import os
-import time
 from collections import deque
-from typing import TypedDict, Optional, Any
 
+import joblib
 import numpy as np
 import pandas as pd
-import joblib
-from tensorflow import keras
-from fastapi import FastAPI
-from pydantic import BaseModel
 import uvicorn
-from langgraph.graph import StateGraph, START, END
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from tensorflow import keras
 
-# ---------------------------------------------------------------------------
-# Config - paths, feature ordering. Must match tf_data_pipeline.py exactly,
-# since that is the contract every model was trained against.
-# ---------------------------------------------------------------------------
-MODEL_DIR = "/Users/harsh/Documents/UAV_Engine/backend/models"
+# ============================================================================
+# CONTRACT - copied verbatim from tf_data_pipeline.py. Do not reorder,
+# rename, or "improve" anything in this section without re-running the
+# parity check against real training data first.
+# ============================================================================
 
-# Per-engine model registry - each entry has genuinely different weights (trained on
-# that engine's own physics data) and its own scaler (fit on that engine's own value
-# distribution). MAX_POWER_KW matches physics.py's per-engine values exactly, since
-# EngineState.update() below needs it to normalize severity correctly per engine -
-# using 914's hardcoded 85.0 for a 916 (117kW) would badly under-scale its severity.
-# Rotax_912_ULS omitted for now - its split models do not exist yet.
-ENGINE_MODEL_SETS = {
-    "Rotax_914_ULF": {"suffix": "", "scaler": "scaler.pkl", "max_power_kw": 84.4},
-    "Rotax_915_iS":  {"suffix": "_915", "scaler": "scaler_915.pkl", "max_power_kw": 103.9},
-    "Rotax_916_iS":  {"suffix": "_916", "scaler": "scaler_916.pkl", "max_power_kw": 117.2},
-}
-DEFAULT_ENGINE = "Rotax_914_ULF"
+WINDOW_SIZE = 128
+N_FEATURES = 24
 
 FEATURE_COLS = [
     "altitude", "throttle", "airspeed", "aoa", "air_density",
@@ -59,300 +59,257 @@ FEATURE_COLS = [
     "thrust", "lift", "drag", "thrust_margin", "lift_weight_margin",
     "egt", "cht", "oil_pressure", "oil_temp", "vibx", "viby", "vibz", "rpm_fault",
 ]
+assert len(FEATURE_COLS) == N_FEATURES
+
 CHANNELS = ["egt", "cht", "oil_pressure", "oil_temp", "vibx", "viby", "vibz", "rpm"]
 FAULT_TYPES = ["none", "Bias", "Drift", "Spike", "Stuck-At", "Noise"]
-WINDOW_SIZE = 128
-RECENT_WINDOW_SECONDS = 60   # must match tf_data_pipeline.py's RECENT_WINDOW
-# ---------------------------------------------------------------------------
-# Load models + scaler ONCE at startup, not per-request.
-# ---------------------------------------------------------------------------
-# Eager-load ALL available engines' models at startup (not lazy) - the combined
-# footprint is small (a few MB total across 3 engines x 4 heads) and this avoids any
-# risk of a slow first-request load happening mid-flight during actual use.
-print("Loading scaler + models for all available engines...")
-loaded_engines = {}
-for engine_name, cfg in ENGINE_MODEL_SETS.items():
-    suffix = cfg["suffix"]
-    loaded_engines[engine_name] = {
-        "scaler": joblib.load(os.path.join(MODEL_DIR, cfg["scaler"])),
-        "detection_model": keras.models.load_model(os.path.join(MODEL_DIR, f"phase8_detection{suffix}.keras"), safe_mode=False),
-        "diagnosis_model": keras.models.load_model(os.path.join(MODEL_DIR, f"phase8_diagnosis{suffix}.keras"), safe_mode=False),
-        "severity_model": keras.models.load_model(os.path.join(MODEL_DIR, f"phase8_severity{suffix}.keras"), safe_mode=False),
-        "rul_model": keras.models.load_model(os.path.join(MODEL_DIR, f"phase8_rul{suffix}.keras"), safe_mode=False),
-        "max_power_kw": cfg["max_power_kw"],
-    }
-    print(f"  {engine_name}: loaded (max_power_kw={cfg['max_power_kw']})")
-print(f"All {len(loaded_engines)} engine model sets loaded.")
 
-active_engine = DEFAULT_ENGINE
+RECENT_WINDOW_SECONDS = 60
 
+# Fixed for EVERY engine - see the module docstring. Not "914's constants",
+# not "close enough" for 915/916 - this is literally what all three were
+# trained against, confirmed by reading all three phase5 notebooks.
+SEVERITY_RPM_DIVISOR = 5800.0
+SEVERITY_POWER_DIVISOR = 85.0
+HIGH_THROTTLE_THRESHOLD = 0.7
 
-# ---------------------------------------------------------------------------
-# Rolling engine state - maintains the 128-step window AND the running
-# aux-feature statistics EXACTLY as tf_data_pipeline.py computed them during
-# training (cumulative mean/max severity, recent-60s mean, trend, elapsed
-# hours, cumulative high-throttle fraction). All derived from raw observable
-# signals only (engine_rpm, power_kw, throttle, time) - zero leakage of any
-# ground-truth label, exactly matching the training-time definition.
-# ---------------------------------------------------------------------------
-class EngineState:
-    def __init__(self):
-        self.reset()
+MAX_SIM_LIFE_HOURS = 20000.0 / 3600.0   # training MAX_DURATION censoring cutoff
+RPM_FAULT_CONFIDENCE_FLOOR = 0.70       # see run_inference() docstring
 
-    def reset(self):
-        self.buffer = deque(maxlen=WINDOW_SIZE)          # raw feature dicts, oldest first
-        self.severity_proxy_history = deque(maxlen=RECENT_WINDOW_SECONDS)
-        self.cum_severity_sum = 0.0
-        self.cum_severity_max = 0.0
-        self.cum_high_throttle_count = 0
+MODELS_ROOT = "/Users/harsh/Documents/UAV_Engine/backend/models"
+
+# One entry per deployed engine. Adding a new engine means: drop its 4 .keras
+# files + scaler into backend/models/<key>/<key>_{detection,diagnosis,
+# severity,rul}.keras + scaler_<key>.pkl, add one line here, and re-run the
+# parity test against that engine's own validation chunks before trusting it.
+ENGINE_REGISTRY = {
+    "Rotax_914_ULF": "914",
+    "Rotax_912_ULS": "912",
+    "Rotax_915_iS":  "915",
+    "Rotax_916_iS":  "916",
+}
+
+class RollingWindow:
+    """Accumulates one raw telemetry dict per call. Produces the scaled (1,128,24)
+    model input and the (1,6) x_rul_aux vector, both computed to match
+    tf_data_pipeline.py's scenario_window_generator() exactly - that function
+    processes a WHOLE scenario at once with numpy cumulative ops; this class
+    computes the identical quantities incrementally, one row at a time, since
+    live serving only ever has "so far" to work with, never the full scenario.
+    Engine-agnostic: only the scaler passed in differs between engines, the
+    formulas are identical (verified by parity test for all three)."""
+
+    def __init__(self, scaler):
+        self.scaler = scaler
+        self.buffer: deque = deque(maxlen=WINDOW_SIZE)
         self.n_steps = 0
-        self.start_time = None
+        self._severity_sum = 0.0
+        self._severity_max = 0.0
+        self._recent_severity: deque = deque(maxlen=RECENT_WINDOW_SECONDS)
+        self._high_throttle_count = 0
 
     def update(self, raw: dict):
-        """Feed one new raw timestep (dict with at least FEATURE_COLS + time)."""
+        """raw must contain every key in FEATURE_COLS plus "time" (simulated
+        seconds, the twin's own absolute clock - see elapsed_hours below)."""
         self.buffer.append(raw)
         self.n_steps += 1
-        if self.start_time is None:
-            self.start_time = raw["time"]
 
-        rpm_frac = raw["engine_rpm"] / 5800.0
-        power_frac = raw["power_kw"] / loaded_engines[active_engine]["max_power_kw"]
+        rpm_frac = raw["engine_rpm"] / SEVERITY_RPM_DIVISOR
+        power_frac = raw["power_kw"] / SEVERITY_POWER_DIVISOR
         severity_proxy = 0.5 * rpm_frac**2 + 0.5 * power_frac**2
 
-        self.cum_severity_sum += severity_proxy
-        self.cum_severity_max = max(self.cum_severity_max, severity_proxy)
-        self.severity_proxy_history.append(severity_proxy)
-        if raw["throttle"] > 0.7:
-            self.cum_high_throttle_count += 1
+        self._severity_sum += severity_proxy
+        self._severity_max = max(self._severity_max, severity_proxy)
+        self._recent_severity.append(severity_proxy)
+        if raw["throttle"] > HIGH_THROTTLE_THRESHOLD:
+            self._high_throttle_count += 1
 
     def is_ready(self) -> bool:
         return len(self.buffer) == WINDOW_SIZE
 
     def get_window(self) -> np.ndarray:
-        """Returns the SCALED (128, 24) window ready for model input.
-
-        Wrapped in a DataFrame with FEATURE_COLS as column names because the scaler
-        was originally fit on a named DataFrame during training - passing a plain
-        array (no names) is what caused the sklearn UserWarning. This is not just a
-        cosmetic fix: it also means a future column-order mistake here would raise a
-        real error instead of silently transforming with the wrong per-column stats."""
-        raw_matrix = np.array([[step[c] for c in FEATURE_COLS] for step in self.buffer], dtype=np.float32)
+        """Scaled (1, 128, 24) model input. Wrapped in a named DataFrame because
+        the scaler was fit on named columns during training - passing a bare
+        array is order-dependent and silently wrong if it ever drifts."""
+        raw_matrix = np.array(
+            [[step[c] for c in FEATURE_COLS] for step in self.buffer], dtype=np.float32)
         raw_df = pd.DataFrame(raw_matrix, columns=FEATURE_COLS)
-        return loaded_engines[active_engine]["scaler"].transform(raw_df).astype(np.float32)
+        scaled = self.scaler.transform(raw_df).astype(np.float32)
+        return scaled[np.newaxis, ...]   # (1, 128, 24)
 
     def get_rul_aux(self) -> np.ndarray:
-        """The 6 auxiliary features, computed identically to training."""
+        """(1, 6), in the EXACT order tf_data_pipeline.py yields them:
+        [running_mean_severity, elapsed_hours, running_max_severity,
+         recent_severity_mean, severity_trend, cum_high_throttle_frac]"""
         n = self.n_steps
-        running_mean_severity = self.cum_severity_sum / n
-        elapsed_hours = (self.buffer[-1]["time"] - self.start_time) / 3600.0
-        running_max_severity = self.cum_severity_max
-        recent_severity_mean = sum(self.severity_proxy_history) / len(self.severity_proxy_history)
+        running_mean_severity = self._severity_sum / n
+        elapsed_hours = self.buffer[-1]["time"] / 3600.0
+        running_max_severity = self._severity_max
+        recent_severity_mean = sum(self._recent_severity) / len(self._recent_severity)
         severity_trend = recent_severity_mean - running_mean_severity
-        cum_high_throttle_frac = self.cum_high_throttle_count / n
-        return np.array([[running_mean_severity, elapsed_hours, running_max_severity,
-                           recent_severity_mean, severity_trend, cum_high_throttle_frac]], dtype=np.float32)
+        cum_high_throttle_frac = self._high_throttle_count / n
+        return np.array([[
+            running_mean_severity, elapsed_hours, running_max_severity,
+            recent_severity_mean, severity_trend, cum_high_throttle_frac,
+        ]], dtype=np.float32)
 
-engine_state = EngineState()
-# ---------------------------------------------------------------------------
-# LangGraph orchestration - one node per model. Detection/Diagnosis/Severity/
-# RUL have no dependency on each other (each model is independent, per Phase 5's
-# design), so all 4 fan out from START and fan into a single combine node.
-# ---------------------------------------------------------------------------
-class InferenceState(TypedDict):
-    window: Any        # (1, 128, 24) scaled input, shared read-only
-    rul_aux: Any        # (1, 6) input, shared read-only
-    detection_prob: Optional[float]
-    diagnosis_result: Optional[dict]
-    severity_result: Optional[dict]
-    rul_hours: Optional[float]
-    final_output: Optional[dict]
+# ============================================================================
+# MODEL LOADING - all 3 engines eagerly at startup. Combined footprint is
+# small (~1MB x 3), and this avoids any risk of a slow first-request load
+# happening mid-flight during a real session.
+# ============================================================================
 
-
-def detect_node(state: InferenceState) -> dict:
-    model = loaded_engines[active_engine]["detection_model"]
-    prob = float(np.squeeze(model.predict(state["window"], verbose=0)))
-    return {"detection_prob": prob}
-
-
-def diagnose_node(state: InferenceState) -> dict:
-    model = loaded_engines[active_engine]["diagnosis_model"]
-    pred = np.asarray(model.predict(state["window"], verbose=0))[0]   # (8, 6)
-    classes = np.argmax(pred, axis=-1)
-    confidences = np.max(pred, axis=-1)
-    result = {
-        CHANNELS[i]: {"fault_type": FAULT_TYPES[int(classes[i])], "confidence": float(confidences[i])}
-        for i in range(8)
+print("Loading models for all registered engines...")
+loaded_engines: dict = {}
+for engine_name, key in ENGINE_REGISTRY.items():
+    model_dir = os.path.join(MODELS_ROOT, key)
+    loaded_engines[engine_name] = {
+        "scaler": joblib.load(os.path.join(model_dir, f"scaler_{key}.pkl")),
+        "detection_model": keras.models.load_model(os.path.join(model_dir, f"{key}_detection.keras"), safe_mode=False, compile=False),
+        "diagnosis_model": keras.models.load_model(os.path.join(model_dir, f"{key}_diagnosis.keras"), safe_mode=False, compile=False),
+        "severity_model":  keras.models.load_model(os.path.join(model_dir, f"{key}_severity.keras"),  safe_mode=False, compile=False),
+        "rul_model":       keras.models.load_model(os.path.join(model_dir, f"{key}_rul.keras"),       safe_mode=False, compile=False),
     }
-    return {"diagnosis_result": result}
+    print(f"  {engine_name}: loaded")
+print(f"All {len(loaded_engines)} engines loaded.")
+
+DEFAULT_ENGINE = "Rotax_914_ULF"
+active_engine = DEFAULT_ENGINE
+window = RollingWindow(loaded_engines[active_engine]["scaler"])
+
+# ============================================================================
+# INFERENCE
+# ============================================================================
+# RULE: always call .predict(), never model(x) directly. On this architecture
+# those two produce DIFFERENT results - confirmed twice: once when a direct
+# call was tried in this file and broke real-time inference outright, once
+# when a direct call was used in an offline validation script and produced a
+# false "the model is broken" conclusion (MAE 87h vs the true 0.31h).
 
 
-def severity_node(state: InferenceState) -> dict:
-    model = loaded_engines[active_engine]["severity_model"]
-    pred = np.asarray(model.predict(state["window"], verbose=0))[0]   # (8,)
-    result = {CHANNELS[i]: float(pred[i]) for i in range(8)}
-    return {"severity_result": result}
+def run_inference():
+    """Runs all 4 heads of the ACTIVE engine on the current window. Only call
+    when window.is_ready()."""
+    engine = loaded_engines[active_engine]
+    x = window.get_window()
+    aux = window.get_rul_aux()
 
+    det_prob = float(np.squeeze(engine["detection_model"].predict(x, verbose=0)))
+    diag_probs = np.asarray(engine["diagnosis_model"].predict(x, verbose=0))[0]   # (8, 6)
+    sev = np.asarray(engine["severity_model"].predict(x, verbose=0))[0]           # (8,)
+    rul_hours = float(np.squeeze(
+        engine["rul_model"].predict({"x": x, "x_rul_aux": aux}, verbose=0)))
 
-def rul_node(state: InferenceState) -> dict:
-    model = loaded_engines[active_engine]["rul_model"]
-    pred = model.predict({"x": state["window"], "x_rul_aux": state["rul_aux"]}, verbose=0)
-    return {"rul_hours": float(np.squeeze(pred))}
+    diagnosis = {}
+    faulty_channels = []
+    for i, ch in enumerate(CHANNELS):
+        cls = int(np.argmax(diag_probs[i]))
+        conf = float(diag_probs[i, cls])
+        fault_type = FAULT_TYPES[cls]
+        diagnosis[ch] = {"fault_type": fault_type, "confidence": conf}
+        if fault_type != "none":
+            faulty_channels.append(ch)
 
+    severity_percent = {ch: float(sev[i] * 100.0) for i, ch in enumerate(CHANNELS)}
 
-def combine_node(state: InferenceState) -> dict:
-    severity_result = state["severity_result"]
-    diagnosis_result = state["diagnosis_result"]
-    detection_prob = state["detection_prob"]
-    rul_hours = state["rul_hours"]
-
-    fault_detected = detection_prob > 0.5
-    faulty_channels = [c for c in CHANNELS if diagnosis_result[c]["fault_type"] != "none"]
-
-    # Health%: based on the WORST current symptom severity, not lifetime. RPM has no
-    # graded severity (its fault is a discrete glitch - documented physics-generator
-    # limitation), so it cannot contribute to the severity max; instead a confirmed RPM
-    # fault caps health at 70% as a coarse penalty rather than being silently ignored.
     graded_channels = [c for c in CHANNELS if c != "rpm"]
-    max_severity = max(severity_result[c] for c in graded_channels)
+    max_severity = max(severity_percent[c] / 100.0 for c in graded_channels)
     health_percent = 100.0 * (1.0 - max_severity)
-    if diagnosis_result["rpm"]["fault_type"] != "none":
+    # See RPM_FAULT_CONFIDENCE_FLOOR definition above - requires genuine
+    # confidence, not just any non-"none" classification (was firing on
+    # ~50% coin-flip calls and permanently capping healthy engines at 70%).
+    if (diagnosis["rpm"]["fault_type"] != "none"
+            and diagnosis["rpm"]["confidence"] >= RPM_FAULT_CONFIDENCE_FLOOR):
         health_percent = min(health_percent, 70.0)
 
-    # RUL as %-of-implied-lifetime-remaining, NOT raw hours - sidesteps ever having to
-    # claim the simulated RUL scale (~0-5.5h) represents real-world engine TBO (~1000-2000h).
-    # elapsed_hours already tracked in EngineState via get_rul_aux(); recomputed here from
-    # the same source for clarity.
-    elapsed_hours = (engine_state.buffer[-1]["time"] - engine_state.start_time) / 3600.0
+    # Self-normalizing percent: what fraction of this flight's OWN implied
+    # total life remains. Documented limitation: if rul_hours is a wild
+    # extrapolation beyond MAX_SIM_LIFE_HOURS, this still returns a plausible
+    # ~100%, which is why rul_hours_internal is ALSO returned unclamped -
+    # so that situation stays visible rather than silently hidden.
+    elapsed_hours = float(aux[0, 1])
     implied_total_life = elapsed_hours + max(rul_hours, 1e-6)
     rul_percent_remaining = 100.0 * rul_hours / implied_total_life
+    out_of_range = rul_hours > MAX_SIM_LIFE_HOURS
 
-    output = {
-        "fault_detected": bool(fault_detected),
-        "detection_confidence": round(float(detection_prob if fault_detected else 1 - detection_prob), 4),
+    return {
+        "status": "ok",
+        "engine_model": active_engine,
+        "fault_detected": det_prob >= 0.5,
+        "detection_confidence": det_prob,
         "faulty_channels": faulty_channels,
-        "diagnosis": diagnosis_result,
-        "severity_percent": {c: round(v * 100, 1) for c, v in severity_result.items()},
-        "health_percent": round(health_percent, 1),
-        "rul_hours_internal": round(rul_hours, 4),   # simulated-timescale value - NOT real-world hours, internal use only
-        "rul_percent_remaining": round(rul_percent_remaining, 1),
-        "timestamp": time.time(),
+        "diagnosis": diagnosis,
+        "severity_percent": severity_percent,
+        "health_percent": round(health_percent, 4),
+        "rul_percent_remaining": round(rul_percent_remaining, 4),
+        "rul_hours_internal": round(rul_hours, 4),   # simulated-timescale, NOT real-world hours
+        "rul_out_of_range": out_of_range,
+        "steps_collected": len(window.buffer),
+        "steps_needed": WINDOW_SIZE,
     }
-    return {"final_output": output}
 
+# ============================================================================
+# API
+# ============================================================================
 
-graph = StateGraph(InferenceState)
-graph.add_node("detect", detect_node)
-graph.add_node("diagnose", diagnose_node)
-graph.add_node("severity", severity_node)
-graph.add_node("rul", rul_node)
-graph.add_node("combine", combine_node)
-
-# True 4-way parallel fan-out from START (not chained through "detect") - all 4 models
-# are independent (per Phase 5's design: RUL trained on a separate frozen-encoder branch,
-# Detection/Diagnosis/Severity share a frozen encoder but do not depend on each other's
-# output), so there is no reason for one to block another.
-graph.add_edge(START, "detect")
-graph.add_edge(START, "diagnose")
-graph.add_edge(START, "severity")
-graph.add_edge(START, "rul")
-graph.add_edge("detect", "combine")
-graph.add_edge("diagnose", "combine")
-graph.add_edge("severity", "combine")
-graph.add_edge("rul", "combine")
-graph.add_edge("combine", END)
-
-inference_graph = graph.compile()
-print("LangGraph inference graph compiled.")
-# ---------------------------------------------------------------------------
-# FastAPI service - main.py calls this over local HTTP for every physics
-# timestep. Kept as its own process specifically to avoid the TF version
-# segfault described at the top of this file.
-# ---------------------------------------------------------------------------
-app = FastAPI(title="UAV Digital Twin - AI Inference Service")
-
-
-class TimestepInput(BaseModel):
-    time: float
-    altitude: float
-    throttle: float
-    airspeed: float
-    aoa: float
-    air_density: float
-    torque_available_nm: float
-    engine_rpm: float
-    prop_rpm: float
-    prop_torque: float
-    power_kw: float
-    fuel_flow: float
-    thrust: float
-    lift: float
-    drag: float
-    thrust_margin: float
-    lift_weight_margin: float
-    egt: float
-    cht: float
-    oil_pressure: float
-    oil_temp: float
-    vibx: float
-    viby: float
-    vibz: float
-    rpm_fault: float
+app = FastAPI(title="AeroSim AI Service")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.post("/step")
-def step(data: TimestepInput):
-    """Call once per physics timestep. Returns None (still warming up) until the
-    128-step buffer fills, then returns the full AI verdict on every call after that."""
-    engine_state.update(data.dict())
-
-    if not engine_state.is_ready():
-        return {"status": "warming_up", "steps_collected": engine_state.n_steps, "steps_needed": WINDOW_SIZE}
-
-    window = engine_state.get_window()[np.newaxis, ...]      # (1, 128, 24)
-    rul_aux = engine_state.get_rul_aux()                      # (1, 6)
-
-    result = inference_graph.invoke({"window": window, "rul_aux": rul_aux})
-    output = result["final_output"]
-    output["status"] = "ok"
-    return output
+def step(payload: dict):
+    """One raw telemetry timestep in, one AI result out. payload must contain
+    every key in FEATURE_COLS plus "time" - exactly what main.py's
+    AI_FEATURE_COLS + telemetry["time"] already sends (verified to match)."""
+    window.update(payload)
+    if not window.is_ready():
+        return {
+            "status": "warming_up",
+            "steps_collected": len(window.buffer),
+            "steps_needed": WINDOW_SIZE,
+        }
+    return run_inference()
 
 
 @app.post("/reset")
 def reset():
-    """Call when a new flight/scenario starts - clears the rolling buffer."""
-    engine_state.reset()
+    """Clears the rolling buffer - call when a new flight/scenario starts."""
+    global window
+    window = RollingWindow(loaded_engines[active_engine]["scaler"])
     return {"status": "reset"}
-
-
-class EngineSelect(BaseModel):
-    engine_model: str
-
-
-@app.post("/select_engine")
-def select_engine(sel: EngineSelect):
-    """Switches which engine's models this service uses for all subsequent /step
-    calls. Called by main.py's own /select_engine, keeping both services in sync -
-    each maintains its own notion of the active engine independently, this just
-    ensures they agree. Always resets the buffer too, since a discontinuous engine
-    switch mid-window would otherwise mix two different engines' physics in one
-    128-step input, which none of these models were trained to handle."""
-    global active_engine
-    if sel.engine_model not in loaded_engines:
-        return {"status": "error", "message": f"No models loaded for {sel.engine_model!r}. Available: {list(loaded_engines)}"}
-    active_engine = sel.engine_model
-    engine_state.reset()
-    return {"status": "ok", "active_engine": active_engine}
 
 
 @app.get("/health")
 def health():
     return {
         "status": "alive",
-        "models_loaded": True,
         "active_engine": active_engine,
         "available_engines": list(loaded_engines),
-        "buffer_fill": len(engine_state.buffer),
+        "buffer_fill": len(window.buffer),
     }
+
+
+@app.post("/select_engine")
+def select_engine(payload: dict):
+    """Switches which engine's models this service uses for all subsequent
+    /step calls. Always resets the buffer too - a discontinuous engine switch
+    mid-window would mix two different engines' physics in one 128-step
+    input, which none of these models were trained to handle."""
+    global active_engine, window
+    requested = payload.get("engine_model")
+    if requested not in loaded_engines:
+        return {
+            "status": "error",
+            "message": f"No models loaded for {requested!r}. Available: {list(loaded_engines)}",
+        }
+    active_engine = requested
+    window = RollingWindow(loaded_engines[active_engine]["scaler"])
+    return {"status": "ok", "engine_model": active_engine}
 
 
 if __name__ == "__main__":

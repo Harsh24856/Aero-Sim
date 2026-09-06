@@ -1,49 +1,95 @@
-# macOS and editor files
+# ─── macOS & editor ───────────────────────────────────────────────────────────
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
 .vscode/
 .idea/
+*.swp
+*.swo
 
-# Validation experiments are local-only and must never be committed.
+# ─── Validation (local-only — datasets, notebooks, trained model artifacts) ───
 /validation/
 
-# Frontend (Next.js / Node.js)
+# ─── Large binary transfer files ──────────────────────────────────────────────
+model_b64_transfer.txt
+*.b64
+
+# ─── Frontend (Next.js / Node.js) ─────────────────────────────────────────────
 /frontend/node_modules/
 /frontend/.next/
 /frontend/out/
 /frontend/coverage/
 /frontend/*.tsbuildinfo
 /frontend/next-env.d.ts
-/frontend/.env
-/frontend/.env.*
-!/frontend/.env.example
-!/frontend/.env.*.example
 
-# Backend (Python)
+# Frontend env files — never commit secrets
+/frontend/.env
+/frontend/.env.local
+/frontend/.env.*.local
+/frontend/.env.development
+/frontend/.env.production
+# Allow the template to be committed
+!/frontend/.env.example
+
+# ─── Backend (Python — physics venv) ──────────────────────────────────────────
 /backend/.venv/
 /backend/venv/
 /backend/env/
+/backend/myenv/
+
+# Backend env files — never commit secrets
+/backend/.env
+/backend/.env.*
+!/backend/.env.example
+
+# Python cache and build artifacts
 /backend/__pycache__/
+/backend/**/__pycache__/
 /backend/**/*.py[cod]
+/backend/*.py[cod]
 /backend/.pytest_cache/
 /backend/.mypy_cache/
 /backend/.ruff_cache/
 /backend/.coverage
 /backend/htmlcov/
-/backend/.env
-/backend/.env.*
-!/backend/.env.example
-!/backend/.env.*.example
 
-# Local Python environments and build artifacts anywhere else in the repo
+# ─── AI / Conda environments ───────────────────────────────────────────────────
+# Named conda environments live in the conda root, not the repo, but guard
+# any accidentally created local envs here too.
+/backend/venv_ai/
+venv_ai/
+aero-sim-ai/
+
+# ─── Python artifacts (repo-wide fallback) ────────────────────────────────────
 .venv/
 venv/
 env/
 __pycache__/
 *.py[cod]
 *.egg-info/
+*.egg
 build/
 dist/
+.eggs/
+*.pyo
+*.pyd
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.nox/
+.hypothesis/
 
-# Logs and temporary files
+# ─── Jupyter / notebooks ──────────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ─── Logs & temporaries ───────────────────────────────────────────────────────
 *.log
 *.tmp
+*.temp
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

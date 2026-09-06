@@ -4,9 +4,6 @@ FastAPI service for the real-time UAV physics twin. It runs the simulation loop 
 
 ## Requirements
 
-- Python 3.10 or newer recommended
-- `pip`
-- macOS, Linux, or Windows with a shell that can activate a Python virtual environment
 
 ## Install
 
@@ -37,8 +34,6 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
 The API is available at `http://localhost:8000`. Interactive API documentation is available at:
 
-- Swagger UI: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
 
 The frontend expects this service on port `8000`, so start it before opening the frontend.
 
@@ -59,10 +54,6 @@ curl http://localhost:8000/state
 
 Send any subset of the following JSON fields:
 
-- `altitude` in metres
-- `throttle` from `0` to `1` (the API clamps this value)
-- `airspeed` in metres per second
-- `aoa` in degrees
 
 Example:
 
@@ -116,21 +107,15 @@ Run the physics comparison against `validation/simulink_ground_truth.csv`:
 python validate.py
 ```
 
-After generating `unified_database.csv`, convert and split it with:
+After generating the database, use the validation scripts that are present in `validation/` as needed:
 
 ```bash
-python validate_and_convert.py
-python split_scenarios.py
-python check_splits.py
+cd ../validation
+python validate.py
+python name_check.py
 ```
 
-Some validation scripts currently contain absolute paths beginning with `/Users/harsh/Documents/UAV_Engine`; update those paths before running the workflow on another machine. `convert_to_parquet.py` also reads `unified_database.csv` but writes `training_data.parquet`, so check the intended output before using it.
+Training and evaluation notebooks in `validation/` cover preprocessing, model training, and Phase 8 evaluation. Some scripts and notebooks contain absolute paths beginning with `/Users/harsh/Documents/UAV_Engine`; update those paths before running the workflow on another machine.
 
 ## Project files
 
-- `main.py`: FastAPI routes, simulation loop, and WebSocket server
-- `physics.py`: UAV physics and automatic fault model
-- `generate_training_data.py`: randomized labeled training data
-- `generate_unified_database.py`: failure, censoring, and RUL data
-- `stability_check.py`, `stability_check2.py`: physics checks
-- `bench.py`: backend benchmarking utility

@@ -1,0 +1,11 @@
+# AI inference runtime for backend/ai.py.
+# These versions match validation/venv, the model save/load environment.
+numpy==1.26.4
+pandas==3.0.5
+joblib==1.6.0
+scikit-learn==1.9.0
+tensorflow==2.16.2
+keras==3.15.1
+fastapi==0.141.1
+pydantic==2.13.5
+uvicorn[standard]==0.52.4

@@ -118,3 +118,18 @@ def end_simulation(simulation_id: int | None, outcome: str, final_health_percent
         }).eq("id", simulation_id).execute()
     except Exception as e:
         print(f"[db] end_simulation failed: {e}")
+
+def get_simulation(simulation_id: int) -> dict | None:
+    """Fetches one simulation row (used by /resume to look up its engine_model +
+    final_telemetry snapshot server-side, via the trusted service_role client -
+    RLS is bypassed here deliberately, since this is a backend-internal lookup,
+    not a client request that should be scoped to "only their own rows" (the
+    /resume endpoint itself still requires the correct user_id to proceed)."""
+    if not _enabled:
+        return None
+    try:
+        result = _client.table("simulations").select("*").eq("id", simulation_id).execute()
+        return result.data[0] if result.data else None
+    except Exception as e:
+        print(f"[db] get_simulation failed: {e}")
+        return None

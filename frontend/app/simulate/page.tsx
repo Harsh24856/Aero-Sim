@@ -11,6 +11,7 @@ import Simulator916 from "@/components/Simulator_916";
 import Meters, { type RawTelemetry, mpsToKmh } from "@/components/Meters";
 import Diagnostics, { type AiResult } from "@/components/Diagnostics";
 import { supabase } from "@/lib/supabase";
+import { simSecondsToRealHours } from "@/lib/timeScale";
 
 // Which themed Simulator variant to render, based on the ?engine= query param
 // set by /engine's selectEngine() navigation. Falls back to the base (914)
@@ -42,7 +43,11 @@ function SimulatePageInner() {
     return () => listener.subscription.unsubscribe();
   }, []);
 
-  const [throttle, setThrottle] = useState(5); // initial throttle for every engine - pilot ramps up manually from here
+  // 35% - a realistic post-run-up idle/taxi setting, and critically ABOVE the
+  // training data's throttle minimum of 0.118. The previous 5% default sat
+  // entirely outside the AI's training distribution (0% of training rows are
+  // below 0.10 throttle), which made every prediction an extrapolation.
+  const [throttle, setThrottle] = useState(35);
   const [airspeedTarget, setAirspeedTarget] = useState(30); // m/s
   const [started, setStarted] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -50,6 +55,19 @@ function SimulatePageInner() {
   const [aiResult, setAiResult] = useState<AiResult | null>(null);
   const [rawTelemetry, setRawTelemetry] = useState<RawTelemetry | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+
+  // Set only by an explicit Stop (never by Pause) - showing this is what makes
+  // Stop feel genuinely different from Pause, and confirms the run was actually
+  // persisted rather than just leaving the UI silently reset to "waiting".
+  const [stoppedSummary, setStoppedSummary] = useState<{
+    healthPercent: number | null;
+    rulPercent: number | null;
+    simSeconds: number;   // actual simulated flight time (rawTelemetry.time), not
+                          // wall-clock testing time - meaningless numbers otherwise,
+                          // since a 20-real-second test session should read as real
+                          // equivalent flight hours, not literally "20 seconds"
+    outcome: string;
+  } | null>(null);
 
   // main.py already merges the AI service's response into every WebSocket
   // broadcast (see main.py's simulation_loop) - this just reads that 'ai' field
@@ -102,6 +120,7 @@ function SimulatePageInner() {
       router.push("/login");
       return;
     }
+    setStoppedSummary(null);   // dismiss any previous run's summary card
     setStarted(true);
     try {
       await fetch(`${API}/start`, {
@@ -127,7 +146,14 @@ function SimulatePageInner() {
     setPaused((p) => {
       const next = !p;
       if (next) {
-        fetch(`${API}/stop`, { method: "POST" }).catch(() => {});
+        // final: false - this is a PAUSE, not a genuine stop. The backend keeps
+        // the physics session alive (session_active stays true) so the matching
+        // /start below resumes rather than resetting the twin's time/altitude/wear.
+        fetch(`${API}/stop`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ final: false }),
+        }).catch(() => {});
       } else {
         // Backend reuses the existing simulation_id on resume (see main.py's
         // /start) rather than fragmenting one flight into multiple DB rows - the
@@ -148,22 +174,57 @@ function SimulatePageInner() {
   // frontend UI back to its pre-start state so the game/gauges show "stopped"
   // rather than leaving a paused-looking UI that implies resuming is still possible.
   const onStopClick = useCallback(async () => {
+    let stopSucceeded = false;
     try {
-      await fetch(`${API}/stop`, { method: "POST" });
+      const res = await fetch(`${API}/stop`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ final: true }),   // explicit, matches the backend default - a genuine Stop
+      });
+      stopSucceeded = res.ok;
     } catch {
       // backend optional - local game/gauges still get reset below regardless
     }
+    setStoppedSummary({
+      healthPercent: aiResult?.status === "ok" ? aiResult.health_percent ?? null : null,
+      rulPercent: aiResult?.status === "ok" ? aiResult.rul_percent_remaining ?? null : null,
+      simSeconds: rawTelemetry?.time ?? 0,
+      outcome: stopSucceeded ? "Saved" : "Stopped locally (backend unreachable - not saved)",
+    });
     setStarted(false);
     setPaused(false);
-  }, []);
+  }, [aiResult, rawTelemetry]);
 
   // Safety net: if the user navigates away entirely (not just pausing) while the
   // simulation is running, the backend loop would otherwise keep running forever
-  // with no UI left to show it or pause it.
+  // with no UI left to show it or pause it. Two mechanisms, for two different
+  // ways of "leaving":
+  //  - pagehide + sendBeacon: fires on hard refresh, tab close, or typing a new
+  //    URL - a regular fetch() is NOT guaranteed to complete once the page
+  //    actually starts unloading, but sendBeacon is specifically designed by
+  //    browsers to reliably deliver a small POST in exactly this situation.
+  //  - the React effect cleanup below: fires on CLIENT-SIDE navigation (clicking
+  //    a Navbar link, browser back/forward within this app) - the page never
+  //    actually unloads in that case, so pagehide would not fire, but the
+  //    component genuinely unmounts and a normal fetch completes fine.
   useEffect(() => {
+    const sendFinalStop = () => {
+      if (!started) return;
+      const body = new Blob([JSON.stringify({ final: true })], { type: "application/json" });
+      navigator.sendBeacon(`${API}/stop`, body);
+    };
+    window.addEventListener("pagehide", sendFinalStop);
     return () => {
+      window.removeEventListener("pagehide", sendFinalStop);
       if (started) {
-        fetch(`${API}/stop`, { method: "POST" }).catch(() => {});
+        // final: true (explicit) - navigating away entirely is a genuine end of
+        // session, not a pause, regardless of whether it happened to be paused
+        // at the moment of navigating away.
+        fetch(`${API}/stop`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ final: true }),
+        }).catch(() => {});
       }
     };
   }, [started]);
@@ -211,8 +272,49 @@ function SimulatePageInner() {
           </div>
         </div>
 
-        <Diagnostics ai={aiResult} />
+        {/* Only pass simSeconds while genuinely running - otherwise this reflects
+            whatever the backend telemetry stream happens to contain (which could
+            be leftover/unrelated to this frontend session entirely), showing a
+            "moving" flight time even while paused or never started. */}
+        <Diagnostics ai={aiResult} simSeconds={started && !paused ? rawTelemetry?.time : undefined} />
       </div>
+
+      {/* Shown ONLY after an explicit Stop, never after Pause - this is what makes
+          the two feel genuinely distinct instead of both just freezing the game. */}
+      {stoppedSummary && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-lg border border-tertiary/40 bg-[#0d0e0d] p-6 text-center">
+            <div className="mb-1 text-[11px] uppercase tracking-[0.15em] text-tertiary">Simulation {stoppedSummary.outcome}</div>
+            <div className="mb-5 text-[12px] text-on-surface-variant">
+              {/* Real-world equivalent flight time, not wall-clock test duration -
+                  a 20-second local session is meaningless as "20s" against a
+                  2,000h TBO; scaled through the same compression factor as RUL,
+                  it correctly reads as ~2 real hours of flight. */}
+              Flight time: {simSecondsToRealHours(stoppedSummary.simSeconds).toFixed(1)}h (real-world equivalent)
+            </div>
+            <div className="mb-6 grid grid-cols-2 gap-3">
+              <div className="rounded border border-outline-variant/30 bg-black/40 p-3">
+                <div className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant">Final Health</div>
+                <div className="text-2xl font-bold text-primary">
+                  {stoppedSummary.healthPercent != null ? `${stoppedSummary.healthPercent.toFixed(0)}%` : "--"}
+                </div>
+              </div>
+              <div className="rounded border border-outline-variant/30 bg-black/40 p-3">
+                <div className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant">Final RUL</div>
+                <div className="text-2xl font-bold text-primary">
+                  {stoppedSummary.rulPercent != null ? `${stoppedSummary.rulPercent.toFixed(0)}%` : "--"}
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => setStoppedSummary(null)}
+              className="w-full rounded bg-tertiary py-2.5 text-[11px] font-bold uppercase tracking-[0.1em] text-black hover:brightness-110 transition-all"
+            >
+              Start New Simulation
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }

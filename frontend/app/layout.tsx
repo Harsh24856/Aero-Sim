@@ -21,7 +21,7 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body className="bg-background text-on-surface min-h-screen flex flex-col overflow-x-hidden font-body-md selection:bg-tertiary selection:text-black">
+      <body className="app-shell text-on-surface min-h-screen flex flex-col overflow-x-hidden font-body-md selection:bg-tertiary selection:text-black">
         {children}
       </body>
     </html>

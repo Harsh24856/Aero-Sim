@@ -29,8 +29,17 @@
 }
 
 body {
-  background: #0a0a0a;
+  background:
+    radial-gradient(ellipse 72% 42% at 50% 0%, rgba(130, 61, 18, 0.48), transparent 72%),
+    linear-gradient(180deg, #1d120c 0%, #0d0a08 38%, #0a0a0a 100%);
   color: #ffffff;
+}
+
+.app-shell {
+  min-height: 100vh;
+  background:
+    radial-gradient(ellipse 72% 42% at 50% 0%, rgba(130, 61, 18, 0.48), transparent 72%),
+    linear-gradient(180deg, #1d120c 0%, #0d0a08 38%, #0a0a0a 100%);
 }
 
 @layer components {

@@ -4,11 +4,9 @@ UAV Piston Engine Digital Twin -- Python/NumPy port of the validated Simulink mo
 block diagram (not re-derived), so this is a faithful 1:1 port of the golden model.
 
 Multi-engine support: ENGINE_CONFIGS holds the full spec set for each selectable
-engine. IMPORTANT CAVEAT - every trained AI model (Detection/Diagnosis/Severity/RUL)
-was trained ONLY on Rotax_914_ULF physics data. The 912/915/916 have genuinely
-different torque curves and power output, so AI predictions will NOT be meaningful
-for those engines - this is a real physics-simulation capability, not a claim that
-the AI generalizes to them.
+engine. Each selectable engine has its own trained Detection/Diagnosis/Severity/RUL
+model set and scaler under backend/models, so the AI service can switch models with
+the physics engine instead of silently reusing 914 weights.
 """
 import numpy as np
 
@@ -113,10 +111,24 @@ class UAVEngineTwin:
         self.EGT_TAU = 6.0       # exhaust gas: fast response
         self.CHT_TAU = 50.0      # cylinder head: moderate thermal mass
         self.OILTEMP_TAU = 100.0 # oil reservoir: largest thermal mass, slowest
-        # cold-start initial temperatures (ambient-ish, engine hasn't run yet)
-        self.egt_state = 20.0
-        self.cht_state = 20.0
-        self.oiltemp_state = 20.0
+        # WARM-START initial temperatures, deliberately NOT ambient.
+        #
+        # These feed the AI directly, and the training data (generated from realistic
+        # flight profiles) contains essentially no cold-soaked engine: its throttle
+        # minimum is 0.118 and CHT sits at its 260 ceiling for ~97% of rows. Starting
+        # at 20C put EGT/CHT/oil_temp 4-7 standard deviations BELOW anything the model
+        # ever saw, and with EGT_TAU/CHT_TAU/OILTEMP_TAU of 30-100s it stayed there for
+        # minutes - which is exactly the window the AI runs in. Confirmed by dumping a
+        # real live scaled window: cht z-score -7.3, engine_rpm -5.2, vs ~0 for training
+        # windows. The RUL head then extrapolated wildly (~531h instead of ~1.2h).
+        #
+        # Physically this is also the more honest default: a UAV beginning a monitored
+        # flight has completed run-up and taxi, so its engine IS at operating
+        # temperature. A true cold-start is a different scenario the model was never
+        # trained to assess, so it should not be the default one it is fed.
+        self.egt_state = 650.0      # typical warmed EGT, within training range
+        self.cht_state = 260.0      # matches the CHT sensor ceiling seen in ~97% of training rows
+        self.oiltemp_state = 85.0   # normal operating oil temperature
 
         # live-adjustable exogenous inputs (settable at any time from the API)
         self.altitude = 2000.0
@@ -156,6 +168,46 @@ class UAVEngineTwin:
         # matching a real failure mode (stuck sender unit).
         self._stuck_active = False
         self._stuck_start = 0.0
+
+    def restore_state(self, snapshot: dict):
+        """Restores this twin to the exact operating point captured in a
+        final_telemetry snapshot (see db.py/main.py) - used by /resume so
+        "continue simulation" genuinely picks up where a past run left off,
+        not just the surface params (altitude/throttle/airspeed/aoa) but the
+        actual internal physics state: engine angular momentum, the thermal-lag
+        integrator states (so CHT/EGT/oil temp do not snap back to cold-start),
+        accumulated wear, and per-channel stress accumulators.
+
+        Fault TIMERS (fault_start/fault_duration/_auto_active) are deliberately
+        NOT restored - they are momentary activation state, not the underlying
+        condition. Stress + operating conditions are restored, so if the engine
+        was genuinely stressed when it stopped, faults will naturally re-arm
+        within moments of resuming - functionally equivalent without needing to
+        perfectly replay exact timer phase, which is not something a real pilot
+        continuing a flight would perceive as different anyway."""
+        self.t = float(snapshot.get("time", 0.0))
+        self.altitude = float(snapshot.get("altitude", self.altitude))
+        self.throttle = float(snapshot.get("throttle", self.throttle))
+        self.airspeed = float(snapshot.get("airspeed", self.airspeed))
+        self.aoa = float(snapshot.get("aoa", self.aoa))
+
+        engine_rpm = snapshot.get("engine_rpm")
+        if engine_rpm is not None:
+            self.omega = float(engine_rpm) * 2 * np.pi / 60.0
+
+        healthy = snapshot.get("healthy") or {}
+        if "egt" in healthy: self.egt_state = float(healthy["egt"])
+        if "cht" in healthy: self.cht_state = float(healthy["cht"])
+        if "oil_temp" in healthy: self.oiltemp_state = float(healthy["oil_temp"])
+
+        self.wear = float(snapshot.get("wear", self.wear))
+        self.failed = bool(snapshot.get("failed", self.failed))
+        self.failure_time = snapshot.get("failure_time", self.failure_time)
+
+        fault_stress = snapshot.get("fault_stress") or {}
+        for i, ch in enumerate(self.FAULT_CHANNELS):
+            if ch in fault_stress:
+                self.stress[i] = float(fault_stress[ch])
 
     # ---------------- Atmosphere (ISA troposphere model) ----------------
     def atmosphere(self, altitude):

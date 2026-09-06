@@ -1,4 +1,5 @@
 import { AlertTriangle, CheckCircle2, FileText } from "lucide-react";
+import { simSecondsToRealHours } from "@/lib/timeScale";
 
 export type AiDiagnosisChannel = { fault_type: string; confidence: number };
 export type AiResult = {
@@ -17,6 +18,7 @@ export type AiResult = {
 
 export type DiagnosticsProps = {
   ai?: AiResult | null;
+  simSeconds?: number;   // live elapsed simulated flight time (rawTelemetry.time)
 };
 
 const AI_CHANNELS = [
@@ -34,12 +36,23 @@ const AI_CHANNELS = [
 // were removed since Sensr's "All Sensors" list already shows the real
 // telemetry, and this panel's actual job is the AI's diagnosis, not duplicating
 // raw sensor readouts.
-export default function Diagnostics({ ai = null }: DiagnosticsProps) {
+export default function Diagnostics({ ai = null, simSeconds }: DiagnosticsProps) {
   return (
     <aside className="panel-shell flex h-full min-h-0 flex-col overflow-hidden p-2.5 md:p-3.5">
       <h2 className="panel-heading flex items-center justify-between">
         Diagnostics <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#ff722f] shadow-[0_0_7px_#ff5b1d]" />
       </h2>
+
+      {/* Live, continuously moving - real-world equivalent flight time, ticking
+          up as telemetry streams in. Same compression scale as RUL (2000h TBO /
+          ~5.56h max simulated duration), just shown as a live counter here
+          instead of a static value only visible after stopping. */}
+      {simSeconds !== undefined && (
+        <div className="mt-2 flex items-center justify-between border border-[#352722] bg-[#0d0e0d] px-2 py-1.5 text-[8px] uppercase tracking-[0.1em] text-[#bca18e] md:text-[9px]">
+          <span>Flight Time (real-world eq.)</span>
+          <span className="font-mono text-[#efe0d5]">{simSecondsToRealHours(simSeconds).toFixed(2)}h</span>
+        </div>
+      )}
 
       <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
         {!ai && (

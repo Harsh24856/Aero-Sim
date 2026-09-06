@@ -46,11 +46,10 @@ CURRENT_ENGINE_MODEL = "Rotax_914_ULF"
 twin = UAVEngineTwin(dt=0.01, engine_model=CURRENT_ENGINE_MODEL)
 STEPS_PER_BROADCAST = 5  # 0.01s * 5 = 20Hz telemetry rate
 
-# Rotax_912_ULS has real physics simulation but NO trained models yet (912' s split
-# checkpoints do not exist). 914/915/916 each have their OWN genuinely-trained models
-# now - AI predictions ARE meaningful for all three, each using its own weights,
-# scaler, and max-power normalization (see ai.py's ENGINE_MODEL_SETS).
-AI_VALID_ENGINES = {"Rotax_914_ULF", "Rotax_915_iS", "Rotax_916_iS"}
+# Each selectable engine has its OWN genuinely-trained model set now - AI predictions
+# are meaningful for 912/914/915/916, each using its own weights and scaler (see
+# ai.py's ENGINE_REGISTRY).
+AI_VALID_ENGINES = {"Rotax_914_ULF", "Rotax_912_ULS", "Rotax_915_iS", "Rotax_916_iS"}
 
 
 state = {
@@ -61,6 +60,15 @@ state = {
     "ai_step_counter": 0,
     "ai_warmed_up": False,   # True once the AI has returned a real (non-warmup) result
     "simulation_id": None,   # current Supabase simulations.id, or None if not persisted
+    # Tracks whether the PHYSICS SESSION is logically ongoing - deliberately
+    # separate from simulation_id, which only tracks DB persistence and stays None
+    # whenever no user_id is provided. Using simulation_id itself to decide
+    # "is this a fresh start" was a real bug: with no user_id, simulation_id never
+    # becomes non-None, so EVERY /start (including a genuine resume-from-pause)
+    # was wrongly treated as fresh, resetting the twin's time/altitude/wear every
+    # time. session_active survives a pause (frontend sends final=false to /stop)
+    # and is only cleared by a genuine stop/reset/engine-switch.
+    "session_active": False,
     "sim_time_offset": 0.0,  # seconds since this simulation started, for telemetry_logs
 }
 
@@ -185,28 +193,67 @@ class StartRequest(BaseModel):
 
 @app.post("/start")
 async def start_sim(req: StartRequest = StartRequest()):
+    global twin
     if state["running"]:
         return {"status": "already_running"}
     state["running"] = True
-    # IMPORTANT: /start is also called to RESUME from a pause (see the frontend's
-    # onTogglePause - pausing genuinely calls /stop, resuming genuinely calls /start
-    # again, since the backend loop must actually halt while paused). Without this
-    # check, every pause/resume cycle would fragment one continuous flight into
-    # multiple separate Supabase simulation rows. Only create a new row (and reset
-    # the time offset) if there genuinely isn't one already in progress.
-    if state["simulation_id"] is None:
+    # /start is also called to RESUME from a pause (frontend's onTogglePause -
+    # pausing calls /stop with final=false, resuming calls /start again, since the
+    # backend loop must actually halt while paused). The freshness check MUST be
+    # session_active, NOT simulation_id - simulation_id stays None whenever no
+    # user_id is provided (anonymous use), which would otherwise make EVERY start
+    # look "fresh" including genuine resumes, silently resetting the twin's
+    # time/altitude/wear on every pause/resume cycle. This was a real, confirmed
+    # bug - session_active is independent of whether persistence succeeds.
+    if not state["session_active"]:
+        state["session_active"] = True
+        twin = UAVEngineTwin(dt=0.01, engine_model=CURRENT_ENGINE_MODEL)
+        # A fresh session takes off from the ground, matching the frontend's own
+        # auto-climb takeoff sequence (Simulator.tsx starts its visual at altitude 0
+        # and climbs automatically) - the twin's own __init__ default (2000m) would
+        # otherwise briefly mismatch that visual until the first /params call caught up.
+        twin.altitude = 0.0
         state["sim_time_offset"] = 0.0
+        state["last_telemetry"] = None
+        state["last_ai_result"] = None
+        state["ai_step_counter"] = 0
+        state["ai_warmed_up"] = False
+        # REAL BUG FIXED HERE: this branch reset the PHYSICS twin for a fresh
+        # session, but never told ai.py to clear its own rolling 128-step buffer -
+        # unlike /reset and /select_engine, which both already do this. Without it,
+        # a fresh start's first ~128 seconds of predictions were computed from a
+        # window mixing the PREVIOUS session's stale telemetry with the new
+        # session's genuinely fresh data, producing exactly the "starts low then
+        # climbs" artifact as the old data got pushed out of the sliding window.
+        try:
+            await ai_client.post(f"{AI_SERVICE_URL}/reset")
+        except Exception:
+            pass
+        # simulation_id tracks DB persistence ONLY - independent of session_active,
+        # since a session can be genuinely fresh but still have no user_id to
+        # persist under (db.start_simulation returns None in that case, by design).
         state["simulation_id"] = db.start_simulation(req.user_id, CURRENT_ENGINE_MODEL)
     state["task"] = asyncio.create_task(simulation_loop())
     return {"status": "started", "simulation_id": state["simulation_id"]}
 
 
+class StopRequest(BaseModel):
+    # False = this is a PAUSE, not a genuine stop - the frontend's onTogglePause
+    # sends final=false, since the physics session should still be resumable
+    # (session_active stays True, twin state is preserved). True (the default,
+    # matching onStopClick's genuine Stop button and any caller that omits this)
+    # ends the session for real - the next /start will create a fresh twin.
+    final: bool = True
+
+
 @app.post("/stop")
-async def stop_sim():
+async def stop_sim(req: StopRequest = StopRequest()):
     state["running"] = False
     if state["task"]:
         state["task"] = None
-    if state["simulation_id"] is not None:
+    if req.final:
+        state["session_active"] = False
+    if req.final and state["simulation_id"] is not None:
         ai = state["last_ai_result"] or {}
         # state["last_telemetry"] is the full raw physics dict as it stood at the
         # exact moment of stopping - already proven JSON-serializable, since this
@@ -215,7 +262,7 @@ async def stop_sim():
             db.end_simulation, state["simulation_id"], "stopped",
             ai.get("health_percent"), ai.get("rul_hours_internal"), state["last_telemetry"])
         state["simulation_id"] = None
-    return {"status": "stopped"}
+    return {"status": "stopped", "final": req.final}
 
 
 @app.post("/reset")
@@ -239,6 +286,12 @@ async def reset_sim():
     state["last_ai_result"] = None
     state["ai_step_counter"] = 0
     state["ai_warmed_up"] = False
+    # This endpoint already creates its own fresh twin directly (above), bypassing
+    # /start's session_active check entirely - keep session_active consistent with
+    # whatever this reset actually does: True if the loop is relaunched (an
+    # ongoing session continuing with fresh physics), False if not (idle, ready
+    # for a genuinely fresh /start next time).
+    state["session_active"] = was_running
     try:
         await ai_client.post(f"{AI_SERVICE_URL}/reset")   # clear the AI's rolling 128-step buffer too
     except Exception:
@@ -282,6 +335,7 @@ async def select_engine(sel: EngineSelect):
         return {"status": "error", "message": f"Unknown engine_model. Options: {list(ENGINE_CONFIGS)}"}
 
     state["running"] = False
+    state["session_active"] = False   # always ends the session - see docstring
     await asyncio.sleep(0.05)
     # A different engine is genuinely a different flight/aircraft - close out
     # whatever simulation record was open under the OLD engine before switching.
@@ -315,89 +369,74 @@ async def select_engine(sel: EngineSelect):
     }
 
 
-class ContinueFromRequest(BaseModel):
-    user_id: Optional[str] = None
-    engine_model: str
-    final_telemetry: dict   # the exact JSONB snapshot stored in simulations.final_telemetry
+class ResumeRequest(BaseModel):
+    simulation_id: int
+    user_id: str
 
 
-@app.post("/continue_from")
-async def continue_from(req: ContinueFromRequest):
-    """Genuinely resumes physics from a past simulation's final state - not just
-    the pilot-input params /params already handles (altitude/throttle/airspeed/aoa),
-    but the actual internal dynamics: engine rotational speed (omega, derived back
-    from the stored engine_rpm), the three thermal-lag states (egt/cht/oil_temp -
-    these chase a target over real time, so restoring only the CURRENT value and
-    not the lag state would make them jump discontinuously on the next step), and
-    accumulated wear (irreversible - this is what RUL is actually measuring, so
-    resetting it to 0 would silently give a "continued" flight a fresh engine).
+@app.post("/resume")
+async def resume_sim(req: ResumeRequest):
+    """Restores the physics twin to the EXACT state a past simulation stopped at
+    (see physics.py's restore_state) and creates a fresh Supabase simulation row
+    for this new session - genuinely continuing the flight physically, but as a
+    new tracked run (a session started hours/days later is a new session in any
+    reasonable sense, even though the aircraft state carries over exactly).
 
-    Known limitation: the AI's 128-step rolling buffer is NOT pre-populated from
-    telemetry_logs history - it starts empty and goes through the same warmup as a
-    fresh /start. The PHYSICS genuinely continues from the exact point; the AI's
-    context window does not (yet) carry over. This is disclosed here, not hidden."""
+    SECURITY: get_simulation() reads via the service_role client, which bypasses
+    RLS - the ownership check below (sim["user_id"] == req.user_id) is therefore
+    the ONLY thing standing between this endpoint and any user resuming anyone
+    else's simulation by guessing an id. This check is not optional."""
     global twin, CURRENT_ENGINE_MODEL
-    if req.engine_model not in ENGINE_CONFIGS:
-        return {"status": "error", "message": f"Unknown engine_model. Options: {list(ENGINE_CONFIGS)}"}
+    sim = await asyncio.to_thread(db.get_simulation, req.simulation_id)
+    if sim is None:
+        return {"status": "error", "message": "Simulation not found"}
+    if sim.get("user_id") != req.user_id:
+        return {"status": "error", "message": "Not authorized to resume this simulation"}
+    if not sim.get("final_telemetry"):
+        return {"status": "error", "message": "This simulation has no saved final state to resume from"}
 
     state["running"] = False
+    state["session_active"] = True   # otherwise a later pause->resume via /start
+                                      # would see session_active still False, wrongly
+                                      # treat itself as "fresh", and discard the
+                                      # state just restored here
     await asyncio.sleep(0.05)
-    if state["simulation_id"] is not None:
-        ai = state["last_ai_result"] or {}
-        await asyncio.to_thread(
-            db.end_simulation, state["simulation_id"], "engine_switched",
-            ai.get("health_percent"), ai.get("rul_hours_internal"), state["last_telemetry"])
-        state["simulation_id"] = None
-
-    CURRENT_ENGINE_MODEL = req.engine_model
+    CURRENT_ENGINE_MODEL = sim["engine_model"]
     twin = UAVEngineTwin(dt=0.01, engine_model=CURRENT_ENGINE_MODEL)
-
-    snap = req.final_telemetry
-    healthy = snap.get("healthy", {})
-    twin.altitude = snap.get("altitude", twin.altitude)
-    twin.throttle = snap.get("throttle", twin.throttle)
-    twin.airspeed = snap.get("airspeed", twin.airspeed)
-    twin.aoa = snap.get("aoa", twin.aoa)
-    twin.wear = snap.get("wear", twin.wear)
-    twin.t = snap.get("time", twin.t)
-    # engine_rpm -> omega (rad/s): the twin's actual integrated state variable.
-    engine_rpm_snapshot = healthy.get("rpm", snap.get("engine_rpm"))
-    if engine_rpm_snapshot is not None:
-        twin.omega = float(engine_rpm_snapshot) * 2 * np.pi / 60.0
-    # Thermal lag states - restoring only the instantaneous value (not the lag
-    # itself, since the twin has no separate "target" to store) means the very
-    # next step continues chasing correctly, since state == target-so-far here.
-    if "egt" in healthy: twin.egt_state = float(healthy["egt"])
-    if "cht" in healthy: twin.cht_state = float(healthy["cht"])
-    if "oil_temp" in healthy: twin.oiltemp_state = float(healthy["oil_temp"])
-
+    twin.restore_state(sim["final_telemetry"])
     state["last_telemetry"] = None
     state["last_ai_result"] = None
     state["ai_step_counter"] = 0
     state["ai_warmed_up"] = False
-    state["sim_time_offset"] = 0.0
+    state["sim_time_offset"] = 0.0   # new simulation row - its own telemetry_logs
+                                      # time axis starts fresh, independent of
+                                      # physics.py's restored internal clock (twin.t)
     state["simulation_id"] = db.start_simulation(req.user_id, CURRENT_ENGINE_MODEL)
     try:
         await ai_client.post(f"{AI_SERVICE_URL}/select_engine", json={"engine_model": CURRENT_ENGINE_MODEL})
     except Exception:
         pass
 
+    # BUG FIX: this endpoint restored the twin's state and opened a fresh Supabase
+    # record, but never actually started the loop - confirmed by a real test where
+    # /state kept returning telemetry: null after calling /resume. Without these two
+    # lines, "Continue Simulation" would report success but nothing would ever run.
     state["running"] = True
     state["task"] = asyncio.create_task(simulation_loop())
 
     return {
         "status": "ok",
+        "engine_model": CURRENT_ENGINE_MODEL,
         "simulation_id": state["simulation_id"],
-        "restored": {
-            "altitude": twin.altitude, "throttle": twin.throttle,
-            "airspeed": twin.airspeed, "aoa": twin.aoa,
-            "engine_rpm": twin.omega * 60.0 / (2 * np.pi),
-            "wear": twin.wear, "t": twin.t,
-        },
+        "restored_altitude": twin.altitude,
+        "restored_throttle": twin.throttle,
+        "restored_airspeed": twin.airspeed,
+        "restored_wear": twin.wear,
     }
 
 
 @app.post("/params")
+
 async def update_params(p: ParamUpdate):
     if p.altitude is not None:
         twin.altitude = p.altitude
