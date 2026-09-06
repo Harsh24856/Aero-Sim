@@ -1,11 +1,38 @@
 # AI inference runtime for backend/ai.py.
-# These versions match validation/venv, the model save/load environment.
+#
+# These versions are read off validation/venv - the environment the four model
+# sets were trained, saved and validated in. Reproduce it exactly.
+#
+# Requires Python 3.11 on Apple Silicon (arm64) macOS.
+#
+# tensorflow-metal IS LOAD-BEARING, not an optimisation. Without it TensorFlow
+# runs CPU-only, and the identical .keras weights then produce materially
+# different predictions - not float noise, a different answer. Scored against
+# real rul_true labels on byte-identical validation windows:
+#
+#       engine   RUL MAE (with metal)   RUL MAE (CPU-only)
+#         914          0.89 h               235.99 h
+#         912          0.35 h                12.28 h
+#         915          1.07 h               513.21 h
+#         916          0.57 h                 0.75 h
+#
+# True RUL never exceeds ~5.3 h in that data; the CPU-only path predicts up to
+# 572 h. See backend/README.md and the BACKEND GUARD comment in ai.py.
+
 numpy==1.26.4
 pandas==3.0.5
-joblib==1.6.0
+joblib==1.5.3
 scikit-learn==1.9.0
+
 tensorflow==2.16.2
+tensorflow-metal==1.2.0
 keras==3.15.1
+
+# Pinned transitives: TF 2.16.2 is version-sensitive about both of these, and
+# an unpinned resolve is a common way to end up with a subtly different runtime.
+ml-dtypes==0.3.2
+h5py==3.14.0
+
 fastapi==0.141.1
 pydantic==2.13.5
 uvicorn[standard]==0.52.4
