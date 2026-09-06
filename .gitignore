@@ -35,10 +35,15 @@ model_b64_transfer.txt
 
 # ─── Backend (Python — physics venv) ──────────────────────────────────────────
 /backend/.venv/
+/backend/.venv
 /backend/venv/
+/backend/venv
 /backend/env/
+/backend/env
 /backend/myenv/
-/Users/harsh/Documents/UAV_Engine/backend/myenv
+/backend/myenv
+myenv/
+myenv
 
 # Backend env files — never commit secrets
 /backend/.env
@@ -59,8 +64,11 @@ model_b64_transfer.txt
 # ─── AI / Conda environments ───────────────────────────────────────────────────
 # Named conda environments live in the conda root, not the repo, but guard
 # any accidentally created local envs here too.
+/backend/venv_ai
 /backend/venv_ai/
+venv_ai
 venv_ai/
+aero-sim-ai
 aero-sim-ai/
 
 # ─── Python artifacts (repo-wide fallback) ────────────────────────────────────
