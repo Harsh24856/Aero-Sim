@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import Sensr from "@/components/Sensr";
-import SimulatorDefault, { type SimTelemetry } from "@/components/Simulator";
+import SimulatorDefault, { type SimTelemetry, type ResumeState } from "@/components/Simulator";
 import Simulator912 from "@/components/Simulator_912";
 import Simulator915 from "@/components/Simulator_915";
 import Simulator916 from "@/components/Simulator_916";
@@ -30,6 +30,11 @@ function SimulatePageInner() {
   const searchParams = useSearchParams();
   const engineParam = searchParams.get("engine") ?? "";
   const ActiveSimulator = SIMULATOR_BY_ENGINE[engineParam] ?? SimulatorDefault;
+  // Set by /telemetry/[id]'s "Continue Simulation" button, which has already
+  // called POST /resume (restoring the backend twin's exact altitude/throttle/
+  // airspeed/wear/RUL) and started the physics loop before navigating here. This
+  // page must therefore ADOPT that state rather than begin a fresh takeoff.
+  const isResume = searchParams.get("resumed") === "1";
 
   // Simulating requires being signed in - null while the initial session check is
   // still in flight (so Start does not briefly appear usable before we actually
@@ -55,6 +60,62 @@ function SimulatePageInner() {
   const [aiResult, setAiResult] = useState<AiResult | null>(null);
   const [rawTelemetry, setRawTelemetry] = useState<RawTelemetry | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+
+  // Non-null once the backend's restored state has been read back. Passed to the
+  // Simulator as its FIRST-render initial state, which is why the simulator is
+  // withheld from the tree until this resolves (see resumePending below) - the
+  // component seeds its physics refs from it, and useRef only honours the value
+  // it is given on the very first render.
+  const [resumeInit, setResumeInit] = useState<ResumeState | null>(null);
+  // True from mount until the /resume handshake above has either succeeded or
+  // been ruled out. Rendering the simulator during this window would mount it
+  // with fresh-takeoff defaults, which is precisely what must not happen.
+  const [resumePending, setResumePending] = useState(isResume);
+
+  // Reads the ALREADY-RESTORED state straight back off the backend rather than
+  // passing it through the URL: /state's params are the physics twin's own live
+  // values, so there is no way for them to disagree with what /resume actually
+  // restored. Deliberately does NOT call /start - /resume already set
+  // session_active and launched the simulation loop, and a /start here would at
+  // best be a no-op ("already_running") and at worst re-enter the fresh-session
+  // branch and discard the restored twin.
+  useEffect(() => {
+    if (!isResume) return;
+    let cancelled = false;
+    // Hard deadline on the handshake. Without it a backend that accepts the
+    // connection but never answers leaves this page stranded on "Restoring flight
+    // state..." with no way forward - strictly worse than the fresh-start UI it is
+    // standing in for. Aborting falls through to that UI instead.
+    const abort = new AbortController();
+    const deadline = setTimeout(() => abort.abort(), 4000);
+    (async () => {
+      try {
+        const res = await fetch(`${API}/state`, { signal: abort.signal });
+        const s = await res.json();
+        if (cancelled) return;
+        // running === false means there is no resumed session to adopt (a stale
+        // ?resumed=1 URL, a reloaded tab, a backend restarted since). Fall back
+        // to the normal "click Start for a fresh flight" UI rather than pretending.
+        if (s?.running && s.params) {
+          setThrottle(Math.round((s.params.throttle ?? 0.35) * 100));
+          setAirspeedTarget(s.params.airspeed ?? 30);
+          setResumeInit({
+            altitude: s.params.altitude ?? 0,
+            speed: s.params.airspeed ?? 0,
+            pitch: s.params.aoa ?? 0,
+          });
+          setStarted(true);
+        }
+      } catch {
+        // Backend unreachable, or the deadline above fired - same graceful
+        // degradation as everywhere else on this page.
+      } finally {
+        clearTimeout(deadline);
+        if (!cancelled) setResumePending(false);
+      }
+    })();
+    return () => { cancelled = true; clearTimeout(deadline); abort.abort(); };
+  }, [isResume]);
 
   // Set only by an explicit Stop (never by Pause) - showing this is what makes
   // Stop feel genuinely different from Pause, and confirms the run was actually
@@ -92,6 +153,10 @@ function SimulatePageInner() {
   // ~10/sec rate telemetry already arrives at.
   useEffect(() => {
     if (!started || paused || !liveTelemetry) return;
+    // Never write params while a resume is still being read back - the values in
+    // flight at that moment are the simulator's fresh-takeoff defaults, and
+    // sending them would overwrite the very state we are about to adopt.
+    if (resumePending) return;
     fetch(`${API}/params`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -105,7 +170,7 @@ function SimulatePageInner() {
       // Backend not running is not a reason to break the local simulator display -
       // degrade gracefully, same pattern used in ai.py's own error handling.
     });
-  }, [started, paused, liveTelemetry, throttle]);
+  }, [started, paused, liveTelemetry, throttle, resumePending]);
 
   // Simulating now requires being signed in - checked here (the actual
   // enforcement point) rather than only hiding/disabling the button, since a
@@ -244,6 +309,11 @@ function SimulatePageInner() {
             min-h-0 on each so flex children actually shrink to fit. */}
         <div className="flex min-h-0 flex-col gap-2">
           <div className="min-h-0" style={{ flex: '50 1 0%' }}>
+            {resumePending ? (
+              <div className="flex h-full items-center justify-center rounded border border-outline-variant/30 bg-black/40 text-[11px] uppercase tracking-[0.15em] text-tertiary">
+                Restoring flight state...
+              </div>
+            ) : (
             <ActiveSimulator
               onTelemetryChange={onTelemetryChange}
               throttle={throttle}
@@ -253,7 +323,9 @@ function SimulatePageInner() {
               started={started}
               paused={paused}
               onStop={onStopClick}
+              initialState={resumeInit}
             />
+            )}
           </div>
           <div className="min-h-0" style={{ flex: '50 1 0%' }}>
             <Meters

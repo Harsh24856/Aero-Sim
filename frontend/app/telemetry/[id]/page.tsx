@@ -104,10 +104,13 @@ export default function TelemetryDetailPage() {
         setResuming(false);
         return;
       }
-      // The engine query param picks the correct themed Simulator variant (see
-      // SIMULATOR_BY_ENGINE in /simulate) - the physics twin itself was already
-      // restored server-side by /resume before this navigation happens.
-      router.push(`/simulate?engine=${result.engine_model}`);
+      // engine= picks the correct themed Simulator variant (see SIMULATOR_BY_ENGINE
+      // in /simulate); resumed=1 tells that page the physics twin was ALREADY
+      // restored server-side by the /resume call above, so it must adopt the twin's
+      // current altitude/throttle/airspeed instead of running its fresh-takeoff
+      // auto-climb - which used to overwrite the restored state within a second or
+      // two of arriving, and was the reason "Continue Simulation" did not continue.
+      router.push(`/simulate?engine=${result.engine_model}&resumed=1`);
     } catch {
       setResumeError("Could not reach the backend - is it running?");
       setResuming(false);

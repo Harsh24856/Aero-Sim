@@ -431,6 +431,7 @@ async def resume_sim(req: ResumeRequest):
         "restored_altitude": twin.altitude,
         "restored_throttle": twin.throttle,
         "restored_airspeed": twin.airspeed,
+        "restored_aoa": twin.aoa,
         "restored_wear": twin.wear,
     }
 

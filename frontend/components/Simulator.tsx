@@ -140,6 +140,9 @@ const AUTO_CLIMB_TARGET = 1000;   // meters — altitude to climb to during take
 const AUTO_CLIMB_DURATION = 50;   // seconds to reach target
 const AUTO_CLIMB_RATE = AUTO_CLIMB_TARGET / AUTO_CLIMB_DURATION; // ~40 m/s vertical
 const AUTO_CLIMB_PITCH = 6;      // degrees nose-up during climb
+// A resumed flight whose saved altitude is at/below this is genuinely still on
+// the ground, so the takeoff sequence below is the correct thing to run for it.
+const RESUME_GROUND_EPS = 0.5;   // metres
 
 /* ───────────────────────────────────────────────────────────────
    Formatting helpers
@@ -169,6 +172,17 @@ export type SimTelemetry = {
   status: FlightStatus;
 };
 
+// Passed by /simulate when the user clicked "Continue Simulation" on a past run.
+// main.py's /resume has ALREADY restored the physics twin to this exact state
+// before this component ever mounts, so the simulator must adopt it verbatim
+// rather than running its usual from-the-ground takeoff. Null/absent = a
+// genuinely fresh flight.
+export type ResumeState = {
+  altitude: number;   // metres, as restored on the backend twin
+  speed: number;      // m/s true airspeed
+  pitch: number;      // degrees - this IS the twin's aoa, see SimTelemetry.pitch
+};
+
 export type SimulatorProps = {
   onTelemetryChange?: (t: SimTelemetry) => void;
   throttle: number;
@@ -178,6 +192,7 @@ export type SimulatorProps = {
   started: boolean;
   paused: boolean;
   onStop: () => void;
+  initialState?: ResumeState | null;
 };
 
 /* ───────────────────────────────────────────────────────────────
@@ -192,6 +207,7 @@ function FlightApproachGame({
   started,
   paused,
   onStop,
+  initialState,
 }: SimulatorProps) {
   // Ridge data: filled shapes AND open crest paths for highlights
   const farData = useMemo(() => tiledRidgePathData(11, WORLD_W, 9, 300, 40, 110), []);
@@ -203,15 +219,30 @@ function FlightApproachGame({
   const [focused, setFocused] = useState(false);
 
   /* ── Physics refs ──────────────────────────────────────────── */
-  const altitudeRef = useRef(INITIAL_ALT);
-  const speedRef = useRef(0);
-  const pitchRef = useRef(0);
+  // A resumed flight starts from the state the backend twin was ALREADY restored
+  // to, not from the ground. useRef only honours its argument on the very first
+  // render, which is exactly the semantics wanted here: /simulate withholds this
+  // component from the tree until initialState is known, so the first render is
+  // the one that carries the real values.
+  const initialAltitude = initialState?.altitude ?? INITIAL_ALT;
+  const altitudeRef = useRef(initialAltitude);
+  const speedRef = useRef(initialState?.speed ?? 0);
+  const pitchRef = useRef(initialState?.pitch ?? 0);
   const verticalSpeedRef = useRef(0);
   const statusRef = useRef<FlightStatus>("flying");
   const distanceRef = useRef(0);
   const lastTimeRef = useRef<number | null>(null);
   const keysRef = useRef({ up: false, down: false, left: false, right: false });
-  const autoClimbRef = useRef(true); // active during takeoff sequence
+  // Auto-climb is the FRESH-takeoff sequence: it drives altitude from 0 up to
+  // AUTO_CLIMB_TARGET, and /simulate mirrors that altitude straight back to the
+  // backend via POST /params. On a resumed flight that dragged the just-restored
+  // altitude/throttle/airspeed back to a ground takeoff within a second or two -
+  // the single largest reason "Continue Simulation" did not actually continue.
+  // Resuming from a snapshot taken ON the ground is the one case where running a
+  // takeoff sequence is still correct.
+  const autoClimbRef = useRef(
+    initialState == null || initialState.altitude <= RESUME_GROUND_EPS
+  ); // active during takeoff sequence
 
   // Ref-synced mirrors of externally-controlled props so the rAF
   // loop reads current values without restarting its effect.
@@ -432,7 +463,7 @@ function FlightApproachGame({
   const labelStyle = { color: "#dd9a5c", textShadow: "0 0 6px rgba(0,0,0,0.5)" };
   const valueStyle = { color: "#f8efdd", textShadow: "0 0 6px rgba(0,0,0,0.5)" };
 
-  const initAltCurve = INITIAL_ALT / (INITIAL_ALT + ALT_CURVE_K);
+  const initAltCurve = initialAltitude / (initialAltitude + ALT_CURVE_K);
   const initTopPercent = PLANE_TOP_AT_GROUND - initAltCurve * (PLANE_TOP_AT_GROUND - PLANE_TOP_AT_MAX_ALT);
 
   /* ── JSX ───────────────────────────────────────────────────── */
@@ -604,7 +635,7 @@ function FlightApproachGame({
           </div>
           <div style={{ fontSize: "clamp(14px,2.6vw,20px)" }}>
             <span style={labelStyle}>ALT </span>
-            <span ref={altValueRef} style={valueStyle}>{formatAlt(INITIAL_ALT)}</span>
+            <span ref={altValueRef} style={valueStyle}>{formatAlt(initialAltitude)}</span>
           </div>
         </div>
 
