@@ -184,13 +184,17 @@ const VALIDATION_LEVELS = [
 /* ─── Section divider ───────────────────────────────────────────────────────── */
 function SectionHeader({ code, children }: { code: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-3 mb-5">
-      <span className="font-mono text-[10px] font-bold text-tertiary tracking-[0.2em] uppercase shrink-0">{code}</span>
-      <span className="h-px flex-1 bg-outline-variant/30" />
-      <h2 className="font-headline-display text-xl md:text-2xl font-bold uppercase tracking-tight text-primary shrink-0">
+    <div className="mb-6">
+      <div className="flex items-center gap-3 mb-1.5">
+        <span className="h-px w-8 bg-tertiary shrink-0" />
+        <span className="font-mono text-[10px] font-bold text-tertiary tracking-[0.2em] uppercase shrink-0">
+          {code}
+        </span>
+        <span className="h-px flex-1 bg-outline-variant/30" />
+      </div>
+      <h2 className="font-headline-display text-xl md:text-2xl font-bold uppercase tracking-tight text-primary">
         {children}
       </h2>
-      <span className="h-px flex-1 bg-outline-variant/30" />
     </div>
   );
 }
@@ -525,7 +529,7 @@ export default function EngineInfoPage() {
                       <td className="p-4 text-on-surface-variant">{eng.powerKw}</td>
                       <td className="p-4 text-on-surface-variant">{eng.maxRpm}</td>
                       <td className="p-4 text-primary">{eng.massKg}</td>
-                      <td className="p-4 text-on-surface-variant truncate max-w-[160px]">{eng.induction}</td>
+                      <td className="p-4 text-on-surface-variant min-w-[190px]">{eng.induction}</td>
                       <td className="p-4 font-bold text-tertiary">{eng.relativePower}</td>
                       <td className="p-4 text-primary font-bold">{eng.powerToMass}</td>
                       <td className="p-4">
