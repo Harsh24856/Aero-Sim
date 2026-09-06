@@ -78,7 +78,7 @@ engine will not catch this.
 If `validation/venv` already exists, skip to *Start it*.
 
 ```bash
-cd /Users/harsh/Documents/UAV_Engine/validation
+cd validation
 python3.11 -m venv venv
 ./venv/bin/python -m pip install --upgrade pip
 ./venv/bin/python -m pip install -r ../backend/requirements_ai.txt
@@ -91,7 +91,7 @@ currently reproduce the validated numbers at all (see *Not on a Mac?* below).
 Confirm the GPU backend is actually present before going further:
 
 ```bash
-/Users/harsh/Documents/UAV_Engine/validation/venv/bin/python -c \
+validation/venv/bin/python -c \
   "import tensorflow as tf; print([d.device_type for d in tf.config.list_physical_devices()])"
 ```
 
@@ -104,8 +104,8 @@ From the `backend/` directory (the module is imported as `ai`, so the working
 directory matters):
 
 ```bash
-cd /Users/harsh/Documents/UAV_Engine/backend
-/Users/harsh/Documents/UAV_Engine/validation/venv/bin/uvicorn ai:app --host 127.0.0.1 --port 8100
+cd backend
+../validation/venv/bin/uvicorn ai:app --host 127.0.0.1 --port 8100
 ```
 
 Add `--reload` while developing. Start it **before** `main.py`, so the first
@@ -176,8 +176,8 @@ Stale processes holding port `8100` have caused real debugging dead-ends in this
 project - an old process answers new requests with orphaned state. Always check:
 
 ```bash
-lsof -ti:8100          # expect nothing before starting
-kill $(lsof -ti:8100)  # if something is there
+lsof -ti:8100 -sTCP:LISTEN          # expect nothing before starting
+kill $(lsof -ti:8100 -sTCP:LISTEN)  # if something is there
 ```
 
 The same applies to `main.py` on port `8000`.

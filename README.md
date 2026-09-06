@@ -16,7 +16,9 @@ Browser  ─── Next.js (port 3000)
               backend/models/
 ```
 
-> **Key design principle**: the Physics API (`:8000`) runs standalone. The AI service (`:8100`) is optional and separated because its Keras checkpoints require **Python 3.11 + TensorFlow 2.16.2**. If the AI service is offline, simulation and telemetry continue uninterrupted.
+> **Key design principle**: the Physics API (`:8000`) runs standalone. The AI service (`:8100`) is optional and separated because its Keras checkpoints require **Python 3.11 + TensorFlow 2.16.2 with the Metal GPU backend**. If the AI service is offline, simulation and telemetry continue uninterrupted.
+
+> ⚠️ **The AI service must run from `validation/venv`.** Not a conda env, not `backend/.venv`. The checkpoints were trained and validated against that environment's Metal GPU TensorFlow, and running them CPU-only returns the same weights with different — and badly wrong — answers. See [§2](#2--ai-inference-service-python-311--validationvenv).
 
 ---
 
@@ -41,14 +43,19 @@ Browser  ─── Next.js (port 3000)
 | Environment | Python | Manager | Location | Purpose |
 |---|---|---|---|---|
 | `backend/.venv` | 3.x | `python -m venv` | `backend/` | Physics API (`main.py`, `db.py`) |
-| `aero-sim-ai` | **3.11** | **conda** | conda base | AI inference service (`ai.py`) |
+| `validation/venv` | **3.11 + Metal** | `python3.11 -m venv` | `validation/` | AI inference service (`ai.py`) **and** all validation/training work |
 | Node.js | 18+ | `npm` | `frontend/` | Next.js dashboard |
+
+The AI service and the validation notebooks deliberately share **one** environment.
+That is what keeps live inference numerically identical to the numbers the models
+were validated against — a second, separate AI environment is exactly how they
+drifted apart before (see §2).
 
 ---
 
 ## 1 — Physics API (Backend)
 
-The backend uses its own venv. **Do not activate the AI conda env for this step.**
+The physics API uses its own venv, separate from the AI service's. **Do not run `main.py` from `validation/venv`, or `ai.py` from `backend/.venv`** — each has exactly one correct environment.
 
 ```bash
 cd backend
@@ -79,22 +86,45 @@ Without these variables the simulator still runs in full — only run history pe
 
 ---
 
-## 2 — AI Inference Service (Python 3.11 — conda)
+## 2 — AI Inference Service (Python 3.11 — `validation/venv`)
 
-The Keras model checkpoints in `backend/models/` were saved under Python 3.11 + TensorFlow 2.16.2. Loading them under a different Python version (e.g. 3.13 from the backend venv) causes a segmentation fault during deserialization.
+Run this service from **`validation/venv`**. Two separate reasons, both confirmed
+by real incidents in this project:
 
-### Create the conda environment (once)
+1. **Python version.** The checkpoints in `backend/models/` were saved under
+   Python 3.11 + TensorFlow 2.16.2. Loading them from `backend/.venv` (Python
+   3.13, no working TensorFlow) segfaults during deserialization.
+2. **TensorFlow backend.** `validation/venv` uses the **Metal GPU** backend via
+   `tensorflow-metal`. The models were trained *and* validated there. Loading the
+   identical `.keras` files under a CPU-only TensorFlow gives you the same weights
+   and a materially different answer — not float noise.
+
+Scored against real `rul_true` labels on byte-identical validation windows:
+
+| engine | RUL MAE (`validation/venv`) | RUL MAE (CPU-only env) | correlation (venv / CPU) |
+|---|---|---|---|
+| 914 | 0.89 h | **235.99 h** | 0.42 / 0.21 |
+| 912 | 0.35 h | 12.28 h | 0.89 / 0.05 |
+| 915 | 1.07 h | **513.21 h** | 0.94 / 0.81 |
+| 916 | 0.57 h | 0.75 h | 0.58 / 0.74 |
+
+True RUL never exceeds ~5.3 h in that data; the CPU-only path predicts up to
+**572 h**. Running this service from a CPU-only conda environment was the
+confirmed cause of a live incident in which 915 reported ~515 h remaining, 914
+flipped between 0 h and 21 h in consecutive seconds, and health jittered roughly
+8× more than it should. Note that 916 barely differs between the two backends —
+which is precisely why spot-checking one engine did not catch it.
+
+### Create the environment (once)
+
+Requires **Python 3.11 on Apple Silicon (arm64) macOS** — `tensorflow-metal` has
+no wheel for Intel Macs, Linux or Windows.
 
 ```bash
-conda create -n aero-sim-ai python=3.11 -y
-conda activate aero-sim-ai
-```
-
-### Install AI runtime dependencies
-
-```bash
-cd backend
-pip install -r requirements_ai.txt
+cd validation
+python3.11 -m venv venv
+./venv/bin/python -m pip install --upgrade pip
+./venv/bin/python -m pip install -r ../backend/requirements_ai.txt
 ```
 
 `requirements_ai.txt` pins:
@@ -102,47 +132,76 @@ pip install -r requirements_ai.txt
 ```
 numpy==1.26.4
 pandas==3.0.5
-joblib==1.6.0
+joblib==1.5.3
 scikit-learn==1.9.0
 tensorflow==2.16.2
+tensorflow-metal==1.2.0      # load-bearing — see the table above
 keras==3.15.1
+ml-dtypes==0.3.2
+h5py==3.14.0
 fastapi==0.141.1
 pydantic==2.13.5
 uvicorn[standard]==0.52.4
 ```
 
-### Start the AI service
+Verify the GPU backend is actually present before going any further:
 
 ```bash
-# from backend/, with aero-sim-ai conda env active
-conda activate aero-sim-ai
-cd backend
-python ai.py
+./venv/bin/python -c "import tensorflow as tf; print([d.device_type for d in tf.config.list_physical_devices()])"
 ```
+
+Expected `['CPU', 'GPU']`. If you get `['CPU']`, `tensorflow-metal` is missing or
+failed to load — fix that first, because nothing downstream will be correct.
+
+### Start the AI service
+
+From `backend/` (the module is imported as `ai`, so the working directory matters):
+
+```bash
+cd backend
+../validation/venv/bin/uvicorn ai:app --reload --host 0.0.0.0 --port 8100
+```
+
+No environment activation needed — calling the venv's `uvicorn` directly is
+enough, and it removes any chance of a stray `conda activate` selecting the wrong
+interpreter.
 
 Health check: <http://localhost:8100/health>
 
-A healthy response contains `"models_loaded": true` and lists the available engine model sets (912 ULS, 914 F/UL, 915 iS, 916 iS).
-
-> **Note**: After starting, the AI service requires a 128-step warm-up window before predictions appear. The backend fast-forwards this window automatically on startup.
-
-### Reactivate later
-
-```bash
-conda activate aero-sim-ai
-cd backend
-python ai.py
+```json
+{
+  "status": "alive",
+  "active_engine": "Rotax_914_ULF",
+  "available_engines": ["Rotax_914_ULF", "Rotax_912_ULS", "Rotax_915_iS", "Rotax_916_iS"],
+  "buffer_fill": 0,
+  "tf_devices": ["CPU", "GPU"],
+  "backend_validated": true
+}
 ```
 
-### Other useful conda commands
+**`backend_validated` must be `true`.** If it is `false` you are in the wrong
+environment and every RUL/health number you are looking at is meaningless. The
+service also prints a boxed warning at startup in that case; it still answers
+requests rather than refusing, so the warning is the only signal.
+
+> **Note**: the models need a full 128 **simulated seconds** of history before
+> they predict at all — until then `/step` returns `{"status": "warming_up"}` and
+> `buffer_fill` counts up to 128. `main.py` fast-forwards that window instead of
+> waiting 128 real seconds.
+
+### Stopping and restarting
+
+Stale processes holding a port have caused real dead-ends here — an old process
+answers new requests with orphaned state. Check before starting:
 
 ```bash
-conda env list                     # list all environments
-conda activate aero-sim-ai         # activate
-conda deactivate                   # deactivate
-conda remove -n aero-sim-ai --all  # delete environment
-conda info --envs                  # same as conda env list, shows paths
+lsof -ti:8100 -sTCP:LISTEN          # expect nothing
+kill $(lsof -ti:8100 -sTCP:LISTEN)  # if something is there
 ```
+
+Use `-sTCP:LISTEN`. A bare `lsof -ti:8100` also lists *clients* connected to that
+port — which includes `main.py`, so killing that set takes the physics API down
+with it.
 
 ---
 
@@ -194,12 +253,12 @@ source .venv/bin/activate
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-**Terminal 2 — AI Service**
+**Terminal 2 — AI Service** (start this before Terminal 1, so the first simulated second has somewhere to go)
 ```bash
-conda activate aero-sim-ai
 cd backend
-python ai.py
+../validation/venv/bin/uvicorn ai:app --reload --host 0.0.0.0 --port 8100
 ```
+Confirm `"backend_validated": true` at <http://localhost:8100/health> before trusting any diagnostics.
 
 **Terminal 3 — Frontend**
 ```bash
@@ -250,22 +309,30 @@ curl -X POST http://localhost:8000/params \
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/health` | Model load status and available engine sets |
+| `GET` | `/health` | Active engine, available sets, `buffer_fill`, and `tf_devices` / `backend_validated` |
 | `POST` | `/step` | Push a telemetry frame, returns latest prediction |
 | `POST` | `/reset` | Clear the rolling input window |
-| `POST` | `/select_engine` | Switch active engine model |
+| `POST` | `/select_engine` | Switch active engine model (also clears the window) |
+
+```bash
+curl http://localhost:8100/health   # backend_validated must be true
+```
 
 ---
 
 ## Validation and Training
 
-Training assets (datasets, notebooks, scripts) live in `validation/` and are **excluded from the repository** (see `.gitignore`). To run validation locally:
+Training assets (datasets, notebooks, scripts) live in `validation/` and are **excluded from the repository** (see `.gitignore`). They run in the *same* `validation/venv` that serves `ai.py` — that shared environment is what keeps live inference numerically identical to the validated numbers.
 
 ```bash
-conda activate aero-sim-ai   # reuse the same environment
 cd validation
-pip install -r requirements.txt  # installs additional notebook/plot deps
+./venv/bin/python -m pip install -r requirements.txt  # notebook/plot deps on top of the AI runtime
 ```
+
+Anything that imports `ai.py` — including one-off scripts — must be run with
+`validation/venv/bin/python3`, never `backend/.venv/bin/python3`, which will
+segfault or fail on a missing TensorFlow in a way that looks unrelated to your
+actual change.
 
 Some scripts contain machine-specific paths — update those before running.
 
