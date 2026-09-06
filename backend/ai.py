@@ -42,6 +42,7 @@ import pandas as pd
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import tensorflow as tf
 from tensorflow import keras
 
 # ============================================================================
@@ -158,6 +159,43 @@ class RollingWindow:
 # small (~1MB x 3), and this avoids any risk of a slow first-request load
 # happening mid-flight during a real session.
 # ============================================================================
+
+# ============================================================================
+# BACKEND GUARD - which TensorFlow this process runs on is NOT an
+# implementation detail for these weights.
+# ============================================================================
+# Every model here was trained AND validated under the Metal GPU backend
+# (validation/venv, tensorflow-metal). Loading the identical .keras files under
+# a CPU-only TensorFlow yields the same weights but materially different
+# predictions - not float noise, a different answer. Measured on real
+# validation windows against rul_true labels, byte-identical inputs:
+#
+#       engine   RUL MAE (Metal)   RUL MAE (CPU-only)   corr (Metal / CPU)
+#         914        0.89 h            235.99 h           0.42 / 0.21
+#         912        0.35 h             12.28 h           0.89 / 0.05
+#         915        1.07 h            513.21 h           0.94 / 0.81
+#         916        0.57 h              0.75 h           0.58 / 0.74
+#
+# True RUL never exceeds ~5.3 h in that data; the CPU-only path predicts up to
+# 572 h. This was a real, confirmed live incident: the service was being
+# launched from a CPU-only conda env, and every "RUL and health look wrong"
+# symptom - 915 reporting ~515 h remaining, 914 flipping between 0 h and 21 h
+# between consecutive seconds, health jittering 8x more than it should - came
+# from that and nothing else. 916 barely differs between backends, which is
+# exactly why its numbers looked plausible while 915's did not.
+#
+# Warn rather than refuse: a degraded service still beats no service. What must
+# never happen again is this failing SILENTLY.
+GPU_DEVICES = tf.config.list_physical_devices("GPU")
+BACKEND_VALIDATED = bool(GPU_DEVICES)
+if not BACKEND_VALIDATED:
+    print("=" * 78)
+    print("WARNING: TensorFlow sees no GPU backend in this environment.")
+    print("         These weights were trained and validated on the Metal GPU")
+    print("         backend; RUL and severity output here is NOT trustworthy.")
+    print("         Launch from the validated environment instead:")
+    print("           validation/venv/bin/uvicorn ai:app --host 127.0.0.1 --port 8100")
+    print("=" * 78)
 
 print("Loading models for all registered engines...")
 loaded_engines: dict = {}
@@ -291,6 +329,10 @@ def health():
         "active_engine": active_engine,
         "available_engines": list(loaded_engines),
         "buffer_fill": len(window.buffer),
+        # Surfaced so "are these predictions trustworthy?" is answerable without
+        # reading this process's startup log - see the BACKEND GUARD above.
+        "tf_devices": [d.device_type for d in tf.config.list_physical_devices()],
+        "backend_validated": BACKEND_VALIDATED,
     }
 
 
