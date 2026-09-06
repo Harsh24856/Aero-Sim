@@ -38,6 +38,7 @@ model_b64_transfer.txt
 /backend/venv/
 /backend/env/
 /backend/myenv/
+/Users/harsh/Documents/UAV_Engine/backend/myenv
 
 # Backend env files — never commit secrets
 /backend/.env
