@@ -9,7 +9,7 @@ import Simulator912 from "@/components/Simulator_912";
 import Simulator915 from "@/components/Simulator_915";
 import Simulator916 from "@/components/Simulator_916";
 import Meters, { type RawTelemetry, mpsToKmh } from "@/components/Meters";
-import Diagnostics, { type AiResult } from "@/components/Diagnostics";
+import Diagnostics, { type AiResult, type Advisory } from "@/components/Diagnostics";
 import { supabase } from "@/lib/supabase";
 import { simSecondsToRealHours } from "@/lib/timeScale";
 
@@ -58,6 +58,7 @@ function SimulatePageInner() {
   const [paused, setPaused] = useState(false);
   const [liveTelemetry, setLiveTelemetry] = useState<SimTelemetry | null>(null);
   const [aiResult, setAiResult] = useState<AiResult | null>(null);
+  const [advisory, setAdvisory] = useState<Advisory | null>(null);
   const [rawTelemetry, setRawTelemetry] = useState<RawTelemetry | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -139,6 +140,7 @@ function SimulatePageInner() {
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
       if (data.ai) setAiResult(data.ai);
+      if (data.advisory) setAdvisory(data.advisory);
       setRawTelemetry(data);   // full payload - all 24 raw features for Sensr
     };
     ws.onerror = () => console.log("WebSocket error - is main.py running on :8000?");
@@ -348,7 +350,7 @@ function SimulatePageInner() {
             whatever the backend telemetry stream happens to contain (which could
             be leftover/unrelated to this frontend session entirely), showing a
             "moving" flight time even while paused or never started. */}
-        <Diagnostics ai={aiResult} simSeconds={started && !paused ? rawTelemetry?.time : undefined} />
+        <Diagnostics ai={aiResult} advisory={advisory} simSeconds={started && !paused ? rawTelemetry?.time : undefined} />
       </div>
 
       {/* Shown ONLY after an explicit Stop, never after Pause - this is what makes

@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from physics import UAVEngineTwin, ENGINE_CONFIGS
 import db
+import advisory
 
 # ai.py runs as its OWN process under a different Python environment (see ai.py's
 # module docstring - the models segfault under this backend's TF version). Calls are
@@ -173,6 +174,10 @@ async def simulation_loop():
         if step_count % STEPS_PER_BROADCAST == 0:
             payload = dict(out)
             payload["ai"] = state["last_ai_result"]
+            # Derived fresh each broadcast rather than cached in state[]:
+            # last_ai_result is cleared in five different places, and a cached
+            # advisory would have to be cleared in all five or go stale.
+            payload["advisory"] = advisory.build_advisory(state["last_ai_result"], out)
             await broadcast(payload)
 
         if state["ai_warmed_up"]:
@@ -466,6 +471,7 @@ async def get_state():
                     "airspeed": twin.airspeed, "aoa": twin.aoa},
         "telemetry": state["last_telemetry"],
         "ai": state["last_ai_result"],
+        "advisory": advisory.build_advisory(state["last_ai_result"], state["last_telemetry"]),
     }
 
 
