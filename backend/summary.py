@@ -51,12 +51,17 @@ else:
     print("[summary] GROQ_API_KEY not set - post-flight summaries disabled (this is fine).")
 
 
-# Simulated -> real-world scale. Mirrors frontend/lib/timeScale.ts: the training
-# generator's 20,000s censoring cutoff is treated as one full wear-to-failure
-# cycle mapped onto the Rotax 914's real 2,000h TBO. Kept here so the model is
-# handed hours a maintainer would recognise instead of compressed ones.
-ENGINE_TBO_HOURS = 2000.0
-TIME_SCALE = ENGINE_TBO_HOURS / (20000.0 / 3600.0)   # = 360
+# ai.py's own ceiling: the training generator's 20,000s censoring cutoff, above
+# which its RUL head is extrapolating rather than interpolating.
+#
+# An earlier version of this file scaled RUL by 360 to present "real-world
+# hours" against a 2,000h TBO. That was wrong to do here. The mapping is an
+# assumption rather than a measured property of the model, and it fails exactly
+# where it matters: 29 of 143 recorded runs have final_rul_hours ABOVE this
+# ceiling (max 546.6), so scaling would have reported ~197,000 hours of
+# remaining life. RUL is handed over on the model's own scale, with the ceiling
+# and an explicit out-of-range flag so the model can caveat instead of guess.
+MAX_SIM_LIFE_HOURS = 20000.0 / 3600.0   # 5.556
 
 # Channels whose min/mean/max are worth putting in front of the model.
 _NUMERIC_COLS = [
@@ -77,11 +82,12 @@ SYSTEM_PROMPT = (
     "- Note that the first 128 simulated seconds of any mission have no AI "
     "output by design (model window fill), so early blanks are not a fault.\n"
     "- Be concise and specific. No preamble, no marketing language.\n"
-    "- UNITS: this simulation runs on a compressed timescale. Reason about and "
-    "quote `final_rul_real_world_hours` against `engine_tbo_real_hours`, and "
-    "`mission_duration_real_hours` for flight length. Never present a "
-    "`*_simulated_timescale` value as hours of real flight - they are ~360x "
-    "smaller.\n"
+    "- RUL: `final_rul_hours_model_scale` is on the MODEL's own compressed "
+    "scale, not real flight hours - never present it as real hours or convert "
+    "it. Judge it against `rul_model_ceiling_hours`, and prefer discussing the "
+    "health/RUL percentages. If `rul_is_extrapolated_beyond_ceiling` is true, "
+    "say plainly that the estimate lies beyond the model's trained range and "
+    "should be treated as indicative only.\n"
     "- The `units` object gives the unit of every channel. Use exactly those "
     "units and never convert or relabel them - temperatures are Celsius, not "
     "Fahrenheit. Airspeed may additionally be given in knots (1 m/s = 1.94 kt).\n"
@@ -155,17 +161,11 @@ def build_digest(sim_row: dict, log_rows: list[dict]) -> dict[str, Any]:
         "ai_warmup_rows_without_output": len(log_rows) - len(ai_rows),
         "fault_detected_rows": len(faults),
         "final_health_percent": sim_row.get("final_health_percent"),
-        # Both are given, clearly named. Handing over only the simulated figure
-        # made the model call a healthy 4.17 (= ~1,500 real hours against a
-        # 2,000h TBO) a "low RUL margin" - it read compressed hours as real ones.
-        "final_rul_hours_simulated_timescale": sim_row.get("final_rul_hours"),
-        "final_rul_real_world_hours": (
-            round(sim_row["final_rul_hours"] * TIME_SCALE, 1)
+        "final_rul_hours_model_scale": sim_row.get("final_rul_hours"),
+        "rul_model_ceiling_hours": round(MAX_SIM_LIFE_HOURS, 3),
+        "rul_is_extrapolated_beyond_ceiling": (
+            sim_row["final_rul_hours"] > MAX_SIM_LIFE_HOURS
             if isinstance(sim_row.get("final_rul_hours"), (int, float)) else None),
-        "engine_tbo_real_hours": ENGINE_TBO_HOURS,
-        "mission_duration_real_hours": (
-            round(max((r.get("time_offset_s") or 0) for r in log_rows) * TIME_SCALE / 3600.0, 2)
-            if log_rows else 0),
         "channels": {c: _stats(log_rows, c) for c in _NUMERIC_COLS},
     }
 

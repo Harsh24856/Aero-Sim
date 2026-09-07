@@ -8,7 +8,7 @@ import SimulatorDefault, { type SimTelemetry, type ResumeState } from "@/compone
 import Simulator912 from "@/components/Simulator_912";
 import Simulator915 from "@/components/Simulator_915";
 import Simulator916 from "@/components/Simulator_916";
-import Meters, { type RawTelemetry, mpsToKmh } from "@/components/Meters";
+import Meters, { type RawTelemetry, mpsToKnots } from "@/components/Meters";
 import Diagnostics, { type AiResult, type Advisory } from "@/components/Diagnostics";
 import { getPreset, legAt, presetDuration } from "@/lib/missionPresets";
 import Link from "next/link";
@@ -397,7 +397,7 @@ function SimulatePageInner() {
           </div>
           <div className="min-h-0" style={{ flex: '50 1 0%' }}>
             <Meters
-              speedKmh={liveTelemetry ? mpsToKmh(liveTelemetry.speed) : 0}
+              speedKnots={liveTelemetry ? mpsToKnots(liveTelemetry.speed) : 0}
               altitude={liveTelemetry?.altitude ?? 0}
               throttle={throttle}
               onThrottleChange={setThrottle}

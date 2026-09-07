@@ -7,7 +7,7 @@ import Navbar from "@/components/Navbar";
 import { supabase } from "@/lib/supabase";
 import { ArrowLeft, Play, Gauge, Thermometer, Activity, Fuel } from "lucide-react";
 import { simRulHoursToPercent } from "@/lib/timeScale";
-import { formatAirspeed, formatAirspeedSecondary, formatAltitude, formatAltitudeFeet, formatRulRealHours, tboReference } from "@/lib/units";
+import { formatAirspeed, formatAirspeedSecondary, formatAltitude, formatAltitudeFeet, formatRulSimHours, isRulExtrapolated } from "@/lib/units";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
@@ -217,7 +217,10 @@ export default function TelemetryDetailPage() {
                   </div>
                   {sim.final_rul_hours != null && (
                     <div className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mt-1">
-                      {formatRulRealHours(sim.final_rul_hours)} {tboReference()}
+                      {formatRulSimHours(sim.final_rul_hours)}
+                      {isRulExtrapolated(sim.final_rul_hours) && (
+                        <span className="text-tertiary"> &middot; extrapolated</span>
+                      )}
                     </div>
                   )}
                 </div>

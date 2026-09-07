@@ -14,7 +14,6 @@
  * alongside, since flight levels are universally read in feet.
  */
 
-import { simRulHoursToReal, ROTAX_914_TBO_HOURS } from "./timeScale";
 
 export const MS_TO_KNOTS = 1.943844;   // 1 m/s = 1.943844 kt
 export const MS_TO_KMH = 3.6;
@@ -52,27 +51,29 @@ export function formatAltitudeFeet(m: number | null | undefined): string {
 }
 
 /**
- * RUL in REAL-WORLD hours.
+ * RUL on the model's OWN scale, e.g. "4.17 sim h".
  *
- * ai.py's rul_hours_internal (stored as simulations.final_rul_hours) is on the
- * COMPRESSED simulated timescale and is documented as such at its source.
- * Printing it raw as "4.17 h" reads as four hours of flight left when it
- * actually represents ~1,501 real hours against a 2,000 h TBO - off by a factor
- * of 360. Always convert before showing it to a person.
+ * Deliberately NOT converted to real-world hours. timeScale.ts carries a
+ * TIME_SCALE that maps the training generator's 20,000s censoring cutoff onto
+ * the Rotax 2,000h TBO, but that equivalence is an assumption, not a measured
+ * property of the model - and applying it to RUL breaks badly at the top end:
+ * ai.py's meaningful ceiling is MAX_SIM_LIFE_HOURS = 20000/3600 = 5.556 sim h,
+ * yet 29 of 143 recorded runs sit ABOVE it (max 546.6) because the model
+ * extrapolates. Scaling 546.6 by 360 would print ~197,000 hours of remaining
+ * life with a straight face.
+ *
+ * So hours are shown on the model's native scale and the percentage - which
+ * ai.py computes itself, self-normalising against the flight's own implied
+ * life - is the single number used for comparison everywhere.
  */
-export function formatRulRealHours(simRulHours: number | null | undefined): string {
+export function formatRulSimHours(simRulHours: number | null | undefined): string {
   if (simRulHours == null || Number.isNaN(simRulHours)) return "--";
-  return `${nf(simRulHoursToReal(simRulHours))} h`;
+  return `${nf(simRulHours, 2)} sim h`;
 }
 
-/** e.g. "of 2,000 h TBO" - the reference the number above should be read against. */
-export function tboReference(): string {
-  return `of ${nf(ROTAX_914_TBO_HOURS)} h TBO`;
-}
+/** ai.py's MAX_SIM_LIFE_HOURS - beyond this the model is extrapolating. */
+export const MAX_SIM_LIFE_HOURS = 20000 / 3600;
 
-/** RUL as a share of the engine's real TBO, e.g. "75%". */
-export function formatRulTboPercent(simRulHours: number | null | undefined): string {
-  if (simRulHours == null || Number.isNaN(simRulHours)) return "--";
-  const pct = (simRulHoursToReal(simRulHours) / ROTAX_914_TBO_HOURS) * 100;
-  return `${nf(Math.max(0, Math.min(100, pct)), 0)}%`;
+export function isRulExtrapolated(simRulHours: number | null | undefined): boolean {
+  return simRulHours != null && simRulHours > MAX_SIM_LIFE_HOURS;
 }
