@@ -165,3 +165,43 @@ def save_groq_result(simulation_id: int, payload: dict) -> None:
         _client.table("simulations").update({"groq_result": payload}).eq("id", simulation_id).execute()
     except Exception as e:
         print(f"[db] save_groq_result failed: {e}")
+
+
+def get_max_time_offset(simulation_id: int) -> float:
+    """Highest time_offset_s already logged for a run, or 0.0 if none.
+
+    Used when resuming: telemetry for the continued flight must carry on from
+    where the previous session stopped, not restart at 0, or the run's chart
+    would fold back over itself.
+    """
+    if not _enabled or simulation_id is None:
+        return 0.0
+    try:
+        result = (_client.table("telemetry_logs")
+                  .select("time_offset_s")
+                  .eq("simulation_id", simulation_id)
+                  .order("time_offset_s", desc=True)
+                  .limit(1)
+                  .execute())
+        rows = result.data or []
+        return float(rows[0]["time_offset_s"]) if rows else 0.0
+    except Exception as e:
+        print(f"[db] get_max_time_offset failed: {e}")
+        return 0.0
+
+
+def reopen_simulation(simulation_id: int) -> None:
+    """Mark a previously-stopped run as running again (resume continues it).
+
+    Clears ended_at/outcome so the run does not read as finished while it is
+    actively flying. end_simulation() will set them again at the next stop.
+    """
+    if not _enabled or simulation_id is None:
+        return
+    try:
+        _client.table("simulations").update({
+            "ended_at": None,
+            "outcome": "resumed",
+        }).eq("id", simulation_id).execute()
+    except Exception as e:
+        print(f"[db] reopen_simulation failed: {e}")

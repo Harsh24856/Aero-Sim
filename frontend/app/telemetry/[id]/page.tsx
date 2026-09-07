@@ -23,6 +23,10 @@ type Simulation = {
   final_health_percent: number | null;
   final_rul_hours: number | null;
   final_telemetry: Record<string, unknown> | null;
+  groq_result: {
+    status?: string; headline?: string; summary?: string; risk?: string; model?: string;
+    findings?: string[]; recommendations?: string[];
+  } | null;
 };
 
 type LogRow = {
@@ -59,7 +63,7 @@ export default function TelemetryDetailPage() {
       // rather than leaking whether the id exists at all.
       const { data, error } = await supabase
         .from("simulations")
-        .select("id, user_id, engine_model, started_at, ended_at, outcome, final_health_percent, final_rul_hours, final_telemetry")
+        .select("id, user_id, engine_model, started_at, ended_at, outcome, final_health_percent, final_rul_hours, final_telemetry, groq_result")
         .eq("id", id)
         .single();
       if (cancelled) return;
@@ -179,6 +183,14 @@ export default function TelemetryDetailPage() {
                     <span className="text-[11px] text-on-surface-variant/60">No saved state to resume from</span>
                   )}
                   {resumeError && <span className="text-[11px] text-red-400">{resumeError}</span>}
+                  <div className="flex gap-3">
+                    <Link href={`/mission/replay/${sim.id}`} className="text-[10px] font-bold uppercase tracking-[0.1em] text-tertiary hover:brightness-125">
+                      Replay
+                    </Link>
+                    <Link href={`/mission/report/${sim.id}`} className="text-[10px] font-bold uppercase tracking-[0.1em] text-on-surface-variant hover:text-primary">
+                      Full report
+                    </Link>
+                  </div>
                 </div>
               </header>
 
@@ -194,6 +206,39 @@ export default function TelemetryDetailPage() {
                   </div>
                 </div>
               </div>
+
+              {sim.groq_result?.status === "ok" && (
+                <div className="mb-8 bg-surface/80 border border-outline-variant/30 rounded-lg p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
+                    <h2 className="text-sm font-bold text-primary uppercase tracking-[0.1em]">Post-Flight Analysis</h2>
+                    {sim.groq_result.risk && (
+                      <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-tertiary">
+                        {sim.groq_result.risk} risk
+                      </span>
+                    )}
+                  </div>
+                  {/* Plain text - third-party model output. */}
+                  <p className="text-[14px] font-bold text-primary leading-snug mb-1.5">{sim.groq_result.headline}</p>
+                  <p className="text-[13px] leading-relaxed text-on-surface-variant">{sim.groq_result.summary}</p>
+                  <Link href={`/mission/report/${sim.id}`} className="mt-3 inline-block text-[10px] font-bold uppercase tracking-[0.1em] text-tertiary hover:brightness-125">
+                    Findings and recommendations &rarr;
+                  </Link>
+                </div>
+              )}
+
+              {/* The health/RUL traces below break wherever the AI produced no
+                  output. That happens for the first 128 simulated seconds of a
+                  flight while the model's window fills, and again after every
+                  resume, because continuing a flight restarts that window. The
+                  gaps are real absences of data, not dropouts - so the lines are
+                  drawn broken rather than interpolated across them. */}
+              {chartData.length > 1 && chartData.some((d) => d.health === undefined) && (
+                <div className="mb-4 text-[11px] text-on-surface-variant/80 leading-relaxed">
+                  Gaps in the health and RUL traces are the AI&rsquo;s 128-second window fill &mdash;
+                  at the start of the flight, and again after each resume. No diagnosis exists
+                  for those stretches, so the lines are broken rather than interpolated.
+                </div>
+              )}
 
               {chartData.length > 1 && (
                 <div className="mb-8 bg-surface/80 border border-outline-variant/30 rounded-lg p-5">
