@@ -70,6 +70,19 @@ function SimulatePageInner() {
   const [aiResult, setAiResult] = useState<AiResult | null>(null);
   const [advisory, setAdvisory] = useState<Advisory | null>(null);
   const [legIndex, setLegIndex] = useState(0);
+  // Mission autopilot. Engaged by default for a profile run; the pilot can hand
+  // themselves the controls at any moment, and once disengaged the profile stops
+  // commanding anything - taking over must actually mean taking over.
+  const [autopilotOn, setAutopilotOn] = useState(true);
+  // Simulated time at which the profile's clock starts.
+  //
+  // main.py fast-forwards the first 128 simulated seconds so the AI's window
+  // fills without waiting 128 real ones. rawTelemetry.time therefore leaps
+  // during warmup, and keying legs straight off it burned through the opening
+  // legs of every profile in a few real seconds - a High Altitude run reached
+  // leg 3 of 3 in about twenty. The profile clock starts when the AI goes live,
+  // so each leg gets the duration it asks for.
+  const missionT0 = useRef<number | null>(null);
   const [rawTelemetry, setRawTelemetry] = useState<RawTelemetry | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -166,25 +179,36 @@ function SimulatePageInner() {
   // physics briefly falls behind real time. Setting throttle/airspeed here is
   // exactly what a human would do with the cockpit controls; nothing bypasses
   // the normal /params path.
-  const activeLeg = preset ? legAt(preset, rawTelemetry?.time ?? 0) : null;
+  // Latch the profile's zero once the AI is producing output.
   useEffect(() => {
-    if (!preset || !started || paused || resumePending) return;
-    const { leg, index } = legAt(preset, rawTelemetry?.time ?? 0);
+    if (!preset || !started) { return; }
+    if (missionT0.current === null && aiResult?.status === "ok" && rawTelemetry?.time != null) {
+      missionT0.current = rawTelemetry.time;
+    }
+  }, [preset, started, aiResult?.status, rawTelemetry?.time]);
+  useEffect(() => { if (!started) missionT0.current = null; }, [started]);
+
+  const missionElapsed =
+    missionT0.current === null ? 0 : Math.max(0, (rawTelemetry?.time ?? 0) - missionT0.current);
+  const activeLeg = preset ? legAt(preset, missionElapsed) : null;
+  useEffect(() => {
+    if (!preset || !autopilotOn || !started || paused || resumePending) return;
+    const { leg, index } = legAt(preset, missionElapsed);
     if (index === legIndex) return;
     setLegIndex(index);
     setThrottle(Math.round(leg.throttle * 100));
     setAirspeedTarget(leg.airspeed);
-  }, [preset, started, paused, resumePending, rawTelemetry?.time, legIndex]);
+  }, [preset, autopilotOn, started, paused, resumePending, missionElapsed, legIndex]);
 
   // Apply the opening leg's setpoints as soon as a profile run starts.
   useEffect(() => {
-    if (!preset || !started || resumePending) return;
+    if (!preset || !autopilotOn || !started || resumePending) return;
     const first = preset.legs[0];
     setThrottle(Math.round(first.throttle * 100));
     setAirspeedTarget(first.airspeed);
     // Intentionally only on transition into `started` for a profile run.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [preset, started, resumePending]);
+  }, [preset, autopilotOn, started, resumePending]);
 
   // AoA comes directly from Simulator's pitch (see Simulator.tsx's formatPitch -
   // altitude changes there produce a pitch angle, which IS our AoA). Forwarded to
@@ -207,13 +231,13 @@ function SimulatePageInner() {
         // Mission-profile environment. Undefined outside a profile run, and
         // ParamUpdate leaves the twin's value untouched when it is null, so a
         // normal flight stays on a standard day.
-        isa_dev_c: activeLeg?.leg.isaDevC ?? 0,
+        isa_dev_c: (autopilotOn ? activeLeg?.leg.isaDevC : undefined) ?? 0,
       }),
     }).catch(() => {
       // Backend not running is not a reason to break the local simulator display -
       // degrade gracefully, same pattern used in ai.py's own error handling.
     });
-  }, [started, paused, liveTelemetry, throttle, resumePending, activeLeg?.leg.isaDevC]);
+  }, [started, paused, liveTelemetry, throttle, resumePending, autopilotOn, activeLeg?.leg.isaDevC]);
 
   // Simulating now requires being signed in - checked here (the actual
   // enforcement point) rather than only hiding/disabling the button, since a
@@ -379,6 +403,34 @@ function SimulatePageInner() {
         {/* Center column: simulator on top, meters (ring gauge + controls) below.
             min-h-0 on each so flex children actually shrink to fit. */}
         <div className="flex min-h-0 flex-col gap-2">
+          {/* Mission strip: which profile is flying, which leg, and who has
+              control. Only present on a profile run. */}
+          {preset && (
+            <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 rounded border border-[#4c3025] bg-[#140f0c] px-2.5 py-1.5">
+              <div className="flex items-baseline gap-2 min-w-0">
+                <span className="text-[8px] uppercase tracking-[0.12em] text-[#bca18e] md:text-[9px]">Mission</span>
+                <span className="truncate text-[11px] font-bold text-[#efe0d5] md:text-[13px]">{preset.name}</span>
+                {activeLeg && (
+                  <span className="truncate text-[9px] text-[#aa8f7f] md:text-[11px]">
+                    Leg {activeLeg.index + 1}/{preset.legs.length} &middot; {activeLeg.leg.label}
+                    {" \u00b7 "}{Math.round(activeLeg.leg.altitude)} m
+                    {" \u00b7 "}{Math.round(activeLeg.leg.throttle * 100)}%
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className={`text-[8px] font-bold uppercase tracking-[0.12em] md:text-[9px] ${autopilotOn ? "text-[#7fc87f]" : "text-[#ff9a72]"}`}>
+                  {autopilotOn ? "Autopilot engaged" : "Manual control"}
+                </span>
+                <button
+                  onClick={() => setAutopilotOn((v) => !v)}
+                  className="rounded border border-[#4c3025] bg-[#1a110d] px-2.5 py-1 text-[8px] font-bold uppercase tracking-[0.12em] text-[#e8c9a0] transition-colors hover:text-[#ff8050] md:text-[9px]"
+                >
+                  {autopilotOn ? "Take control" : "Re-engage"}
+                </button>
+              </div>
+            </div>
+          )}
           <div className="min-h-0" style={{ flex: '50 1 0%' }}>
             {resumePending ? (
               <div className="flex h-full items-center justify-center rounded border border-outline-variant/30 bg-black/40 text-[11px] uppercase tracking-[0.15em] text-tertiary">
@@ -386,6 +438,7 @@ function SimulatePageInner() {
               </div>
             ) : (
             <ActiveSimulator
+              autopilot={!!preset && autopilotOn}
               altitudeTarget={activeLeg?.leg.altitude}
               onTelemetryChange={onTelemetryChange}
               throttle={throttle}
