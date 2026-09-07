@@ -59,7 +59,11 @@ function SimulatePageInner() {
   // entirely outside the AI's training distribution (0% of training rows are
   // below 0.10 throttle), which made every prediction an extrapolation.
   const [throttle, setThrottle] = useState(35);
-  const [airspeedTarget, setAirspeedTarget] = useState(30); // m/s
+  // 35 m/s = SPEED_MIN, the stall floor the simulator enforces in manual flight
+  // (Simulator.tsx). The old 30 m/s default sat BELOW that floor, so the speed
+  // slider opened with its readout and its thumb disagreeing - the thumb pinned
+  // at the floor while the output showed a value the control could not express.
+  const [airspeedTarget, setAirspeedTarget] = useState(35); // m/s
   const [started, setStarted] = useState(false);
   const [paused, setPaused] = useState(false);
   const [liveTelemetry, setLiveTelemetry] = useState<SimTelemetry | null>(null);
