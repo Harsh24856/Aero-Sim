@@ -51,6 +51,13 @@ else:
     print("[summary] GROQ_API_KEY not set - post-flight summaries disabled (this is fine).")
 
 
+# Simulated -> real-world scale. Mirrors frontend/lib/timeScale.ts: the training
+# generator's 20,000s censoring cutoff is treated as one full wear-to-failure
+# cycle mapped onto the Rotax 914's real 2,000h TBO. Kept here so the model is
+# handed hours a maintainer would recognise instead of compressed ones.
+ENGINE_TBO_HOURS = 2000.0
+TIME_SCALE = ENGINE_TBO_HOURS / (20000.0 / 3600.0)   # = 360
+
 # Channels whose min/mean/max are worth putting in front of the model.
 _NUMERIC_COLS = [
     "altitude", "throttle", "airspeed", "engine_rpm", "power_kw", "fuel_flow",
@@ -70,6 +77,14 @@ SYSTEM_PROMPT = (
     "- Note that the first 128 simulated seconds of any mission have no AI "
     "output by design (model window fill), so early blanks are not a fault.\n"
     "- Be concise and specific. No preamble, no marketing language.\n"
+    "- UNITS: this simulation runs on a compressed timescale. Reason about and "
+    "quote `final_rul_real_world_hours` against `engine_tbo_real_hours`, and "
+    "`mission_duration_real_hours` for flight length. Never present a "
+    "`*_simulated_timescale` value as hours of real flight - they are ~360x "
+    "smaller.\n"
+    "- The `units` object gives the unit of every channel. Use exactly those "
+    "units and never convert or relabel them - temperatures are Celsius, not "
+    "Fahrenheit. Airspeed may additionally be given in knots (1 m/s = 1.94 kt).\n"
     "- At most 5 findings and 5 recommendations.\n\n"
     "Return ONE JSON object, exactly this shape. `findings` and `recommendations` are "
     "each a SINGLE flat array of strings - not an array per item:\n"
@@ -122,6 +137,16 @@ def build_digest(sim_row: dict, log_rows: list[dict]) -> dict[str, Any]:
     faults = [r for r in log_rows if r.get("fault_detected")]
 
     digest: dict[str, Any] = {
+        # Stated explicitly because the model otherwise guesses: it rendered a
+        # 752 C EGT as "752 F" when left to infer units from the key name alone.
+        "units": {
+            "altitude": "m", "airspeed": "m/s", "throttle": "fraction 0-1",
+            "engine_rpm": "rpm", "power_kw": "kW", "fuel_flow": "L/h",
+            "thrust": "N", "egt": "deg C", "cht": "deg C",
+            "oil_pressure": "psi", "oil_temp": "deg C",
+            "vibx": "g", "viby": "g", "vibz": "g",
+            "health_percent": "percent", "rul_percent_remaining": "percent",
+        },
         "engine_model": sim_row.get("engine_model"),
         "outcome": sim_row.get("outcome"),
         "duration_simulated_seconds": max((r.get("time_offset_s") or 0) for r in log_rows) if log_rows else 0,
@@ -130,7 +155,17 @@ def build_digest(sim_row: dict, log_rows: list[dict]) -> dict[str, Any]:
         "ai_warmup_rows_without_output": len(log_rows) - len(ai_rows),
         "fault_detected_rows": len(faults),
         "final_health_percent": sim_row.get("final_health_percent"),
+        # Both are given, clearly named. Handing over only the simulated figure
+        # made the model call a healthy 4.17 (= ~1,500 real hours against a
+        # 2,000h TBO) a "low RUL margin" - it read compressed hours as real ones.
         "final_rul_hours_simulated_timescale": sim_row.get("final_rul_hours"),
+        "final_rul_real_world_hours": (
+            round(sim_row["final_rul_hours"] * TIME_SCALE, 1)
+            if isinstance(sim_row.get("final_rul_hours"), (int, float)) else None),
+        "engine_tbo_real_hours": ENGINE_TBO_HOURS,
+        "mission_duration_real_hours": (
+            round(max((r.get("time_offset_s") or 0) for r in log_rows) * TIME_SCALE / 3600.0, 2)
+            if log_rows else 0),
         "channels": {c: _stats(log_rows, c) for c in _NUMERIC_COLS},
     }
 
