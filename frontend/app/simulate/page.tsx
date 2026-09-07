@@ -198,12 +198,16 @@ function SimulatePageInner() {
         throttle: throttle / 100,
         airspeed: liveTelemetry.speed,
         aoa: liveTelemetry.pitch,
+        // Mission-profile environment. Undefined outside a profile run, and
+        // ParamUpdate leaves the twin's value untouched when it is null, so a
+        // normal flight stays on a standard day.
+        isa_dev_c: activeLeg?.leg.isaDevC ?? 0,
       }),
     }).catch(() => {
       // Backend not running is not a reason to break the local simulator display -
       // degrade gracefully, same pattern used in ai.py's own error handling.
     });
-  }, [started, paused, liveTelemetry, throttle, resumePending]);
+  }, [started, paused, liveTelemetry, throttle, resumePending, activeLeg?.leg.isaDevC]);
 
   // Simulating now requires being signed in - checked here (the actual
   // enforcement point) rather than only hiding/disabling the button, since a

@@ -208,6 +208,24 @@ def build_advisory(ai_result: Optional[dict], telemetry: Optional[dict]) -> dict
             "action": "Increase airspeed for cooling or reduce power; inspect oil cooler after recovery.",
         })
 
+    # Environmental envelope. air_density is an AI input, so when a hot/cold-day
+    # setting drives it outside the range present in training, the diagnostics
+    # downstream are extrapolations. Say so rather than presenting them as equal
+    # in confidence to an in-envelope reading.
+    if telemetry is not None and telemetry.get("density_in_envelope") is False:
+        rho = _f(telemetry, "air_density")
+        amb = _f(telemetry, "ambient_temp_c")
+        items.append({
+            "code": "ENV_OUT_OF_ENVELOPE", "channel": None, "subsystem": "Diagnostic validity",
+            "severity": "advisory",
+            "message": (
+                f"Air density {rho:.3f} kg/m3"
+                + (f" at {amb:.0f} C ambient" if amb is not None else "")
+                + " is outside the 0.521-1.225 range seen in training."
+            ),
+            "action": "Treat health and RUL as extrapolated while these conditions hold.",
+        })
+
     if telemetry and telemetry.get("failed"):
         items.append({
             "code": "ENGINE_FAILED", "channel": None, "subsystem": "Powerplant",

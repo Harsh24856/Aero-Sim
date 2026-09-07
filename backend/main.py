@@ -109,6 +109,9 @@ class ParamUpdate(BaseModel):
     throttle: Optional[float] = None
     airspeed: Optional[float] = None
     aoa: Optional[float] = None
+    # ISA temperature deviation in degrees C (hot/cold day). Clamped in the
+    # handler. Deliberately NOT an AI feature - see AI_FEATURE_COLS.
+    isa_dev_c: Optional[float] = None
 
 
 async def broadcast(msg: dict):
@@ -451,6 +454,7 @@ async def resume_sim(req: ResumeRequest):
         "restored_throttle": twin.throttle,
         "restored_airspeed": twin.airspeed,
         "restored_aoa": twin.aoa,
+        "restored_isa_dev_c": twin.isa_dev_c,
         "restored_wear": twin.wear,
     }
 
@@ -466,6 +470,12 @@ async def update_params(p: ParamUpdate):
         twin.airspeed = p.airspeed
     if p.aoa is not None:
         twin.aoa = p.aoa
+    if p.isa_dev_c is not None:
+        # Bounds are a sanity range on the INPUT, not a guarantee about the AI's
+        # trained envelope: clamping isa_dev_c cannot keep air_density inside
+        # [0.5206, 1.2250], since that also depends on altitude. The twin reports
+        # density_in_envelope per step and the UI warns on it.
+        twin.isa_dev_c = max(-30.0, min(50.0, p.isa_dev_c))
     return {"status": "ok", "altitude": twin.altitude, "throttle": twin.throttle,
             "airspeed": twin.airspeed, "aoa": twin.aoa}
 
@@ -498,7 +508,8 @@ async def get_state():
         "engine_model": CURRENT_ENGINE_MODEL,
         "ai_valid": CURRENT_ENGINE_MODEL in AI_VALID_ENGINES,
         "params": {"altitude": twin.altitude, "throttle": twin.throttle,
-                    "airspeed": twin.airspeed, "aoa": twin.aoa},
+                    "airspeed": twin.airspeed, "aoa": twin.aoa,
+                    "isa_dev_c": twin.isa_dev_c},
         "telemetry": state["last_telemetry"],
         "ai": state["last_ai_result"],
         "advisory": advisory.build_advisory(state["last_ai_result"], state["last_telemetry"]),
