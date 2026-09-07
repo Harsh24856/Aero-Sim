@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from physics import UAVEngineTwin, ENGINE_CONFIGS
 import db
 import advisory
+import summary
 
 # ai.py runs as its OWN process under a different Python environment (see ai.py's
 # module docstring - the models segfault under this backend's TF version). Calls are
@@ -242,6 +243,10 @@ async def start_sim(req: StartRequest = StartRequest()):
     return {"status": "started", "simulation_id": state["simulation_id"]}
 
 
+class SummarizeRequest(BaseModel):
+    user_id: str
+
+
 class StopRequest(BaseModel):
     # False = this is a PAUSE, not a genuine stop - the frontend's onTogglePause
     # sends final=false, since the physics session should still be resumable
@@ -266,6 +271,15 @@ async def stop_sim(req: StopRequest = StopRequest()):
         await asyncio.to_thread(
             db.end_simulation, state["simulation_id"], "stopped",
             ai.get("health_percent"), ai.get("rul_hours_internal"), state["last_telemetry"])
+        # Post-flight narrative summary. Fire-and-forget ON PURPOSE: /stop is also
+        # reached via navigator.sendBeacon on pagehide, which cannot consume a
+        # response at all, and the Stop button awaits res.ok - so a synchronous
+        # LLM call here would add seconds of latency to a working path and make
+        # it depend on a third-party API. The frontend polls Supabase for the
+        # result instead. Captured into a local first because the next line
+        # clears state["simulation_id"] before the task ever runs.
+        _sim_id = state["simulation_id"]
+        asyncio.create_task(asyncio.to_thread(summary.generate_summary, _sim_id))
         state["simulation_id"] = None
     return {"status": "stopped", "final": req.final}
 
@@ -459,6 +473,22 @@ async def update_params(p: ParamUpdate):
 # NOTE: manual fault triggering was removed. Faults are now fully auto-derived from
 # operating conditions (throttle/altitude/airspeed -> RPM/power -> stress -> fault) in
 # physics.py:_auto_fault_step, evaluated every simulation step.
+
+
+@app.post("/summarize/{sim_id}")
+async def summarize(sim_id: int, req: SummarizeRequest):
+    """Regenerate the post-flight summary for a run the caller owns."""
+    row = await asyncio.to_thread(db.get_simulation, sim_id)
+    if not row:
+        return {"status": "error", "detail": "simulation not found"}
+    if row.get("user_id") != req.user_id:
+        # Same shape as a missing row on purpose - do not confirm existence of
+        # another user's run.
+        return {"status": "error", "detail": "simulation not found"}
+    result = await asyncio.to_thread(summary.generate_summary, sim_id)
+    if not result:
+        return {"status": "error", "detail": "summary unavailable"}
+    return {"status": "ok", "groq_result": result}
 
 
 @app.get("/state")

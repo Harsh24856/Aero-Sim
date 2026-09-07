@@ -133,3 +133,35 @@ def get_simulation(simulation_id: int) -> dict | None:
     except Exception as e:
         print(f"[db] get_simulation failed: {e}")
         return None
+
+
+def get_telemetry_rows(simulation_id: int) -> list[dict]:
+    """Every per-second row for one run, oldest first.
+
+    service_role, so this bypasses RLS - callers must have already established
+    that the requester owns the run (main.py does this for /summarize, and the
+    /stop hook only ever passes an id it just created itself).
+    """
+    if not _enabled:
+        return []
+    try:
+        result = (_client.table("telemetry_logs")
+                  .select("*")
+                  .eq("simulation_id", simulation_id)
+                  .order("time_offset_s", desc=False)
+                  .limit(5000)
+                  .execute())
+        return result.data or []
+    except Exception as e:
+        print(f"[db] get_telemetry_rows failed: {e}")
+        return []
+
+
+def save_groq_result(simulation_id: int, payload: dict) -> None:
+    """Persist the post-flight narrative summary onto the run row."""
+    if not _enabled:
+        return
+    try:
+        _client.table("simulations").update({"groq_result": payload}).eq("id", simulation_id).execute()
+    except Exception as e:
+        print(f"[db] save_groq_result failed: {e}")

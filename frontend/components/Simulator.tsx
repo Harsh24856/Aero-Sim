@@ -193,6 +193,9 @@ export type SimulatorProps = {
   paused: boolean;
   onStop: () => void;
   initialState?: ResumeState | null;
+  /** Mission-profile climb ceiling. Defaults to AUTO_CLIMB_TARGET so an
+   *  ordinary (non-preset) launch behaves exactly as before. */
+  altitudeTarget?: number;
 };
 
 /* ───────────────────────────────────────────────────────────────
@@ -208,6 +211,7 @@ function FlightApproachGame({
   paused,
   onStop,
   initialState,
+  altitudeTarget,
 }: SimulatorProps) {
   // Ridge data: filled shapes AND open crest paths for highlights
   const farData = useMemo(() => tiledRidgePathData(11, WORLD_W, 9, 300, 40, 110), []);
@@ -248,10 +252,12 @@ function FlightApproachGame({
   // loop reads current values without restarting its effect.
   const throttleRef = useRef(throttle);
   const airspeedTargetRef = useRef(airspeedTarget);
+  const altitudeTargetRef = useRef(altitudeTarget ?? AUTO_CLIMB_TARGET);
   const startedRef = useRef(started);
   const pausedRef = useRef(paused);
   useEffect(() => { throttleRef.current = throttle; }, [throttle]);
   useEffect(() => { airspeedTargetRef.current = airspeedTarget; }, [airspeedTarget]);
+  useEffect(() => { altitudeTargetRef.current = altitudeTarget ?? AUTO_CLIMB_TARGET; }, [altitudeTarget]);
   useEffect(() => { startedRef.current = started; }, [started]);
   useEffect(() => { pausedRef.current = paused; }, [paused]);
 
@@ -342,8 +348,8 @@ function FlightApproachGame({
           // ramps up to the airspeed target; pitch holds a gentle
           // nose-up angle.
           alt += AUTO_CLIMB_RATE * dt;
-          if (alt >= AUTO_CLIMB_TARGET) {
-            alt = AUTO_CLIMB_TARGET;
+          if (alt >= altitudeTargetRef.current) {
+            alt = altitudeTargetRef.current;
             autoClimbRef.current = false;
           }
 
