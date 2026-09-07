@@ -6,8 +6,8 @@ import Link from "next/link";
 import { ArrowLeft, Film, RefreshCw, Sparkles, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import Navbar from "@/components/Navbar";
-import { simSecondsToRealHours } from "@/lib/timeScale";
-import { formatRulRealHours, formatRulTboPercent, tboReference } from "@/lib/units";
+import { simSecondsToRealHours, simRulHoursToPercent } from "@/lib/timeScale";
+import { formatRulSimHours, isRulExtrapolated } from "@/lib/units";
 
 const API = "http://localhost:8000";
 
@@ -165,13 +165,19 @@ export default function MissionReportPage() {
                 </div>
                 <div className="bg-surface/80 border border-outline-variant/30 rounded-lg p-5">
                   <div className="text-[11px] uppercase tracking-[0.1em] text-on-surface-variant">Final RUL</div>
-                  {/* final_rul_hours is on the COMPRESSED simulated timescale. Printed
-                      raw it reads as a few hours of flight left when it actually means
-                      ~1,500 real hours - a factor of 360 out. Always converted here. */}
-                  <div className="text-3xl font-bold text-primary">{formatRulRealHours(sim.final_rul_hours)}</div>
+                  {/* Same self-normalising percentage ai.py computes and the cockpit
+                      shows - one scale everywhere. Raw hours are given on the model's
+                      OWN scale underneath; they are not converted to real-world hours,
+                      because that mapping breaks above ai.py's 5.556 sim h ceiling. */}
+                  <div className="text-3xl font-bold text-primary">
+                    {sim.final_rul_hours === null ? "--" : `${Math.min(100, simRulHoursToPercent(sim.final_rul_hours, simSeconds ?? undefined)).toFixed(0)}%`}
+                  </div>
                   {sim.final_rul_hours !== null && (
                     <div className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mt-1">
-                      {formatRulTboPercent(sim.final_rul_hours)} {tboReference()}
+                      {formatRulSimHours(sim.final_rul_hours)}
+                      {isRulExtrapolated(sim.final_rul_hours) && (
+                        <span className="text-tertiary"> &middot; extrapolated</span>
+                      )}
                     </div>
                   )}
                 </div>
