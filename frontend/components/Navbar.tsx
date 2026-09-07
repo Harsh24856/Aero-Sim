@@ -62,6 +62,17 @@ export default function Navbar() {
           </Link>
 
           <Link
+            href="/mission"
+            className={`font-label-caps text-[11px] tracking-[0.1em] font-bold uppercase pb-1 flex items-center transition-colors duration-200 ${
+              pathname?.startsWith("/mission")
+                ? "text-tertiary border-b-2 border-tertiary"
+                : "text-on-surface-variant hover:text-primary"
+            }`}
+          >
+            Mission
+          </Link>
+
+          <Link
             href="/telemetry"
             className={`font-label-caps text-[11px] tracking-[0.1em] font-bold uppercase pb-1 flex items-center transition-colors duration-200 ${
               pathname?.startsWith("/telemetry")

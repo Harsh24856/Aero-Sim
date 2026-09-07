@@ -10,6 +10,7 @@ import Simulator915 from "@/components/Simulator_915";
 import Simulator916 from "@/components/Simulator_916";
 import Meters, { type RawTelemetry, mpsToKmh } from "@/components/Meters";
 import Diagnostics, { type AiResult, type Advisory } from "@/components/Diagnostics";
+import { getPreset, legAt, presetDuration } from "@/lib/missionPresets";
 import { supabase } from "@/lib/supabase";
 import { simSecondsToRealHours } from "@/lib/timeScale";
 
@@ -35,6 +36,10 @@ function SimulatePageInner() {
   // airspeed/wear/RUL) and started the physics loop before navigating here. This
   // page must therefore ADOPT that state rather than begin a fresh takeoff.
   const isResume = searchParams.get("resumed") === "1";
+  // Mission profile (PS section E). A resumed session never plays a profile:
+  // resuming must adopt the stored state, and a profile would immediately
+  // overwrite it - the same class of bug the auto-climb guard above fixes.
+  const preset = isResume ? null : getPreset(searchParams.get("preset"));
 
   // Simulating requires being signed in - null while the initial session check is
   // still in flight (so Start does not briefly appear usable before we actually
@@ -59,6 +64,7 @@ function SimulatePageInner() {
   const [liveTelemetry, setLiveTelemetry] = useState<SimTelemetry | null>(null);
   const [aiResult, setAiResult] = useState<AiResult | null>(null);
   const [advisory, setAdvisory] = useState<Advisory | null>(null);
+  const [legIndex, setLegIndex] = useState(0);
   const [rawTelemetry, setRawTelemetry] = useState<RawTelemetry | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -148,6 +154,31 @@ function SimulatePageInner() {
   }, []);
 
   const onTelemetryChange = useCallback((t: SimTelemetry) => setLiveTelemetry(t), []);
+
+  // Mission-profile leg advance. Keyed off rawTelemetry.time - the twin's own
+  // simulated clock - not wall-clock, so a leg boundary stays correct even if
+  // physics briefly falls behind real time. Setting throttle/airspeed here is
+  // exactly what a human would do with the cockpit controls; nothing bypasses
+  // the normal /params path.
+  const activeLeg = preset ? legAt(preset, rawTelemetry?.time ?? 0) : null;
+  useEffect(() => {
+    if (!preset || !started || paused || resumePending) return;
+    const { leg, index } = legAt(preset, rawTelemetry?.time ?? 0);
+    if (index === legIndex) return;
+    setLegIndex(index);
+    setThrottle(Math.round(leg.throttle * 100));
+    setAirspeedTarget(leg.airspeed);
+  }, [preset, started, paused, resumePending, rawTelemetry?.time, legIndex]);
+
+  // Apply the opening leg's setpoints as soon as a profile run starts.
+  useEffect(() => {
+    if (!preset || !started || resumePending) return;
+    const first = preset.legs[0];
+    setThrottle(Math.round(first.throttle * 100));
+    setAirspeedTarget(first.airspeed);
+    // Intentionally only on transition into `started` for a profile run.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preset, started, resumePending]);
 
   // AoA comes directly from Simulator's pitch (see Simulator.tsx's formatPitch -
   // altitude changes there produce a pitch angle, which IS our AoA). Forwarded to
@@ -317,6 +348,7 @@ function SimulatePageInner() {
               </div>
             ) : (
             <ActiveSimulator
+              altitudeTarget={activeLeg?.leg.altitude}
               onTelemetryChange={onTelemetryChange}
               throttle={throttle}
               onThrottleChange={setThrottle}
