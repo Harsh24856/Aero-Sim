@@ -284,7 +284,11 @@ async def stop_sim(req: StopRequest = StopRequest()):
         _sim_id = state["simulation_id"]
         asyncio.create_task(asyncio.to_thread(summary.generate_summary, _sim_id))
         state["simulation_id"] = None
-    return {"status": "stopped", "final": req.final}
+        # Returned so the caller can poll for the summary that the task above is
+        # generating. /stop previously returned no id at all, which left the
+        # frontend with no way to find the row it had just closed.
+        return {"status": "stopped", "final": req.final, "simulation_id": _sim_id}
+    return {"status": "stopped", "final": req.final, "simulation_id": None}
 
 
 @app.post("/reset")
