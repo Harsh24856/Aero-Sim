@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, FileText } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileText, Wrench } from "lucide-react";
 import { simSecondsToRealHours } from "@/lib/timeScale";
 
 export type AiDiagnosisChannel = { fault_type: string; confidence: number };
@@ -16,9 +16,38 @@ export type AiResult = {
   steps_needed?: number;
 };
 
+// Mirrors backend/advisory.py build_advisory(). Deterministic, computed
+// backend-side every broadcast - no network call of its own.
+export type AdvisoryItem = {
+  code: string;
+  channel: string | null;
+  subsystem: string;
+  severity: AdvisorySeverity;
+  message: string;
+  action: string;
+};
+export type AdvisorySeverity = "nominal" | "advisory" | "caution" | "warning";
+export type Advisory = {
+  severity: AdvisorySeverity;
+  headline: string;
+  insufficient_data?: boolean;
+  items?: AdvisoryItem[];
+};
+
 export type DiagnosticsProps = {
   ai?: AiResult | null;
+  advisory?: Advisory | null;
   simSeconds?: number;   // live elapsed simulated flight time (rawTelemetry.time)
+};
+
+// Cockpit palette per severity. Kept local to this file on purpose: the
+// telemetry pages use design tokens (bg-surface/outline-variant) while this
+// panel uses hardcoded cockpit hex, and mixing the two looks wrong.
+const ADVISORY_STYLE: Record<AdvisorySeverity, { box: string; text: string; label: string }> = {
+  nominal:  { box: "border-[#2f4a30] bg-[#0d150e]", text: "text-[#a8e0a8]", label: "Nominal" },
+  advisory: { box: "border-[#4c3025] bg-[#14100d]", text: "text-[#e8c9a0]", label: "Advisory" },
+  caution:  { box: "border-[#84642c] bg-[#1c1710]", text: "text-[#ffd27a]", label: "Caution" },
+  warning:  { box: "border-[#84432c] bg-[#21130f]", text: "text-[#ff9a72]", label: "Warning" },
 };
 
 const AI_CHANNELS = [
@@ -36,7 +65,7 @@ const AI_CHANNELS = [
 // were removed since Sensr's "All Sensors" list already shows the real
 // telemetry, and this panel's actual job is the AI's diagnosis, not duplicating
 // raw sensor readouts.
-export default function Diagnostics({ ai = null, simSeconds }: DiagnosticsProps) {
+export default function Diagnostics({ ai = null, advisory = null, simSeconds }: DiagnosticsProps) {
   return (
     <aside className="panel-shell flex h-full min-h-0 flex-col overflow-hidden p-2.5 md:p-3.5">
       <h2 className="panel-heading flex items-center justify-between">
@@ -113,6 +142,35 @@ export default function Diagnostics({ ai = null, simSeconds }: DiagnosticsProps)
                 </strong>
               </article>
             </div>
+
+            {advisory && !advisory.insufficient_data && (
+              <article className={`border p-2 ${ADVISORY_STYLE[advisory.severity].box}`}>
+                <div className="flex items-center justify-between text-[7px] uppercase tracking-[0.11em] text-[#bca18e] md:text-[9px]">
+                  <span className="flex items-center gap-1">
+                    <Wrench className="h-3 w-3" /> Maintenance Advisory
+                  </span>
+                  <span className={ADVISORY_STYLE[advisory.severity].text}>
+                    {ADVISORY_STYLE[advisory.severity].label}
+                  </span>
+                </div>
+                <div className={`mt-1 text-[9px] font-normal md:text-[11px] ${ADVISORY_STYLE[advisory.severity].text}`}>
+                  {advisory.headline}
+                </div>
+                {(advisory.items ?? []).slice(0, 3).map((item) => (
+                  <div key={item.code} className="mt-1.5 border-t border-[#2a201b] pt-1.5">
+                    <div className="text-[8px] text-[#d9c4b4] md:text-[9px]">{item.message}</div>
+                    <div className="mt-0.5 text-[8px] text-[#aa8f7f] md:text-[9px]">
+                      <span className="text-[#e68450]">&#8594;</span> {item.action}
+                    </div>
+                  </div>
+                ))}
+                {(advisory.items ?? []).length > 3 && (
+                  <div className="mt-1 text-[7px] uppercase tracking-[0.1em] text-[#aa8f7f] md:text-[8px]">
+                    +{(advisory.items ?? []).length - 3} more
+                  </div>
+                )}
+              </article>
+            )}
 
             <div className="space-y-1.5">
               {AI_CHANNELS.map((ch) => {
