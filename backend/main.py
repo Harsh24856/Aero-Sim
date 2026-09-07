@@ -17,6 +17,8 @@ from pydantic import BaseModel
 
 from physics import UAVEngineTwin, ENGINE_CONFIGS
 import db
+import advisory
+import summary
 
 # ai.py runs as its OWN process under a different Python environment (see ai.py's
 # module docstring - the models segfault under this backend's TF version). Calls are
@@ -46,6 +48,20 @@ CURRENT_ENGINE_MODEL = "Rotax_914_ULF"
 twin = UAVEngineTwin(dt=0.01, engine_model=CURRENT_ENGINE_MODEL)
 STEPS_PER_BROADCAST = 5  # 0.01s * 5 = 20Hz telemetry rate
 
+# How often a telemetry_logs row is written, in SIMULATED seconds.
+#
+# This is deliberately decoupled from the AI cadence. ai.py's rolling window is
+# defined in one-simulated-second samples, so the AI must keep being fed every
+# second - throttling that would corrupt the very sequence the model was trained
+# on. Only the DB write is thinned.
+#
+# 10s rather than 20s, chosen from the actual run distribution: the mean run here
+# is ~237 simulated seconds, and the AI produces nothing for the first 128 of them
+# (window fill). That leaves ~109 diagnostic seconds on an average run - about 11
+# plottable points at 10s, but only ~5 at 20s. Five points cannot show a trend,
+# which is the whole purpose of the chart.
+DB_LOG_INTERVAL_S = 10
+
 # Each selectable engine has its OWN genuinely-trained model set now - AI predictions
 # are meaningful for 912/914/915/916, each using its own weights and scaler (see
 # ai.py's ENGINE_REGISTRY).
@@ -60,6 +76,7 @@ state = {
     "ai_step_counter": 0,
     "ai_warmed_up": False,   # True once the AI has returned a real (non-warmup) result
     "simulation_id": None,   # current Supabase simulations.id, or None if not persisted
+    "db_log_counter": 0,     # simulated seconds since the last telemetry_logs write
     # Tracks whether the PHYSICS SESSION is logically ongoing - deliberately
     # separate from simulation_id, which only tracks DB persistence and stays None
     # whenever no user_id is provided. Using simulation_id itself to decide
@@ -107,6 +124,9 @@ class ParamUpdate(BaseModel):
     throttle: Optional[float] = None
     airspeed: Optional[float] = None
     aoa: Optional[float] = None
+    # ISA temperature deviation in degrees C (hot/cold day). Clamped in the
+    # handler. Deliberately NOT an AI feature - see AI_FEATURE_COLS.
+    isa_dev_c: Optional[float] = None
 
 
 async def broadcast(msg: dict):
@@ -161,18 +181,28 @@ async def simulation_loop():
                 # WebSocket broadcasts to every client) for the duration of each
                 # Supabase round-trip. Running it in a thread keeps persistence fully
                 # fire-and-forget, matching call_ai_service's own non-blocking pattern.
-                asyncio.create_task(asyncio.to_thread(
-                    db.log_telemetry, state["simulation_id"], state["sim_time_offset"], out, state["last_ai_result"]))
+                state["db_log_counter"] += 1
+                if state["db_log_counter"] >= DB_LOG_INTERVAL_S:
+                    state["db_log_counter"] = 0
+                    asyncio.create_task(asyncio.to_thread(
+                        db.log_telemetry, state["simulation_id"], state["sim_time_offset"], out, state["last_ai_result"]))
             else:
                 result = await call_ai_service(out)   # sequential during warmup - see docstring
                 if result.get("status") == "ok":
                     state["ai_warmed_up"] = True
-                asyncio.create_task(asyncio.to_thread(
-                    db.log_telemetry, state["simulation_id"], state["sim_time_offset"], out, result))
+                state["db_log_counter"] += 1
+                if state["db_log_counter"] >= DB_LOG_INTERVAL_S:
+                    state["db_log_counter"] = 0
+                    asyncio.create_task(asyncio.to_thread(
+                        db.log_telemetry, state["simulation_id"], state["sim_time_offset"], out, result))
 
         if step_count % STEPS_PER_BROADCAST == 0:
             payload = dict(out)
             payload["ai"] = state["last_ai_result"]
+            # Derived fresh each broadcast rather than cached in state[]:
+            # last_ai_result is cleared in five different places, and a cached
+            # advisory would have to be cleared in all five or go stale.
+            payload["advisory"] = advisory.build_advisory(state["last_ai_result"], out)
             await broadcast(payload)
 
         if state["ai_warmed_up"]:
@@ -237,6 +267,10 @@ async def start_sim(req: StartRequest = StartRequest()):
     return {"status": "started", "simulation_id": state["simulation_id"]}
 
 
+class SummarizeRequest(BaseModel):
+    user_id: str
+
+
 class StopRequest(BaseModel):
     # False = this is a PAUSE, not a genuine stop - the frontend's onTogglePause
     # sends final=false, since the physics session should still be resumable
@@ -255,14 +289,35 @@ async def stop_sim(req: StopRequest = StopRequest()):
         state["session_active"] = False
     if req.final and state["simulation_id"] is not None:
         ai = state["last_ai_result"] or {}
+        # One last row at the exact moment of stopping, regardless of where the
+        # 10s interval happened to fall. Without this the logged series can end
+        # up to 10 simulated seconds before the state stored in final_telemetry,
+        # so a chart would disagree with the run's own summary numbers.
+        if state["last_telemetry"] is not None:
+            await asyncio.to_thread(
+                db.log_telemetry, state["simulation_id"],
+                state["sim_time_offset"], state["last_telemetry"], ai)
         # state["last_telemetry"] is the full raw physics dict as it stood at the
         # exact moment of stopping - already proven JSON-serializable, since this
         # same dict passes through json.dumps() in every WebSocket broadcast.
         await asyncio.to_thread(
             db.end_simulation, state["simulation_id"], "stopped",
             ai.get("health_percent"), ai.get("rul_hours_internal"), state["last_telemetry"])
+        # Post-flight narrative summary. Fire-and-forget ON PURPOSE: /stop is also
+        # reached via navigator.sendBeacon on pagehide, which cannot consume a
+        # response at all, and the Stop button awaits res.ok - so a synchronous
+        # LLM call here would add seconds of latency to a working path and make
+        # it depend on a third-party API. The frontend polls Supabase for the
+        # result instead. Captured into a local first because the next line
+        # clears state["simulation_id"] before the task ever runs.
+        _sim_id = state["simulation_id"]
+        asyncio.create_task(asyncio.to_thread(summary.generate_summary, _sim_id))
         state["simulation_id"] = None
-    return {"status": "stopped", "final": req.final}
+        # Returned so the caller can poll for the summary that the task above is
+        # generating. /stop previously returned no id at all, which left the
+        # frontend with no way to find the row it had just closed.
+        return {"status": "stopped", "final": req.final, "simulation_id": _sim_id}
+    return {"status": "stopped", "final": req.final, "simulation_id": None}
 
 
 @app.post("/reset")
@@ -377,10 +432,15 @@ class ResumeRequest(BaseModel):
 @app.post("/resume")
 async def resume_sim(req: ResumeRequest):
     """Restores the physics twin to the EXACT state a past simulation stopped at
-    (see physics.py's restore_state) and creates a fresh Supabase simulation row
-    for this new session - genuinely continuing the flight physically, but as a
-    new tracked run (a session started hours/days later is a new session in any
-    reasonable sense, even though the aircraft state carries over exactly).
+    (see physics.py's restore_state) and CONTINUES THE SAME Supabase run.
+
+    This previously opened a brand-new simulations row per resume, which
+    fragmented a single flight across several rows: each one held a slice of the
+    telemetry, every chart restarted its time axis at zero, and no page could
+    show the flight as the continuous thing it physically is. Resuming now
+    reuses the original id and carries the telemetry time axis on from the last
+    logged offset, so one flight stays one run however many times it is paused,
+    stopped and continued.
 
     SECURITY: get_simulation() reads via the service_role client, which bypasses
     RLS - the ownership check below (sim["user_id"] == req.user_id) is therefore
@@ -408,10 +468,15 @@ async def resume_sim(req: ResumeRequest):
     state["last_ai_result"] = None
     state["ai_step_counter"] = 0
     state["ai_warmed_up"] = False
-    state["sim_time_offset"] = 0.0   # new simulation row - its own telemetry_logs
-                                      # time axis starts fresh, independent of
-                                      # physics.py's restored internal clock (twin.t)
-    state["simulation_id"] = db.start_simulation(req.user_id, CURRENT_ENGINE_MODEL)
+    state["db_log_counter"] = 0
+    # Continue the SAME run: keep its id and pick the telemetry time axis back up
+    # where the previous session left off, so the series is continuous rather than
+    # folding back over itself at zero.
+    state["simulation_id"] = req.simulation_id
+    state["sim_time_offset"] = await asyncio.to_thread(db.get_max_time_offset, req.simulation_id)
+    # Clear ended_at/outcome - the run is flying again and should not read as
+    # finished. end_simulation() sets them again at the next genuine stop.
+    await asyncio.to_thread(db.reopen_simulation, req.simulation_id)
     try:
         await ai_client.post(f"{AI_SERVICE_URL}/select_engine", json={"engine_model": CURRENT_ENGINE_MODEL})
     except Exception:
@@ -432,6 +497,7 @@ async def resume_sim(req: ResumeRequest):
         "restored_throttle": twin.throttle,
         "restored_airspeed": twin.airspeed,
         "restored_aoa": twin.aoa,
+        "restored_isa_dev_c": twin.isa_dev_c,
         "restored_wear": twin.wear,
     }
 
@@ -447,6 +513,12 @@ async def update_params(p: ParamUpdate):
         twin.airspeed = p.airspeed
     if p.aoa is not None:
         twin.aoa = p.aoa
+    if p.isa_dev_c is not None:
+        # Bounds are a sanity range on the INPUT, not a guarantee about the AI's
+        # trained envelope: clamping isa_dev_c cannot keep air_density inside
+        # [0.5206, 1.2250], since that also depends on altitude. The twin reports
+        # density_in_envelope per step and the UI warns on it.
+        twin.isa_dev_c = max(-30.0, min(50.0, p.isa_dev_c))
     return {"status": "ok", "altitude": twin.altitude, "throttle": twin.throttle,
             "airspeed": twin.airspeed, "aoa": twin.aoa}
 
@@ -456,6 +528,22 @@ async def update_params(p: ParamUpdate):
 # physics.py:_auto_fault_step, evaluated every simulation step.
 
 
+@app.post("/summarize/{sim_id}")
+async def summarize(sim_id: int, req: SummarizeRequest):
+    """Regenerate the post-flight summary for a run the caller owns."""
+    row = await asyncio.to_thread(db.get_simulation, sim_id)
+    if not row:
+        return {"status": "error", "detail": "simulation not found"}
+    if row.get("user_id") != req.user_id:
+        # Same shape as a missing row on purpose - do not confirm existence of
+        # another user's run.
+        return {"status": "error", "detail": "simulation not found"}
+    result = await asyncio.to_thread(summary.generate_summary, sim_id)
+    if not result:
+        return {"status": "error", "detail": "summary unavailable"}
+    return {"status": "ok", "groq_result": result}
+
+
 @app.get("/state")
 async def get_state():
     return {
@@ -463,9 +551,11 @@ async def get_state():
         "engine_model": CURRENT_ENGINE_MODEL,
         "ai_valid": CURRENT_ENGINE_MODEL in AI_VALID_ENGINES,
         "params": {"altitude": twin.altitude, "throttle": twin.throttle,
-                    "airspeed": twin.airspeed, "aoa": twin.aoa},
+                    "airspeed": twin.airspeed, "aoa": twin.aoa,
+                    "isa_dev_c": twin.isa_dev_c},
         "telemetry": state["last_telemetry"],
         "ai": state["last_ai_result"],
+        "advisory": advisory.build_advisory(state["last_ai_result"], state["last_telemetry"]),
     }
 
 

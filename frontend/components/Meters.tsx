@@ -14,12 +14,16 @@ export type RawTelemetry = {
 };
 
 export function mpsToKmh(mps: number): number { return mps * 3.6; }
+// Airspeed is displayed in KNOTS - the unit aircrew, ICAO and real ground
+// control stations use. Physics, API and DB stay in m/s; this converts for
+// display only.
+export function mpsToKnots(mps: number): number { return mps * 1.943844; }
 export function kmhToMps(kmh: number): number { return kmh / 3.6; }
 
 export const SENSOR_FIELDS: { key: keyof RawTelemetry; label: string; unit: string; decimals?: number; convert?: (v: number) => number }[] = [
   { key: "altitude", label: "Altitude", unit: "m", decimals: 0 },
   { key: "throttle", label: "Throttle", unit: "", decimals: 2 },
-  { key: "airspeed", label: "Airspeed", unit: "km/h", decimals: 0, convert: mpsToKmh },
+  { key: "airspeed", label: "Airspeed", unit: "kt", decimals: 0, convert: mpsToKnots },
   { key: "aoa", label: "AoA", unit: "deg", decimals: 1 },
   { key: "air_density", label: "Air Density", unit: "kg/m3", decimals: 3 },
   { key: "torque_available_nm", label: "Torque Avail", unit: "Nm", decimals: 1 },
@@ -44,8 +48,8 @@ export const SENSOR_FIELDS: { key: keyof RawTelemetry; label: string; unit: stri
 ];
 
 export type MetersProps = {
-  /** Live airspeed in km/h for the semicircle gauge */
-  speedKmh?: number;
+  /** Live airspeed in KNOTS for the semicircle gauge */
+  speedKnots?: number;
   /** Live altitude in meters */
   altitude?: number;
   /** Throttle 0–100 */
@@ -61,11 +65,12 @@ export type MetersProps = {
 };
 
 const TICK_COUNT = 52;
-const MAX_SPEED = 250; // km/h
+const MAX_SPEED = 135; // kt (= 250 km/h, the airframe ceiling in Simulator.tsx)
+const MIN_SPEED = 68;  // kt (= 126 km/h / 35 m/s, the enforced stall floor)
 
 // ─── Component ──────────────────────────────────────────────────────────────
 export default function Meters({
-  speedKmh = 0,
+  speedKnots = 0,
   altitude = 0,
   throttle,
   onThrottleChange,
@@ -77,7 +82,7 @@ export default function Meters({
   onTogglePause,
   isSignedIn = true,
 }: MetersProps) {
-  const fraction = Math.max(0, Math.min(1, speedKmh / MAX_SPEED));
+  const fraction = Math.max(0, Math.min(1, speedKnots / MAX_SPEED));
 
   // Compute 180° dome/semicircle tick positions in SVG coordinates (0 0 300 150)
   const ticks = useMemo(() => {
@@ -152,13 +157,13 @@ export default function Meters({
             ))}
           </svg>
 
-          {/* Speed Number & KM/H in the center arch */}
+          {/* Speed number & unit in the center arch */}
           <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-end pb-3 md:pb-4">
             <span className="text-4xl font-bold leading-none tracking-tight text-white drop-shadow-[0_0_25px_rgba(255,255,255,0.25)] md:text-5xl">
-              {Math.round(speedKmh)}
+              {Math.round(speedKnots)}
             </span>
             <span className="mt-1 text-[9px] font-semibold uppercase tracking-[0.2em] text-[#9b8577] md:text-[11px]">
-              KM/H
+              KT
             </span>
           </div>
         </div>
@@ -203,12 +208,12 @@ export default function Meters({
         <div>
           <div className="flex items-center justify-between text-[8px] uppercase tracking-[0.12em] text-[#d9c0ae] md:text-[10px]">
             <label htmlFor="airspeed-input" className="font-semibold">Speed Target</label>
-            <output className="font-mono text-[#ff8050] font-semibold">{Math.round(mpsToKmh(airspeedTarget))} KM/H</output>
+            <output className="font-mono text-[#ff8050] font-semibold">{Math.round(mpsToKnots(airspeedTarget))} KT</output>
           </div>
           <div className="mt-1.5 h-3.5 border border-[#4c3025] bg-[#1a110d] p-[2px] rounded-sm">
             <div
               className="h-full bg-gradient-to-r from-[#ff971e] via-[#ff5b1c] to-[#ed3919] rounded-[1px] transition-all duration-75"
-              style={{ width: `${Math.max(0, ((mpsToKmh(airspeedTarget) - 126) / (MAX_SPEED - 126)) * 100)}%` }} // 126 km/h (35 m/s) floor, matching Simulator.tsx's enforced minimum flight speed
+              style={{ width: `${Math.max(0, ((mpsToKnots(airspeedTarget) - MIN_SPEED) / (MAX_SPEED - MIN_SPEED)) * 100)}%` }}
             />
           </div>
           <input

@@ -8,8 +8,10 @@ import SimulatorDefault, { type SimTelemetry, type ResumeState } from "@/compone
 import Simulator912 from "@/components/Simulator_912";
 import Simulator915 from "@/components/Simulator_915";
 import Simulator916 from "@/components/Simulator_916";
-import Meters, { type RawTelemetry, mpsToKmh } from "@/components/Meters";
-import Diagnostics, { type AiResult } from "@/components/Diagnostics";
+import Meters, { type RawTelemetry, mpsToKnots } from "@/components/Meters";
+import Diagnostics, { type AiResult, type Advisory } from "@/components/Diagnostics";
+import { getPreset, legAt, presetDuration } from "@/lib/missionPresets";
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { simSecondsToRealHours } from "@/lib/timeScale";
 
@@ -35,6 +37,10 @@ function SimulatePageInner() {
   // airspeed/wear/RUL) and started the physics loop before navigating here. This
   // page must therefore ADOPT that state rather than begin a fresh takeoff.
   const isResume = searchParams.get("resumed") === "1";
+  // Mission profile (PS section E). A resumed session never plays a profile:
+  // resuming must adopt the stored state, and a profile would immediately
+  // overwrite it - the same class of bug the auto-climb guard above fixes.
+  const preset = isResume ? null : getPreset(searchParams.get("preset"));
 
   // Simulating requires being signed in - null while the initial session check is
   // still in flight (so Start does not briefly appear usable before we actually
@@ -58,6 +64,8 @@ function SimulatePageInner() {
   const [paused, setPaused] = useState(false);
   const [liveTelemetry, setLiveTelemetry] = useState<SimTelemetry | null>(null);
   const [aiResult, setAiResult] = useState<AiResult | null>(null);
+  const [advisory, setAdvisory] = useState<Advisory | null>(null);
+  const [legIndex, setLegIndex] = useState(0);
   const [rawTelemetry, setRawTelemetry] = useState<RawTelemetry | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -128,6 +136,7 @@ function SimulatePageInner() {
                           // since a 20-real-second test session should read as real
                           // equivalent flight hours, not literally "20 seconds"
     outcome: string;
+    simulationId?: number | null;
   } | null>(null);
 
   // main.py already merges the AI service's response into every WebSocket
@@ -139,6 +148,7 @@ function SimulatePageInner() {
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
       if (data.ai) setAiResult(data.ai);
+      if (data.advisory) setAdvisory(data.advisory);
       setRawTelemetry(data);   // full payload - all 24 raw features for Sensr
     };
     ws.onerror = () => console.log("WebSocket error - is main.py running on :8000?");
@@ -146,6 +156,31 @@ function SimulatePageInner() {
   }, []);
 
   const onTelemetryChange = useCallback((t: SimTelemetry) => setLiveTelemetry(t), []);
+
+  // Mission-profile leg advance. Keyed off rawTelemetry.time - the twin's own
+  // simulated clock - not wall-clock, so a leg boundary stays correct even if
+  // physics briefly falls behind real time. Setting throttle/airspeed here is
+  // exactly what a human would do with the cockpit controls; nothing bypasses
+  // the normal /params path.
+  const activeLeg = preset ? legAt(preset, rawTelemetry?.time ?? 0) : null;
+  useEffect(() => {
+    if (!preset || !started || paused || resumePending) return;
+    const { leg, index } = legAt(preset, rawTelemetry?.time ?? 0);
+    if (index === legIndex) return;
+    setLegIndex(index);
+    setThrottle(Math.round(leg.throttle * 100));
+    setAirspeedTarget(leg.airspeed);
+  }, [preset, started, paused, resumePending, rawTelemetry?.time, legIndex]);
+
+  // Apply the opening leg's setpoints as soon as a profile run starts.
+  useEffect(() => {
+    if (!preset || !started || resumePending) return;
+    const first = preset.legs[0];
+    setThrottle(Math.round(first.throttle * 100));
+    setAirspeedTarget(first.airspeed);
+    // Intentionally only on transition into `started` for a profile run.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preset, started, resumePending]);
 
   // AoA comes directly from Simulator's pitch (see Simulator.tsx's formatPitch -
   // altitude changes there produce a pitch angle, which IS our AoA). Forwarded to
@@ -165,12 +200,16 @@ function SimulatePageInner() {
         throttle: throttle / 100,
         airspeed: liveTelemetry.speed,
         aoa: liveTelemetry.pitch,
+        // Mission-profile environment. Undefined outside a profile run, and
+        // ParamUpdate leaves the twin's value untouched when it is null, so a
+        // normal flight stays on a standard day.
+        isa_dev_c: activeLeg?.leg.isaDevC ?? 0,
       }),
     }).catch(() => {
       // Backend not running is not a reason to break the local simulator display -
       // degrade gracefully, same pattern used in ai.py's own error handling.
     });
-  }, [started, paused, liveTelemetry, throttle, resumePending]);
+  }, [started, paused, liveTelemetry, throttle, resumePending, activeLeg?.leg.isaDevC]);
 
   // Simulating now requires being signed in - checked here (the actual
   // enforcement point) rather than only hiding/disabling the button, since a
@@ -240,6 +279,7 @@ function SimulatePageInner() {
   // rather than leaving a paused-looking UI that implies resuming is still possible.
   const onStopClick = useCallback(async () => {
     let stopSucceeded = false;
+    let closedId: number | null = null;
     try {
       const res = await fetch(`${API}/stop`, {
         method: "POST",
@@ -247,10 +287,15 @@ function SimulatePageInner() {
         body: JSON.stringify({ final: true }),   // explicit, matches the backend default - a genuine Stop
       });
       stopSucceeded = res.ok;
+      if (res.ok) {
+        const json = await res.json().catch(() => null);
+        closedId = json?.simulation_id ?? null;
+      }
     } catch {
       // backend optional - local game/gauges still get reset below regardless
     }
     setStoppedSummary({
+      simulationId: closedId,
       healthPercent: aiResult?.status === "ok" ? aiResult.health_percent ?? null : null,
       rulPercent: aiResult?.status === "ok" ? aiResult.rul_percent_remaining ?? null : null,
       simSeconds: rawTelemetry?.time ?? 0,
@@ -259,6 +304,28 @@ function SimulatePageInner() {
     setStarted(false);
     setPaused(false);
   }, [aiResult, rawTelemetry]);
+
+  // The post-flight summary is generated by a fire-and-forget task on /stop, so
+  // it is never ready the instant this card appears. Poll the row until it lands,
+  // then stop. Gives up after ~60s rather than polling forever.
+  const [stopGroq, setStopGroq] = useState<{ headline?: string; summary?: string; risk?: string; status?: string } | null>(null);
+  useEffect(() => {
+    const simId = stoppedSummary?.simulationId;
+    if (!simId) { setStopGroq(null); return; }
+    let cancelled = false;
+    let ticks = 0;
+    const tick = async () => {
+      ticks += 1;
+      const { data } = await supabase
+        .from("simulations").select("groq_result").eq("id", simId).single();
+      if (cancelled) return;
+      if (data?.groq_result) { setStopGroq(data.groq_result); clearInterval(handle); }
+      else if (ticks >= 20) clearInterval(handle);
+    };
+    const handle = setInterval(tick, 3000);
+    tick();
+    return () => { cancelled = true; clearInterval(handle); };
+  }, [stoppedSummary?.simulationId]);
 
   // Safety net: if the user navigates away entirely (not just pausing) while the
   // simulation is running, the backend loop would otherwise keep running forever
@@ -315,6 +382,7 @@ function SimulatePageInner() {
               </div>
             ) : (
             <ActiveSimulator
+              altitudeTarget={activeLeg?.leg.altitude}
               onTelemetryChange={onTelemetryChange}
               throttle={throttle}
               onThrottleChange={setThrottle}
@@ -329,7 +397,7 @@ function SimulatePageInner() {
           </div>
           <div className="min-h-0" style={{ flex: '50 1 0%' }}>
             <Meters
-              speedKmh={liveTelemetry ? mpsToKmh(liveTelemetry.speed) : 0}
+              speedKnots={liveTelemetry ? mpsToKnots(liveTelemetry.speed) : 0}
               altitude={liveTelemetry?.altitude ?? 0}
               throttle={throttle}
               onThrottleChange={setThrottle}
@@ -348,14 +416,14 @@ function SimulatePageInner() {
             whatever the backend telemetry stream happens to contain (which could
             be leftover/unrelated to this frontend session entirely), showing a
             "moving" flight time even while paused or never started. */}
-        <Diagnostics ai={aiResult} simSeconds={started && !paused ? rawTelemetry?.time : undefined} />
+        <Diagnostics ai={aiResult} advisory={advisory} simSeconds={started && !paused ? rawTelemetry?.time : undefined} />
       </div>
 
       {/* Shown ONLY after an explicit Stop, never after Pause - this is what makes
           the two feel genuinely distinct instead of both just freezing the game. */}
       {stoppedSummary && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-lg border border-tertiary/40 bg-[#0d0e0d] p-6 text-center">
+          <div className="max-h-[88vh] w-full max-w-lg overflow-y-auto rounded-lg border border-tertiary/40 bg-[#0d0e0d] p-6 text-center">
             <div className="mb-1 text-[11px] uppercase tracking-[0.15em] text-tertiary">Simulation {stoppedSummary.outcome}</div>
             <div className="mb-5 text-[12px] text-on-surface-variant">
               {/* Real-world equivalent flight time, not wall-clock test duration -
@@ -378,12 +446,62 @@ function SimulatePageInner() {
                 </div>
               </div>
             </div>
-            <button
-              onClick={() => setStoppedSummary(null)}
-              className="w-full rounded bg-tertiary py-2.5 text-[11px] font-bold uppercase tracking-[0.1em] text-black hover:brightness-110 transition-all"
-            >
-              Start New Simulation
-            </button>
+            {/* Post-flight analysis. Only rendered for a run that actually
+                persisted - an unsaved local stop has no row to summarize. */}
+            {stoppedSummary.simulationId != null && (
+              <div className="mb-6 rounded border border-outline-variant/30 bg-black/40 p-4 text-left">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <span className="text-[10px] uppercase tracking-[0.1em] text-tertiary">Post-Flight Analysis</span>
+                  {stopGroq?.risk && (
+                    <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-tertiary">
+                      {stopGroq.risk} risk
+                    </span>
+                  )}
+                </div>
+
+                {!stopGroq && (
+                  <p className="text-[11px] leading-relaxed text-on-surface-variant">
+                    Generating analysis&hellip; this runs in the background after the mission
+                    ends and lands in a few seconds.
+                  </p>
+                )}
+
+                {stopGroq && stopGroq.status !== "ok" && (
+                  <p className="text-[11px] leading-relaxed text-on-surface-variant">
+                    Analysis unavailable for this mission.
+                  </p>
+                )}
+
+                {stopGroq && stopGroq.status === "ok" && (
+                  <>
+                    {/* Plain text only - third-party model output. */}
+                    <p className="mb-1.5 text-[12px] font-bold leading-snug text-primary">{stopGroq.headline}</p>
+                    <p className="text-[11px] leading-relaxed text-on-surface-variant">{stopGroq.summary}</p>
+                    <Link
+                      href={`/mission/report/${stoppedSummary.simulationId}`}
+                      className="mt-2 inline-block text-[10px] font-bold uppercase tracking-[0.1em] text-tertiary hover:brightness-125"
+                    >
+                      Full mission report &rarr;
+                    </Link>
+                  </>
+                )}
+              </div>
+            )}
+
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <button
+                onClick={() => setStoppedSummary(null)}
+                className="w-full rounded bg-tertiary py-2.5 text-[11px] font-bold uppercase tracking-[0.1em] text-black hover:brightness-110 transition-all"
+              >
+                Start New Simulation
+              </button>
+              <Link
+                href="/engine"
+                className="w-full rounded border border-outline-variant/30 bg-black/40 py-2.5 text-center text-[11px] font-bold uppercase tracking-[0.1em] text-on-surface-variant transition-all hover:text-primary"
+              >
+                Back to Engines
+              </Link>
+            </div>
           </div>
         </div>
       )}

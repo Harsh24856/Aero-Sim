@@ -7,6 +7,7 @@ import Navbar from "@/components/Navbar";
 import { supabase } from "@/lib/supabase";
 import { ArrowLeft, Play, Gauge, Thermometer, Activity, Fuel } from "lucide-react";
 import { simRulHoursToPercent } from "@/lib/timeScale";
+import { formatAirspeed, formatAirspeedSecondary, formatAltitude, formatAltitudeFeet, formatRulSimHours, isRulExtrapolated } from "@/lib/units";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
@@ -23,6 +24,10 @@ type Simulation = {
   final_health_percent: number | null;
   final_rul_hours: number | null;
   final_telemetry: Record<string, unknown> | null;
+  groq_result: {
+    status?: string; headline?: string; summary?: string; risk?: string; model?: string;
+    findings?: string[]; recommendations?: string[];
+  } | null;
 };
 
 type LogRow = {
@@ -59,7 +64,7 @@ export default function TelemetryDetailPage() {
       // rather than leaking whether the id exists at all.
       const { data, error } = await supabase
         .from("simulations")
-        .select("id, user_id, engine_model, started_at, ended_at, outcome, final_health_percent, final_rul_hours, final_telemetry")
+        .select("id, user_id, engine_model, started_at, ended_at, outcome, final_health_percent, final_rul_hours, final_telemetry, groq_result")
         .eq("id", id)
         .single();
       if (cancelled) return;
@@ -117,8 +122,18 @@ export default function TelemetryDetailPage() {
     }
   };
 
-  const sensorGroups: { title: string; icon: typeof Gauge; fields: [string, string, number][] }[] = [
-    { title: "Flight Parameters", icon: Gauge, fields: [["altitude", "Altitude (m)", 0], ["throttle", "Throttle", 2], ["airspeed", "Airspeed (m/s)", 1], ["aoa", "AoA (deg)", 1]] },
+  // Optional 4th element is a display formatter; fields without one keep the
+  // plain toFixed(decimals) path. Airspeed is shown in knots and altitude gains a
+  // feet readout - the units a real ground control station uses. Conversion is
+  // display-only; the stored telemetry stays SI.
+  type SensorField = [string, string, number, ((v: number) => { value: string; secondary?: string })?];
+  const sensorGroups: { title: string; icon: typeof Gauge; fields: SensorField[] }[] = [
+    { title: "Flight Parameters", icon: Gauge, fields: [
+      ["altitude", "Altitude", 0, (v) => ({ value: formatAltitude(v), secondary: formatAltitudeFeet(v) })],
+      ["throttle", "Throttle", 2],
+      ["airspeed", "Airspeed", 1, (v) => ({ value: formatAirspeed(v), secondary: formatAirspeedSecondary(v) })],
+      ["aoa", "AoA (deg)", 1],
+    ] },
     { title: "Powerplant", icon: Activity, fields: [["engine_rpm", "Engine RPM", 0], ["prop_rpm", "Prop RPM", 0], ["power_kw", "Power (kW)", 1], ["fuel_flow", "Fuel Flow", 2]] },
     { title: "Thermal", icon: Thermometer, fields: [["egt", "EGT (C)", 0], ["cht", "CHT (C)", 0], ["oil_pressure", "Oil Pressure", 1], ["oil_temp", "Oil Temp (C)", 1]] },
     { title: "Vibration & Wear", icon: Fuel, fields: [["vibx", "Vib X", 3], ["viby", "Vib Y", 3], ["vibz", "Vib Z", 3], ["wear", "Wear", 4]] },
@@ -179,6 +194,14 @@ export default function TelemetryDetailPage() {
                     <span className="text-[11px] text-on-surface-variant/60">No saved state to resume from</span>
                   )}
                   {resumeError && <span className="text-[11px] text-red-400">{resumeError}</span>}
+                  <div className="flex gap-3">
+                    <Link href={`/mission/replay/${sim.id}`} className="text-[10px] font-bold uppercase tracking-[0.1em] text-tertiary hover:brightness-125">
+                      Replay
+                    </Link>
+                    <Link href={`/mission/report/${sim.id}`} className="text-[10px] font-bold uppercase tracking-[0.1em] text-on-surface-variant hover:text-primary">
+                      Full report
+                    </Link>
+                  </div>
                 </div>
               </header>
 
@@ -192,8 +215,49 @@ export default function TelemetryDetailPage() {
                   <div className="text-3xl font-bold text-primary">
                     {sim.final_rul_hours != null ? `${Math.min(100, simRulHoursToPercent(sim.final_rul_hours, typeof sim.final_telemetry?.time === "number" ? sim.final_telemetry.time : undefined)).toFixed(0)}%` : "--"}
                   </div>
+                  {sim.final_rul_hours != null && (
+                    <div className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mt-1">
+                      {formatRulSimHours(sim.final_rul_hours)}
+                      {isRulExtrapolated(sim.final_rul_hours) && (
+                        <span className="text-tertiary"> &middot; extrapolated</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
+
+              {sim.groq_result?.status === "ok" && (
+                <div className="mb-8 bg-surface/80 border border-outline-variant/30 rounded-lg p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
+                    <h2 className="text-sm font-bold text-primary uppercase tracking-[0.1em]">Post-Flight Analysis</h2>
+                    {sim.groq_result.risk && (
+                      <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-tertiary">
+                        {sim.groq_result.risk} risk
+                      </span>
+                    )}
+                  </div>
+                  {/* Plain text - third-party model output. */}
+                  <p className="text-[14px] font-bold text-primary leading-snug mb-1.5">{sim.groq_result.headline}</p>
+                  <p className="text-[13px] leading-relaxed text-on-surface-variant">{sim.groq_result.summary}</p>
+                  <Link href={`/mission/report/${sim.id}`} className="mt-3 inline-block text-[10px] font-bold uppercase tracking-[0.1em] text-tertiary hover:brightness-125">
+                    Findings and recommendations &rarr;
+                  </Link>
+                </div>
+              )}
+
+              {/* The health/RUL traces below break wherever the AI produced no
+                  output. That happens for the first 128 simulated seconds of a
+                  flight while the model's window fills, and again after every
+                  resume, because continuing a flight restarts that window. The
+                  gaps are real absences of data, not dropouts - so the lines are
+                  drawn broken rather than interpolated across them. */}
+              {chartData.length > 1 && chartData.some((d) => d.health === undefined) && (
+                <div className="mb-4 text-[11px] text-on-surface-variant/80 leading-relaxed">
+                  Gaps in the health and RUL traces are the AI&rsquo;s 128-second window fill &mdash;
+                  at the start of the flight, and again after each resume. No diagnosis exists
+                  for those stretches, so the lines are broken rather than interpolated.
+                </div>
+              )}
 
               {chartData.length > 1 && (
                 <div className="mb-8 bg-surface/80 border border-outline-variant/30 rounded-lg p-5">
@@ -225,12 +289,20 @@ export default function TelemetryDetailPage() {
                           <Icon size={13} /> {title}
                         </div>
                         <div className="space-y-2">
-                          {fields.map(([key, label, decimals]) => {
+                          {fields.map(([key, label, decimals, format]) => {
                             const val = sim.final_telemetry?.[key];
+                            const shown = typeof val === "number"
+                              ? (format ? format(val) : { value: val.toFixed(decimals) })
+                              : { value: "--" };
                             return (
-                              <div key={key} className="flex items-center justify-between text-[12px]">
+                              <div key={key} className="flex items-start justify-between gap-2 text-[12px]">
                                 <span className="text-on-surface-variant">{label}</span>
-                                <span className="text-primary font-mono">{typeof val === "number" ? val.toFixed(decimals) : "--"}</span>
+                                <span className="text-right">
+                                  <span className="text-primary font-mono">{shown.value}</span>
+                                  {shown.secondary && (
+                                    <span className="block text-[10px] text-on-surface-variant/70 font-mono">{shown.secondary}</span>
+                                  )}
+                                </span>
                               </div>
                             );
                           })}
