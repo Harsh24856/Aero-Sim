@@ -35,6 +35,8 @@ export default function MissionPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [engine, setEngine] = useState(ENGINES[0].id);
+  // Preset awaiting an engine choice. Null = no launch dialog open.
+  const [pending, setPending] = useState<MissionPreset | null>(null);
   const [runs, setRuns] = useState<SimRow[]>([]);
 
   useEffect(() => {
@@ -55,8 +57,8 @@ export default function MissionPage() {
     return () => { cancelled = true; };
   }, [router]);
 
-  const launch = (preset: MissionPreset) => {
-    router.push(`/simulate?engine=${encodeURIComponent(engine)}&preset=${encodeURIComponent(preset.id)}`);
+  const launch = (preset: MissionPreset, engineId: string) => {
+    router.push(`/simulate?engine=${encodeURIComponent(engineId)}&preset=${encodeURIComponent(preset.id)}`);
   };
 
   return (
@@ -75,9 +77,10 @@ export default function MissionPage() {
             </p>
           </header>
 
-          {/* engine selection */}
+          {/* Default engine. Each profile still asks before launching, so this
+              is a convenience preselection rather than the only choice. */}
           <section className="mb-8">
-            <h2 className="text-sm font-bold text-primary uppercase tracking-[0.1em] mb-3">Engine</h2>
+            <h2 className="text-sm font-bold text-primary uppercase tracking-[0.1em] mb-3">Default Engine</h2>
             <div className="flex flex-wrap gap-2">
               {ENGINES.map((e) => (
                 <button
@@ -143,7 +146,7 @@ export default function MissionPage() {
                         {dur}s sim &middot; {simSecondsToRealHours(dur).toFixed(2)} h real
                       </span>
                       <button
-                        onClick={() => launch(p)}
+                        onClick={() => setPending(p)}
                         className="rounded bg-tertiary px-5 py-2.5 text-[11px] font-bold uppercase tracking-[0.1em] text-black hover:brightness-110 transition-all flex items-center gap-2"
                       >
                         <Play className="h-3.5 w-3.5" /> Launch
@@ -197,6 +200,71 @@ export default function MissionPage() {
           </section>
 
         </div>
+
+        {/* Engine selection for a chosen profile. Asked per launch so the same
+            profile can be flown on different engines without going back up to
+            the page-level default. */}
+        {pending && (
+          <div
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Select engine for ${pending.name}`}
+            onClick={() => setPending(null)}
+          >
+            <div
+              className="w-full max-w-md rounded-lg border border-tertiary/40 bg-[#0d0e0d] p-6"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="text-[10px] uppercase tracking-[0.1em] text-tertiary mb-1">Launch mission</div>
+              <h3 className="text-primary font-bold text-[18px] mb-1">{pending.name}</h3>
+              <p className="text-[12px] text-on-surface-variant mb-5">{pending.tagline}</p>
+
+              <div className="text-[10px] uppercase tracking-[0.1em] text-tertiary/80 mb-2">Select engine</div>
+              <div className="grid grid-cols-2 gap-2 mb-5">
+                {ENGINES.map((e) => (
+                  <button
+                    key={e.id}
+                    onClick={() => setEngine(e.id)}
+                    className={`rounded px-3 py-2.5 text-[11px] font-bold uppercase tracking-[0.1em] transition-all ${
+                      engine === e.id
+                        ? "bg-tertiary text-black"
+                        : "bg-surface/60 border border-outline-variant/30 text-on-surface-variant hover:text-primary"
+                    }`}
+                  >
+                    {e.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="rounded border border-outline-variant/30 bg-black/40 p-3 mb-5">
+                <div className="text-[10px] uppercase tracking-[0.1em] text-tertiary/80 mb-1.5">Profile</div>
+                <div className="text-[11px] text-on-surface-variant">
+                  {pending.legs.length} legs &middot; {presetDuration(pending)}s simulated
+                  {pending.legs.some((l) => l.isaDevC) && (
+                    <> &middot; ISA {pending.legs.find((l) => l.isaDevC)?.isaDevC! > 0 ? "+" : ""}
+                      {pending.legs.find((l) => l.isaDevC)?.isaDevC} &deg;C</>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <button
+                  onClick={() => launch(pending, engine)}
+                  className="w-full rounded bg-tertiary py-2.5 text-[11px] font-bold uppercase tracking-[0.1em] text-black hover:brightness-110 transition-all flex items-center justify-center gap-2"
+                >
+                  <Play className="h-3.5 w-3.5" /> Launch on {ENGINES.find((e) => e.id === engine)?.label}
+                </button>
+                <button
+                  onClick={() => setPending(null)}
+                  className="w-full rounded border border-outline-variant/30 bg-black/40 py-2.5 text-[11px] font-bold uppercase tracking-[0.1em] text-on-surface-variant hover:text-primary transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </>
   );
