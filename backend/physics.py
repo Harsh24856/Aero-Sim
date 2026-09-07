@@ -135,6 +135,10 @@ class UAVEngineTwin:
         self.throttle = 0.5
         self.airspeed = 40.0
         self.aoa = 5.0
+        # ISA temperature deviation, degrees C. 0.0 is a standard day and
+        # reproduces this model's behaviour exactly as it was before hot-weather
+        # support existed - every default run is bit-identical to before.
+        self.isa_dev_c = 0.0
 
         # fault config, 8 channels: [EGT,CHT,OilPressure,OilTemp,VibX,VibY,VibZ,RPM]
         # These are AUTO-COMPUTED every step from operating conditions (see _auto_fault_step).
@@ -190,6 +194,8 @@ class UAVEngineTwin:
         self.throttle = float(snapshot.get("throttle", self.throttle))
         self.airspeed = float(snapshot.get("airspeed", self.airspeed))
         self.aoa = float(snapshot.get("aoa", self.aoa))
+        # Without this a resumed hot-day flight silently reverts to a standard day.
+        self.isa_dev_c = float(snapshot.get("isa_dev_c", self.isa_dev_c))
 
         engine_rpm = snapshot.get("engine_rpm")
         if engine_rpm is not None:
@@ -209,11 +215,34 @@ class UAVEngineTwin:
             if ch in fault_stress:
                 self.stress[i] = float(fault_stress[ch])
 
+    # Air-density envelope actually present in the training data, measured across
+    # all four engines' train parquets (12.9M rows for the 914, ~0.8M each for the
+    # others): 0.5206 .. 1.2250 kg/m3, spanning 0 .. ~8075 m on a standard day.
+    # air_density IS an AI feature, so outside this range the models extrapolate.
+    # Clamping isa_dev_c alone does NOT keep density inside it - ISA-30 at sea
+    # level reaches 1.368 and ISA+50 at 8000 m reaches 0.44 - so the twin reports
+    # the condition instead of pretending it cannot happen.
+    TRAINED_DENSITY_MIN = 0.5206
+    TRAINED_DENSITY_MAX = 1.2250
+
     # ---------------- Atmosphere (ISA troposphere model) ----------------
     def atmosphere(self, altitude):
-        T = 288.15 - 0.0065*altitude
-        P = 101325.0 * (T/288.15)**5.256
-        rho = P / (287.05*T)
+        """ISA troposphere with an optional temperature deviation (hot/cold day).
+
+        The deviation is applied to TEMPERATURE ONLY. Pressure still follows the
+        STANDARD temperature ratio, because on a real hot day the pressure at a
+        given altitude is unchanged - it is the density that falls, via the ideal
+        gas law at the higher temperature. Folding the deviation into the
+        pressure ratio as well would double-count it and overstate the effect.
+
+        This is the physically dominant hot-weather mechanism for a piston aero
+        engine and the reason 'hot and high' is the classic problem: lower rho
+        means less mass flow, so less power, thrust and climb performance.
+        """
+        T_std = 288.15 - 0.0065*altitude          # standard-day temperature
+        T = T_std + self.isa_dev_c                # actual temperature
+        P = 101325.0 * (T_std/288.15)**5.256      # pressure follows the STANDARD ratio
+        rho = P / (287.05*T)                      # density uses the ACTUAL temperature
         return T, P, rho
 
     # ---------------- Torque map (Rotax 914 UL/F) ----------------
@@ -284,9 +313,16 @@ class UAVEngineTwin:
         # heating during low-airspeed high-power ground ops. Capped since a fixed-size
         # radiator/fin area has diminishing returns at very high speed.
         cool = min(max(self.airspeed, 0.0), 60.0)
-        egt_target = 300 + 400*throttle + 0.05*engine_rpm + 5*power_kw
+        # Ambient offset is applied to EGT and oil temperature only. NOT to CHT:
+        # SENSOR_LIMITS clips CHT at 260 and cht_state initializes at exactly that
+        # ceiling (it is the value present in ~97% of training rows), so an ambient
+        # term there would either be clipped into invisibility or, if the ceiling
+        # were raised, push AI feature #17 outside its trained envelope. The
+        # dominant hot-day effect is carried by air density in atmosphere(), which
+        # is physically correct and costs the model nothing.
+        egt_target = 300 + 400*throttle + 0.05*engine_rpm + 5*power_kw + 0.6*self.isa_dev_c
         cht_target = 200 + 250*throttle + 0.03*engine_rpm + 5*power_kw - 1.8*cool
-        oiltemp_target = 60 + 30*throttle + 0.01*engine_rpm - 0.3*cool
+        oiltemp_target = 60 + 30*throttle + 0.01*engine_rpm - 0.3*cool + 0.8*self.isa_dev_c
 
         # First-order thermal lag: signal chases the target at a rate set by tau.
         # This is what makes CHT/OilTemp/EGT actually warm up over real time instead
@@ -339,6 +375,10 @@ class UAVEngineTwin:
         return {
             "time": round(self.t,4), "altitude": self.altitude, "air_density": rho,
             "throttle": throttle, "airspeed": self.airspeed, "aoa": self.aoa,
+            # Display/telemetry only - deliberately NOT AI features.
+            "ambient_temp_c": round(T - 273.15, 3), "isa_dev_c": self.isa_dev_c,
+            "density_in_envelope": bool(
+                self.TRAINED_DENSITY_MIN <= rho <= self.TRAINED_DENSITY_MAX),
             "torque_available_nm": torque_avail, "engine_rpm": engine_rpm,
             "prop_rpm": prop_rpm, "prop_torque": prop_torque, "power_kw": power_kw,
             "fuel_flow": fuel_flow, "thrust": thrust, "lift": lift, "drag": drag,

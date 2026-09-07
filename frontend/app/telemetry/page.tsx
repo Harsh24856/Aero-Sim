@@ -22,6 +22,8 @@ type SimulationRow = {
 function outcomeBadgeClass(outcome: string | null): string {
   if (!outcome) return "border-tertiary/40 bg-tertiary/10 text-tertiary";
   if (outcome === "stopped") return "border-[#3a5a3a] bg-[#122015] text-[#7fc87f]";
+  // A resumed run is still open - it is being flown again under the same id.
+  if (outcome === "resumed") return "border-tertiary/40 bg-tertiary/10 text-tertiary";
   if (outcome === "reset" || outcome === "engine_switched") return "border-outline-variant/40 bg-surface-container-highest/40 text-on-surface-variant";
   return "border-outline-variant/40 bg-surface-container-highest/40 text-on-surface-variant";
 }

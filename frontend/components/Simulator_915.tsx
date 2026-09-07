@@ -151,7 +151,8 @@ function formatAlt(alt: number): string {
   return `${Math.round(alt).toLocaleString()} M`;
 }
 function formatSpeed(spdMps: number): string {
-  return `${Math.round(spdMps * 3.6)} KM/H`;
+  // Knots for the head-up TAS readout - the unit a real GCS shows.
+  return `${Math.round(spdMps * 1.943844)} KT`;
 }
 function formatRC(vsK: number): string {
   return `${vsK >= 0 ? "+" : ""}${vsK.toFixed(2)}`;
@@ -193,6 +194,9 @@ export type SimulatorProps = {
   paused: boolean;
   onStop: () => void;
   initialState?: ResumeState | null;
+  /** Mission-profile climb ceiling. Defaults to AUTO_CLIMB_TARGET so an
+   *  ordinary (non-preset) launch behaves exactly as before. */
+  altitudeTarget?: number;
 };
 
 /* ───────────────────────────────────────────────────────────────
@@ -208,6 +212,7 @@ function FlightApproachGame({
   paused,
   onStop,
   initialState,
+  altitudeTarget,
 }: SimulatorProps) {
   // Ridge data: filled shapes AND open crest paths for highlights
   // Ocean waves - much flatter than dunes/mountains, more segments for a
@@ -250,10 +255,12 @@ function FlightApproachGame({
   // loop reads current values without restarting its effect.
   const throttleRef = useRef(throttle);
   const airspeedTargetRef = useRef(airspeedTarget);
+  const altitudeTargetRef = useRef(altitudeTarget ?? AUTO_CLIMB_TARGET);
   const startedRef = useRef(started);
   const pausedRef = useRef(paused);
   useEffect(() => { throttleRef.current = throttle; }, [throttle]);
   useEffect(() => { airspeedTargetRef.current = airspeedTarget; }, [airspeedTarget]);
+  useEffect(() => { altitudeTargetRef.current = altitudeTarget ?? AUTO_CLIMB_TARGET; }, [altitudeTarget]);
   useEffect(() => { startedRef.current = started; }, [started]);
   useEffect(() => { pausedRef.current = paused; }, [paused]);
 
@@ -344,8 +351,8 @@ function FlightApproachGame({
           // ramps up to the airspeed target; pitch holds a gentle
           // nose-up angle.
           alt += AUTO_CLIMB_RATE * dt;
-          if (alt >= AUTO_CLIMB_TARGET) {
-            alt = AUTO_CLIMB_TARGET;
+          if (alt >= altitudeTargetRef.current) {
+            alt = altitudeTargetRef.current;
             autoClimbRef.current = false;
           }
 
@@ -737,7 +744,7 @@ function FlightApproachGame({
           <button className="fg-btn" onClick={restart}>RESTART</button>
           <button className="fg-btn" style={{ background: "#5a2020", borderColor: "#7a3030" }} onClick={onStop}>STOP SIMULATION</button>
         </div>
-        <div>Click the display, then ↑↓ = altitude, ←→ = speed. Land under {Math.round(SAFE_LANDING_SPEED * 3.6)} km/h, gently.</div>
+        <div>Click the display, then ↑↓ = altitude, ←→ = speed. Land under {Math.round(SAFE_LANDING_SPEED * 1.943844)} kt, gently.</div>
       </div>
     </div>
   );
