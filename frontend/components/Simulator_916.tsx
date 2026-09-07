@@ -197,6 +197,10 @@ export type SimulatorProps = {
   /** Mission-profile climb ceiling. Defaults to AUTO_CLIMB_TARGET so an
    *  ordinary (non-preset) launch behaves exactly as before. */
   altitudeTarget?: number;
+  /** Mission autopilot. When engaged the aircraft is placed at the profile's
+   *  altitude and flies the legs directly - no takeoff climb - and the arrow
+   *  keys are ignored. Disengaging hands control straight back to the pilot. */
+  autopilot?: boolean;
 };
 
 /* ───────────────────────────────────────────────────────────────
@@ -213,6 +217,7 @@ function FlightApproachGame({
   onStop,
   initialState,
   altitudeTarget,
+  autopilot = false,
 }: SimulatorProps) {
   // No ridge data needed for this theme (explicit "no hills" request) - just
   // buildings + the starfield/moon rendered directly in JSX below.
@@ -243,8 +248,10 @@ function FlightApproachGame({
   // the single largest reason "Continue Simulation" did not actually continue.
   // Resuming from a snapshot taken ON the ground is the one case where running a
   // takeoff sequence is still correct.
+  // A mission profile never runs the takeoff sequence: the autopilot places the
+  // aircraft on the profile's first leg instead of climbing to it from zero.
   const autoClimbRef = useRef(
-    initialState == null || initialState.altitude <= RESUME_GROUND_EPS
+    !autopilot && (initialState == null || initialState.altitude <= RESUME_GROUND_EPS)
   ); // active during takeoff sequence
 
   // Ref-synced mirrors of externally-controlled props so the rAF
@@ -252,11 +259,13 @@ function FlightApproachGame({
   const throttleRef = useRef(throttle);
   const airspeedTargetRef = useRef(airspeedTarget);
   const altitudeTargetRef = useRef(altitudeTarget ?? AUTO_CLIMB_TARGET);
+  const autopilotRef = useRef(autopilot);
   const startedRef = useRef(started);
   const pausedRef = useRef(paused);
   useEffect(() => { throttleRef.current = throttle; }, [throttle]);
   useEffect(() => { airspeedTargetRef.current = airspeedTarget; }, [airspeedTarget]);
   useEffect(() => { altitudeTargetRef.current = altitudeTarget ?? AUTO_CLIMB_TARGET; }, [altitudeTarget]);
+  useEffect(() => { autopilotRef.current = autopilot; }, [autopilot]);
   useEffect(() => { startedRef.current = started; }, [started]);
   useEffect(() => { pausedRef.current = paused; }, [paused]);
 
@@ -284,7 +293,7 @@ function FlightApproachGame({
     statusRef.current = "flying";
     distanceRef.current = 0;
     lastTimeRef.current = null;
-    autoClimbRef.current = true; // reset takeoff sequence
+    autoClimbRef.current = !autopilotRef.current; // no takeoff sequence under autopilot
     setStatus("flying");
     if (containerRef.current) containerRef.current.focus();
   }, []);
@@ -318,6 +327,20 @@ function FlightApproachGame({
     if (containerRef.current) containerRef.current.focus();
   }, []);
 
+  // Engaging the autopilot on a grounded aircraft places it directly on the
+  // profile's current leg. A mission is meant to begin ON station, so climbing
+  // there from zero would spend the opening legs of every profile in a takeoff
+  // that the profile did not ask for.
+  useEffect(() => {
+    if (!started || !autopilot) return;
+    if (altitudeRef.current <= RESUME_GROUND_EPS) {
+      altitudeRef.current = altitudeTargetRef.current;
+      speedRef.current = airspeedTargetRef.current;
+      statusRef.current = "flying";
+    }
+    autoClimbRef.current = false;
+  }, [started, autopilot]);
+
   /* ── Main animation / physics loop ─────────────────────────── */
   const lastTelemetryEmitRef = useRef(0);
   useEffect(() => {
@@ -341,7 +364,24 @@ function FlightApproachGame({
           onAirspeedTargetChange(newTarget);
         }
 
-        if (autoClimbRef.current) {
+        if (autopilotRef.current) {
+          // ── Autopilot ─────────────────────────────────────────
+          // Flies the profile: altitude converges on the current leg's target,
+          // speed tracks the leg's airspeed, and pitch follows from the actual
+          // vertical rate rather than being commanded. Arrow keys are ignored
+          // for altitude; the pilot must disengage to take the controls.
+          const dz = altitudeTargetRef.current - alt;
+          const stepLimit = AUTO_CLIMB_RATE * dt;
+          alt += Math.sign(dz) * Math.min(Math.abs(dz), stepLimit);
+          alt = Math.max(ALT_MIN, Math.min(ALT_MAX, alt));
+
+          const spd = speedRef.current + (airspeedTargetRef.current - speedRef.current) * Math.min(1, dt * 1.5);
+          speedRef.current = Math.max(SPEED_MIN, spd);
+
+          const climbRate = dt > 0 ? (alt - altitudeRef.current) / dt : 0;
+          const pitchTarget = Math.max(-8, Math.min(10, climbRate / 12));
+          pitchRef.current = pitchRef.current + (pitchTarget - pitchRef.current) * Math.min(1, dt * 3);
+        } else if (autoClimbRef.current) {
           // ── Auto-climb phase ──────────────────────────────────
           // Altitude rises automatically at a steady rate; speed
           // ramps up to the airspeed target; pitch holds a gentle
@@ -390,7 +430,7 @@ function FlightApproachGame({
         // Ground check — SKIP during auto-climb, since starting at
         // altitude 0 would otherwise immediately trigger a false
         // "crashed" state on the very first tick.
-        if (!autoClimbRef.current && alt <= 0.5) {
+        if (!autoClimbRef.current && !autopilotRef.current && alt <= 0.5) {
           altitudeRef.current = 0;
           if (speedRef.current <= SAFE_LANDING_SPEED && Math.abs(pitchRef.current) <= SAFE_LANDING_PITCH) {
             statusRef.current = "landed";
