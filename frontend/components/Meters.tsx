@@ -19,6 +19,7 @@ export function mpsToKmh(mps: number): number { return mps * 3.6; }
 // display only.
 export function mpsToKnots(mps: number): number { return mps * 1.943844; }
 export function kmhToMps(kmh: number): number { return kmh / 3.6; }
+export function knotsToMps(kt: number): number { return kt / 1.943844; }
 
 export const SENSOR_FIELDS: { key: keyof RawTelemetry; label: string; unit: string; decimals?: number; convert?: (v: number) => number }[] = [
   { key: "altitude", label: "Altitude", unit: "m", decimals: 0 },
@@ -202,6 +203,10 @@ export default function Meters({
             value={throttle}
             onChange={(e) => onThrottleChange(Number(e.target.value))}
           />
+          <div className="mt-0.5 flex justify-between font-mono text-[7px] text-[#8a7263] md:text-[8px]">
+            <span>0%</span>
+            <span>100%</span>
+          </div>
         </div>
 
         {/* Speed Target Slider */}
@@ -220,12 +225,18 @@ export default function Meters({
             id="airspeed-input"
             className="cockpit-range mt-1.5 w-full"
             type="range"
-            min="126"
+            min={MIN_SPEED}
             max={MAX_SPEED}
-            step="5"
-            value={Math.round(mpsToKmh(airspeedTarget))}
-            onChange={(e) => onAirspeedTargetChange(kmhToMps(Number(e.target.value)))}
+            step="1"
+            value={Math.round(mpsToKnots(airspeedTarget))}
+            onChange={(e) => onAirspeedTargetChange(knotsToMps(Number(e.target.value)))}
           />
+          {/* Endpoints spelled out: the speed track starts at the stall floor,
+              not at zero, so without them a near-empty bar reads as a fault. */}
+          <div className="mt-0.5 flex justify-between font-mono text-[7px] text-[#8a7263] md:text-[8px]">
+            <span>{MIN_SPEED} KT</span>
+            <span>{MAX_SPEED} KT</span>
+          </div>
         </div>
       </div>
 
