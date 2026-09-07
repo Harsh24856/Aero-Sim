@@ -7,6 +7,7 @@ import {
 } from "recharts";
 import { Play, Pause, SkipBack, SkipForward, AlertTriangle } from "lucide-react";
 import { simSecondsToRealHours } from "@/lib/timeScale";
+import { formatAirspeed, formatAirspeedSecondary, formatAltitude, formatAltitudeFeet } from "@/lib/units";
 
 /**
  * Mission replay (PS 26054 section E, "Replay of historical mission data").
@@ -95,12 +96,16 @@ export default function MissionReplay({ rows }: { rows: ReplayRow[] }) {
     );
   }
 
-  const groups: { title: string; items: [string, string][] }[] = [
+  // [label, value, optional secondary readout]
+  const groups: { title: string; items: [string, string, string?][] }[] = [
+    // Airspeed in knots and altitude with a feet readout: the units aircrew and
+    // every real GCS actually use. The stored values stay SI - this converts at
+    // the display layer only.
     { title: "Flight Parameters", items: [
-      ["Altitude (m)", fmt(cur.altitude, 0)],
-      ["Airspeed (m/s)", fmt(cur.airspeed, 1)],
+      ["Altitude", formatAltitude(cur.altitude), formatAltitudeFeet(cur.altitude)],
+      ["Airspeed", formatAirspeed(cur.airspeed), formatAirspeedSecondary(cur.airspeed)],
       ["Throttle", cur.throttle === null ? "--" : `${(cur.throttle * 100).toFixed(0)}%`],
-      ["AoA (deg)", fmt(cur.aoa, 1)],
+      ["AoA", cur.aoa === null ? "--" : `${cur.aoa.toFixed(1)}\u00b0`],
     ]},
     { title: "Powerplant", items: [
       ["Engine RPM", fmt(cur.engine_rpm, 0)],
@@ -109,10 +114,10 @@ export default function MissionReplay({ rows }: { rows: ReplayRow[] }) {
       ["Fuel Flow", fmt(cur.fuel_flow, 2)],
     ]},
     { title: "Thermal & Oil", items: [
-      ["EGT (C)", fmt(cur.egt, 0)],
-      ["CHT (C)", fmt(cur.cht, 0)],
+      ["EGT", cur.egt === null ? "--" : `${cur.egt.toFixed(0)} \u00b0C`],
+      ["CHT", cur.cht === null ? "--" : `${cur.cht.toFixed(0)} \u00b0C`],
       ["Oil Press", fmt(cur.oil_pressure, 1)],
-      ["Oil Temp (C)", fmt(cur.oil_temp, 0)],
+      ["Oil Temp", cur.oil_temp === null ? "--" : `${cur.oil_temp.toFixed(0)} \u00b0C`],
     ]},
     { title: "Aero & Vibration", items: [
       ["Thrust (N)", fmt(cur.thrust, 0)],
@@ -253,10 +258,15 @@ export default function MissionReplay({ rows }: { rows: ReplayRow[] }) {
             <div key={g.title} className="bg-surface/60 border border-outline-variant/30 rounded-lg p-4">
               <div className="text-[10px] uppercase tracking-[0.1em] text-tertiary/80 mb-2">{g.title}</div>
               <dl className="space-y-1.5">
-                {g.items.map(([label, value]) => (
-                  <div key={label} className="flex items-center justify-between gap-2 text-[12px]">
+                {g.items.map(([label, value, secondary]) => (
+                  <div key={label} className="flex items-start justify-between gap-2 text-[12px]">
                     <dt className="text-on-surface-variant">{label}</dt>
-                    <dd className="text-primary font-mono">{value}</dd>
+                    <dd className="text-right">
+                      <span className="text-primary font-mono">{value}</span>
+                      {secondary && (
+                        <span className="block text-[10px] text-on-surface-variant/70 font-mono">{secondary}</span>
+                      )}
+                    </dd>
                   </div>
                 ))}
               </dl>

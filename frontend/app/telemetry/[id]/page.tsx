@@ -7,6 +7,7 @@ import Navbar from "@/components/Navbar";
 import { supabase } from "@/lib/supabase";
 import { ArrowLeft, Play, Gauge, Thermometer, Activity, Fuel } from "lucide-react";
 import { simRulHoursToPercent } from "@/lib/timeScale";
+import { formatAirspeed, formatAirspeedSecondary, formatAltitude, formatAltitudeFeet, formatRulRealHours, tboReference } from "@/lib/units";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
@@ -121,8 +122,18 @@ export default function TelemetryDetailPage() {
     }
   };
 
-  const sensorGroups: { title: string; icon: typeof Gauge; fields: [string, string, number][] }[] = [
-    { title: "Flight Parameters", icon: Gauge, fields: [["altitude", "Altitude (m)", 0], ["throttle", "Throttle", 2], ["airspeed", "Airspeed (m/s)", 1], ["aoa", "AoA (deg)", 1]] },
+  // Optional 4th element is a display formatter; fields without one keep the
+  // plain toFixed(decimals) path. Airspeed is shown in knots and altitude gains a
+  // feet readout - the units a real ground control station uses. Conversion is
+  // display-only; the stored telemetry stays SI.
+  type SensorField = [string, string, number, ((v: number) => { value: string; secondary?: string })?];
+  const sensorGroups: { title: string; icon: typeof Gauge; fields: SensorField[] }[] = [
+    { title: "Flight Parameters", icon: Gauge, fields: [
+      ["altitude", "Altitude", 0, (v) => ({ value: formatAltitude(v), secondary: formatAltitudeFeet(v) })],
+      ["throttle", "Throttle", 2],
+      ["airspeed", "Airspeed", 1, (v) => ({ value: formatAirspeed(v), secondary: formatAirspeedSecondary(v) })],
+      ["aoa", "AoA (deg)", 1],
+    ] },
     { title: "Powerplant", icon: Activity, fields: [["engine_rpm", "Engine RPM", 0], ["prop_rpm", "Prop RPM", 0], ["power_kw", "Power (kW)", 1], ["fuel_flow", "Fuel Flow", 2]] },
     { title: "Thermal", icon: Thermometer, fields: [["egt", "EGT (C)", 0], ["cht", "CHT (C)", 0], ["oil_pressure", "Oil Pressure", 1], ["oil_temp", "Oil Temp (C)", 1]] },
     { title: "Vibration & Wear", icon: Fuel, fields: [["vibx", "Vib X", 3], ["viby", "Vib Y", 3], ["vibz", "Vib Z", 3], ["wear", "Wear", 4]] },
@@ -204,6 +215,11 @@ export default function TelemetryDetailPage() {
                   <div className="text-3xl font-bold text-primary">
                     {sim.final_rul_hours != null ? `${Math.min(100, simRulHoursToPercent(sim.final_rul_hours, typeof sim.final_telemetry?.time === "number" ? sim.final_telemetry.time : undefined)).toFixed(0)}%` : "--"}
                   </div>
+                  {sim.final_rul_hours != null && (
+                    <div className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mt-1">
+                      {formatRulRealHours(sim.final_rul_hours)} {tboReference()}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -270,12 +286,20 @@ export default function TelemetryDetailPage() {
                           <Icon size={13} /> {title}
                         </div>
                         <div className="space-y-2">
-                          {fields.map(([key, label, decimals]) => {
+                          {fields.map(([key, label, decimals, format]) => {
                             const val = sim.final_telemetry?.[key];
+                            const shown = typeof val === "number"
+                              ? (format ? format(val) : { value: val.toFixed(decimals) })
+                              : { value: "--" };
                             return (
-                              <div key={key} className="flex items-center justify-between text-[12px]">
+                              <div key={key} className="flex items-start justify-between gap-2 text-[12px]">
                                 <span className="text-on-surface-variant">{label}</span>
-                                <span className="text-primary font-mono">{typeof val === "number" ? val.toFixed(decimals) : "--"}</span>
+                                <span className="text-right">
+                                  <span className="text-primary font-mono">{shown.value}</span>
+                                  {shown.secondary && (
+                                    <span className="block text-[10px] text-on-surface-variant/70 font-mono">{shown.secondary}</span>
+                                  )}
+                                </span>
                               </div>
                             );
                           })}
