@@ -248,6 +248,20 @@ class UAVEngineTwin:
         # Engine failure modes (PS section C). Disabled under v2, so every
         # accessor is an identity and v2 stays bit-identical.
         self.failure_modes = FailureModes(enabled=_v3)
+
+        # Drift faults (type 2) displace a channel by sev*(t - onset), which is
+        # UNBOUNDED in time. On oil pressure, whose auto-fault severity is
+        # negative, that ran the channel to zero and pinned it there: measured on
+        # v3 smoke data, oil_pressure was fault-injected in 22% of rows and sat at
+        # exactly 0.0 in 16.2% - an engine reading zero oil pressure would have
+        # seized. It also destroyed the best available wear indicator, dropping
+        # oil_press_ratio's correlation with wear from -0.9999 on clean rows to
+        # -0.14 overall.
+        #
+        # v3 caps drift displacement at a fraction of the healthy value, so a
+        # drifting sensor still degrades badly but stays physically possible.
+        # None under v2 keeps the old unbounded behaviour bit-identical.
+        self.DRIFT_CAP_FRAC = 0.6 if _v3 else None
         self.failed = False
         self.failure_time = None
 
@@ -663,7 +677,11 @@ class UAVEngineTwin:
             if ft == 1:
                 faulty[i] = healthy[i] + sev
             elif ft == 2:
-                faulty[i] = healthy[i] + sev*(t-self.fault_start[i])
+                disp = sev*(t-self.fault_start[i])
+                if self.DRIFT_CAP_FRAC is not None:
+                    cap = self.DRIFT_CAP_FRAC*abs(healthy[i])
+                    disp = float(np.clip(disp, -cap, cap))
+                faulty[i] = healthy[i] + disp
             elif ft == 3:
                 if (t - self.fault_start[i]) % 5 < 0.1:
                     faulty[i] = healthy[i] + sev*10
