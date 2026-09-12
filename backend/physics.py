@@ -10,6 +10,29 @@ the physics engine instead of silently reusing 914 weights.
 """
 import numpy as np
 
+from failure_modes import FailureModes
+
+
+# Which physics generation the twin runs by default.
+#
+# v3 deliberately CHANGES the observable distribution (real thermal calibration,
+# plus wear that is actually visible in the sensors), which invalidates every
+# model trained on v2 data - and those are the models backend/models/ serves
+# today. Keep this at "v2" until the retrained models are deployed, then flip.
+DEFAULT_PHYSICS_VERSION = "v2"
+
+# Time Between Overhauls, real engine hours. This is the scale the v3 RUL label
+# is expressed against: rul_hours_true = TBO_HOURS - accumulated_hours.
+#
+# TODO CONFIRM against Rotax service documentation before generating the final
+# dataset. These are plausible published figures but are NOT yet sourced, and
+# they set the scale everything downstream trains on.
+TBO_HOURS = {
+    "Rotax_912_ULS": 2000.0,
+    "Rotax_914_ULF": 2000.0,
+    "Rotax_915_iS":  1200.0,
+    "Rotax_916_iS":  1200.0,
+}
 
 ENGINE_CONFIGS = {
     "Rotax_914_ULF": {
@@ -66,11 +89,21 @@ ENGINE_CONFIGS = {
 class UAVEngineTwin:
     FAULT_CHANNELS = ["egt","cht","oil_pressure","oil_temp","vibx","viby","vibz","rpm"]
 
-    def __init__(self, dt=0.01, engine_model="Rotax_914_ULF"):
+    PHYSICS_VERSIONS = ("v2", "v3")
+
+    def __init__(self, dt=0.01, engine_model="Rotax_914_ULF", physics_version=None):
         if engine_model not in ENGINE_CONFIGS:
             raise ValueError(f"Unknown engine_model {engine_model!r}. Options: {list(ENGINE_CONFIGS)}")
         self.engine_model = engine_model
         cfg = ENGINE_CONFIGS[engine_model]
+
+        self.physics_version = physics_version or DEFAULT_PHYSICS_VERSION
+        if self.physics_version not in self.PHYSICS_VERSIONS:
+            raise ValueError(f"Unknown physics_version {self.physics_version!r}. "
+                             f"Options: {list(self.PHYSICS_VERSIONS)}")
+        _v3 = self.physics_version == "v3"
+        _g = 1.0 if _v3 else 0.0      # gates every v3-only term to exactly zero
+        self.TBO_HOURS = TBO_HOURS[engine_model]
 
         # Former class-level constants, now per-instance so each twin can run a
         # DIFFERENT engine model simultaneously if needed (e.g. comparing two at once).
@@ -126,8 +159,8 @@ class UAVEngineTwin:
         # flight has completed run-up and taxi, so its engine IS at operating
         # temperature. A true cold-start is a different scenario the model was never
         # trained to assess, so it should not be the default one it is fed.
-        self.egt_state = 650.0      # typical warmed EGT, within training range
-        self.cht_state = 260.0      # matches the CHT sensor ceiling seen in ~97% of training rows
+        self.egt_state = 620.0 if _v3 else 650.0   # typical warmed EGT for the calibration in use
+        self.cht_state = 95.0 if _v3 else 260.0    # v2 warm-started AT the sensor ceiling; v3 at a real head temp
         self.oiltemp_state = 85.0   # normal operating oil temperature
 
         # live-adjustable exogenous inputs (settable at any time from the API)
@@ -164,6 +197,57 @@ class UAVEngineTwin:
         # a "distance to failure" that actually gets closer over time.
         self.wear = 0.0            # 0 = new engine, 1 = failed
         self.WEAR_K = 0.000179      # calibrated empirically against actual scenario severity
+
+        # --- DEGRADATION SIGNATURES (v3) -------------------------------------
+        # Until v3, self.wear was written and never read back into ANY sensor
+        # channel: a 1,900-hour engine read identically to a new one. Measured
+        # correlation of wear with the observables on v2 data was
+        # +0.13 / +0.11 / -0.04 - statistically nothing - so the RUL head was
+        # asked to infer remaining life from a window carrying no degradation
+        # signal, and could only lean on elapsed time.
+        #
+        # These are the signatures a maintainer actually reads on a worn piston
+        # engine. Values are the FULL-LIFE deltas, applied proportionally to wear.
+        # All are gated by _g, so under v2 every term is exactly 0.0.
+        self.WEAR_OIL_PRESS_FRAC = 0.30 * _g   # bearing clearance -> pressure falls
+        self.WEAR_CHT_RISE_C     = 25.0 * _g   # blow-by / deposits -> hotter heads
+        self.WEAR_EGT_RISE_C     = 45.0 * _g   # combustion phasing -> hotter exhaust
+        self.WEAR_OILTEMP_RISE_C = 15.0 * _g   # friction heat into the oil
+        self.WEAR_VIB_FRAC       = 1.50 * _g   # imbalance / bearing wear
+        self.WEAR_BSFC_FRAC      = 0.18 * _g   # more fuel for the same power
+        self.WEAR_TORQUE_FRAC    = 0.12 * _g   # lost peak torque
+
+        # Thermal calibration. v2's coefficients produced impossible temperatures
+        # that the sensor clip then hid: on v2 data `cht` sat at its 260 C clip in
+        # 99.8% of rows while the unclipped truth averaged 537 C and peaked at
+        # 866 C - three to four times reality for a Rotax, whose heads run about
+        # 100-150 C. CHT was therefore a CONSTANT in training and its diagnosis
+        # and severity heads learned from a flat line. EGT was pinned 31.8% of
+        # the time. v3 puts both in real operating bands.
+        if _v3:
+            self.EGT_COEF = (350.0, 250.0, 0.030, 1.20)
+            self.CHT_COEF = ( 75.0,  30.0, 0.004, 0.25, 0.35)
+            self.SENSOR_EGT_MAX = 1000.0   # sensor range; ~950 is the OPERATING limit
+            self.SENSOR_CHT_MAX =  200.0   # sensor range; ~135-150 is the operating limit
+        else:
+            self.EGT_COEF = (300.0, 400.0, 0.050, 5.00)
+            self.CHT_COEF = (200.0, 250.0, 0.030, 5.00, 1.80)
+            self.SENSOR_EGT_MAX = 950.0
+            self.SENSOR_CHT_MAX = 260.0
+
+        # --- Electrical + injection (PS section B). Monitor-only channels, except
+        # injection_timing which IS a model input (see tf_data_pipeline.py).
+        self.BATT_NOMINAL_V = 12.6
+        self.ALT_CUTIN_RPM = 2200.0        # alternator starts charging above this
+        self.INJ_BASE_DEG = 12.0           # base injection advance, deg BTDC
+        self.battery_voltage = self.BATT_NOMINAL_V
+        self.battery_current = 0.0
+        self.alternator_output = 0.0
+        self.injection_timing = self.INJ_BASE_DEG
+
+        # Engine failure modes (PS section C). Disabled under v2, so every
+        # accessor is an identity and v2 stays bit-identical.
+        self.failure_modes = FailureModes(enabled=_v3)
         self.failed = False
         self.failure_time = None
 
@@ -196,6 +280,13 @@ class UAVEngineTwin:
         self.aoa = float(snapshot.get("aoa", self.aoa))
         # Without this a resumed hot-day flight silently reverts to a standard day.
         self.isa_dev_c = float(snapshot.get("isa_dev_c", self.isa_dev_c))
+        # Without these a resumed flight silently reverts to a fresh electrical
+        # state - the same class of bug as the ISA deviation not being restored.
+        self.battery_voltage = float(snapshot.get("battery_voltage", self.battery_voltage))
+        self.battery_current = float(snapshot.get("battery_current", self.battery_current))
+        self.alternator_output = float(snapshot.get("alternator_output", self.alternator_output))
+        self.injection_timing = float(snapshot.get("injection_timing", self.injection_timing))
+        self.failure_modes.restore(snapshot.get("failure_modes"))
 
         engine_rpm = snapshot.get("engine_rpm")
         if engine_rpm is not None:
@@ -250,7 +341,11 @@ class UAVEngineTwin:
         thr = np.clip(throttle, 0.0, 1.0)
         rpm_c = np.clip(engine_rpm, self.RPM_POINTS[0], self.RPM_POINTS[-1])
         base_torque = np.interp(rpm_c, self.RPM_POINTS, self.TORQUE_POINTS)
-        return thr * base_torque
+        # Applied HERE rather than to power_kw so the loss propagates physically -
+        # through the RK4 RPM dynamics and therefore into prop speed and thrust -
+        # the way a genuinely tired engine behaves.
+        return (thr * base_torque * (1.0 - self.WEAR_TORQUE_FRAC*self.wear)
+                * self.failure_modes.torque_multiplier())
 
     # ---------------- Propeller ----------------
     def propeller(self, rho, prop_rpm):
@@ -289,6 +384,16 @@ class UAVEngineTwin:
         T, P, rho = self.atmosphere(self.altitude)
         dt = self.dt
 
+        # Advance latent failure modes BEFORE the RK4 so torque_multiplier() is
+        # constant across k1..k4 - otherwise a misfire could fire on some stages
+        # of the integrator and not others, which is not a physical behaviour.
+        # Uses the previous step's operating point: a one-step lag, negligible.
+        _prev_rpm = self.omega*60.0/(2*np.pi)
+        self.failure_modes.step(dt, self.t,
+                                _prev_rpm/self.RPM_MAX,
+                                min(1.0, (self._last_power_kw/self.MAX_POWER_KW) if hasattr(self, "_last_power_kw") else 0.0),
+                                self.wear)
+
         k1,_,_,_,_,_ = self._domega_dt(self.omega, throttle, rho)
         k2,_,_,_,_,_ = self._domega_dt(self.omega+0.5*dt*k1, throttle, rho)
         k3,_,_,_,_,_ = self._domega_dt(self.omega+0.5*dt*k2, throttle, rho)
@@ -302,7 +407,13 @@ class UAVEngineTwin:
         _, torque_avail, engine_rpm, prop_rpm, thrust, prop_torque = self._domega_dt(self.omega, throttle, rho)
 
         power_kw = torque_avail*engine_rpm/9549.0
-        fuel_flow = power_kw*self.BSFC
+        # A worn engine burns more fuel for the same shaft power. Note the ABSOLUTE
+        # fuel flow can still fall, because the torque derate reduces power; the
+        # diagnostic signal is the RATIO (BSFC), which tf_data_pipeline turns into
+        # the bsfc_ratio aux feature.
+        fuel_flow = (power_kw*self.BSFC*(1.0 + self.WEAR_BSFC_FRAC*self.wear)
+                     * self.failure_modes.fuel_multiplier())
+        self._last_power_kw = power_kw
 
         lift, drag, thrust_margin, lift_margin = self.aerodynamics(rho, self.airspeed, self.aoa, thrust)
 
@@ -312,7 +423,7 @@ class UAVEngineTwin:
         # aviation sources: "reduced cooling airflow increases CHT", shock-cooling/shock-
         # heating during low-airspeed high-power ground ops. Capped since a fixed-size
         # radiator/fin area has diminishing returns at very high speed.
-        cool = min(max(self.airspeed, 0.0), 60.0)
+        cool = min(max(self.airspeed, 0.0), 60.0) * self.failure_modes.cooling_multiplier()
         # Ambient offset is applied to EGT and oil temperature only. NOT to CHT:
         # SENSOR_LIMITS clips CHT at 260 and cht_state initializes at exactly that
         # ceiling (it is the value present in ~97% of training rows), so an ambient
@@ -320,15 +431,23 @@ class UAVEngineTwin:
         # were raised, push AI feature #17 outside its trained envelope. The
         # dominant hot-day effect is carried by air density in atmosphere(), which
         # is physically correct and costs the model nothing.
-        egt_target = 300 + 400*throttle + 0.05*engine_rpm + 5*power_kw + 0.6*self.isa_dev_c
-        cht_target = 200 + 250*throttle + 0.03*engine_rpm + 5*power_kw - 1.8*cool
-        oiltemp_target = 60 + 30*throttle + 0.01*engine_rpm - 0.3*cool + 0.8*self.isa_dev_c
+        e0, e1, e2, e3 = self.EGT_COEF
+        c0, c1, c2, c3, c4 = self.CHT_COEF
+        egt_target = (e0 + e1*throttle + e2*engine_rpm + e3*power_kw
+                      + 0.6*self.isa_dev_c + self.WEAR_EGT_RISE_C*self.wear
+                      + self.failure_modes.egt_delta())
+        cht_target = (c0 + c1*throttle + c2*engine_rpm + c3*power_kw - c4*cool
+                      + (0.7 if self.physics_version == "v3" else 0.0)*self.isa_dev_c
+                      + self.WEAR_CHT_RISE_C*self.wear)
+        oiltemp_target = (60 + 30*throttle + 0.01*engine_rpm - 0.3*cool
+                          + 0.8*self.isa_dev_c + self.WEAR_OILTEMP_RISE_C*self.wear)
 
         # First-order thermal lag: signal chases the target at a rate set by tau.
         # This is what makes CHT/OilTemp/EGT actually warm up over real time instead
         # of snapping to a value the instant throttle changes.
         self.egt_state     += dt * (egt_target - self.egt_state) / self.EGT_TAU
-        self.cht_state      += dt * (cht_target - self.cht_state) / self.CHT_TAU
+        self.cht_state      += dt * (cht_target - self.cht_state) / (
+            self.CHT_TAU * self.failure_modes.cht_tau_multiplier())
         self.oiltemp_state += dt * (oiltemp_target - self.oiltemp_state) / self.OILTEMP_TAU
 
         egt, cht, oil_t = self.egt_state, self.cht_state, self.oiltemp_state
@@ -339,15 +458,42 @@ class UAVEngineTwin:
         # engines commonly show ~60psi at normal oil temp dropping to ~30-35psi when oil
         # temp is abnormally high). Cold oil (high viscosity) gives a pressure boost.
         oil_p = 90.0*(1.0 - np.exp(-engine_rpm/1500.0)) + 3.0*throttle - 0.15*(self.oiltemp_state - 80.0)
+        # Falling oil pressure is the classic wear indicator: increasing bearing
+        # clearance lets the pump bypass more flow at the same speed. This exact
+        # expression at wear=0 is mirrored by tf_data_pipeline.expected_oil_pressure.
+        oil_p *= (1.0 - self.WEAR_OIL_PRESS_FRAC*self.wear)
 
         # Vibration: rotating-unbalance force scales with the SQUARE of RPM (F=m*r*omega^2),
         # not linearly - this is fundamental rotating-machinery vibration physics.
         rpm_k = (engine_rpm/1000.0)**2
-        vibx = 0.02  + 0.00345*rpm_k
-        viby = 0.025 + 0.00310*rpm_k
-        vibz = 0.03  + 0.00379*rpm_k
+        wear_vib = (1.0 + self.WEAR_VIB_FRAC*self.wear) * self.failure_modes.vib_multiplier()
+        vibx = (0.02  + 0.00345*rpm_k) * wear_vib
+        viby = (0.025 + 0.00310*rpm_k) * wear_vib
+        vibz = (0.03  + 0.00379*rpm_k) * wear_vib
 
-        healthy = np.array([egt, cht, oil_p, oil_t, vibx, viby, vibz, engine_rpm])
+        # --- Electrical + injection (PS section B) ----------------------------
+        # Alternator output rises with RPM above cut-in and saturates; the battery
+        # charges on the surplus and discharges below cut-in. A worn engine drives
+        # its accessories through worn bearings, so output droops slightly.
+        alt_frac = float(np.clip((engine_rpm - self.ALT_CUTIN_RPM) /
+                                 max(self.RPM_MAX - self.ALT_CUTIN_RPM, 1.0), 0.0, 1.0))
+        self.alternator_output = 20.0*alt_frac*(1.0 - 0.15*self.WEAR_VIB_FRAC*self.wear)
+        electrical_load = 8.0                      # avionics + payload, amps
+        self.battery_current = self.alternator_output - electrical_load
+        # Charging pulls the bus up toward regulator voltage; discharging sags it.
+        target_v = 14.2 if self.battery_current > 0 else 11.9
+        self.battery_voltage += dt*(target_v - self.battery_voltage)/5.0
+
+        # Injection timing: base advance, retarded as load rises (knock margin),
+        # and advanced slightly on a hot engine. IS a model input - it carries
+        # misfire/injector signatures.
+        self.injection_timing = float(np.clip(
+            self.INJ_BASE_DEG - 6.0*throttle + 0.02*(cht - 100.0)
+            + self.failure_modes.injection_delta(), 0.0, 30.0))
+
+        # Combustion instability shows as cycle-to-cycle RPM scatter.
+        rpm_reported = engine_rpm + self.failure_modes.rpm_noise()
+        healthy = np.array([egt, cht, oil_p, oil_t, vibx, viby, vibz, rpm_reported])
         self._auto_fault_step(dt, engine_rpm, power_kw, self.airspeed)
         self._update_wear(dt, engine_rpm, power_kw)
         faulty, flags = self._inject_faults(healthy, self.t)
@@ -357,8 +503,9 @@ class UAVEngineTwin:
         # still maxes out its display range) - clip so long-duration Drift faults cannot
         # produce physically impossible values (e.g. negative oil pressure, 3000C EGT).
         SENSOR_LIMITS = np.array([
-            [0, 950],    # EGT C
-            [0, 260],    # CHT C
+            [0, self.SENSOR_EGT_MAX],   # EGT C - sensor range, not the operating limit
+            [0, self.SENSOR_CHT_MAX],   # CHT C - v2 used 260, which the mis-calibrated
+                                        # model sat against in 99.8% of rows
             [0, 150],    # OilPressure
             [0, 150],    # OilTemp C
             [0, 1.0],    # VibX g
@@ -373,7 +520,21 @@ class UAVEngineTwin:
         self.t += dt
 
         return {
-            "time": round(self.t,4), "altitude": self.altitude, "air_density": rho,
+            "time": round(self.t,4),
+            # Engine hours. self.t stays in SECONDS internally - the RK4 integrator
+            # and every tau are defined against it - so hours are DERIVED here
+            # rather than changing the clock's units and destabilising the solver.
+            # This is the column tf_data_pipeline and telemetry_logs consume.
+            "elapsed_hours": round(self.t/3600.0, 6),
+            "tbo_hours": self.TBO_HOURS,
+            "rul_hours_true": max(0.0, self.TBO_HOURS - self.wear*self.TBO_HOURS),
+            "physics_version": self.physics_version,
+            **self.failure_modes.as_labels(),
+            "battery_voltage": round(self.battery_voltage, 4),
+            "battery_current": round(self.battery_current, 4),
+            "alternator_output": round(self.alternator_output, 4),
+            "injection_timing": round(self.injection_timing, 4),
+            "altitude": self.altitude, "air_density": rho,
             "throttle": throttle, "airspeed": self.airspeed, "aoa": self.aoa,
             # Display/telemetry only - deliberately NOT AI features.
             "ambient_temp_c": round(T - 273.15, 3), "isa_dev_c": self.isa_dev_c,
