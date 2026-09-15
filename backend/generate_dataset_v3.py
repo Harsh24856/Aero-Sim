@@ -1,4 +1,4 @@
-"""Dataset v3 generator - 15M rows per engine, life-stage sampled, real-hour RUL.
+"""Dataset v3 generator - 10M rows per engine, life-stage sampled, real-hour RUL.
 
 WHAT IS DIFFERENT FROM v2 (backend/generate_multi_engine_data_v2.py)
 --------------------------------------------------------------------
@@ -16,8 +16,8 @@ WHAT IS DIFFERENT FROM v2 (backend/generate_multi_engine_data_v2.py)
    being capped at MAX_DURATION/3600 = 5.556 h.
 
 3. STREAMING, CHUNKED WRITES. v2 accumulated every row in a Python list and
-   built one DataFrame at the end. At 15M rows x ~60 columns that is roughly
-   25 GB of RAM and will not complete. v3 flushes each split to numbered parquet
+   built one DataFrame at the end. At 10M rows x 65 columns that is roughly
+   21 GB of RAM and will not complete. v3 flushes each split to numbered parquet
    chunks as it goes, so peak memory is one chunk.
 
 4. THE INDEX IS WRITTEN IN THE FORMAT THE PIPELINE ACTUALLY READS.
@@ -54,12 +54,26 @@ from physics import UAVEngineTwin, ENGINE_CONFIGS, TBO_HOURS
 from failure_modes import MODES as FAILURE_MODES
 
 # ---------------------------------------------------------------------------
-TARGET_ROWS = 15_000_000       # per engine
+# Per engine. Chosen from measured scenario statistics rather than a round
+# number: at ~8,400 rows per scenario this is ~1,190 independent flights, about
+# 119 per life-stage decile, and ~156k training windows at stride 64 - roughly
+# 2.5x NASA C-MAPSS FD004. Beyond this the returns diminish quickly while
+# training time scales linearly (15M was +60% cost for a few percent accuracy).
+#
+# Training cost is controlled by STRIDE in tf_data_pipeline.py, not by
+# regenerating: stride 128 halves the windows without touching this dataset.
+TARGET_ROWS = 10_000_000
 MAX_DURATION = 20000.0         # seconds per scenario
 DT = 1.0                       # 1 Hz, matches WINDOW_SIZE semantics
 LEG_MIN, LEG_MAX = 300, 800    # seconds between flight-leg target resets
 TRAIN_FRAC, VAL_FRAC = 0.80, 0.10
-CHUNK_ROWS = 2_500_000         # rows per parquet chunk - keeps peak memory bounded
+# Rows per parquet chunk. Sized against an 8 GB machine running four generator
+# processes at once: the buffer is float32 numpy, so a chunk costs
+# rows x 65 cols x 4 bytes ~= 390 MB at 1.5M rows, x4 processes ~= 1.6 GB.
+#
+# It buffered Python lists-of-floats first, at roughly 2.1 KB per row in object
+# overhead - a 2.5M-row chunk was ~5.3 GB PER PROCESS and would not have fitted.
+CHUNK_ROWS = 1_500_000
 
 BASE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                         "validation")
@@ -69,6 +83,13 @@ BASE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 # leaves visible gaps, and the RUL head then interpolates across them.
 LIFE_STAGE_BINS = 10
 LIFE_STAGE_MAX = 0.95          # never start a scenario essentially dead
+# Every NEW_ENGINE_EVERY-th scenario starts on an essentially new engine (wear
+# 0..NEW_ENGINE_WEAR_MAX). Plain decile stratification left only 0.0-0.1% of test
+# windows with true RUL >= 95% of TBO, because wear climbs within each scenario - and
+# every live session starts on a new engine. The RUL head under-predicted there by
+# 45-106 h (5-9% of TBO) against 0.67-1.25% overall.
+NEW_ENGINE_EVERY = 5
+NEW_ENGINE_WEAR_MAX = 0.02
 
 SENSOR_CHANNELS = ["egt", "cht", "oil_pressure", "oil_temp", "vibx", "viby", "vibz"]
 
@@ -96,16 +117,24 @@ def sample_leg_target(severity_bias):
     """Same flight-leg model as v2 - a 'pilot personality' per scenario."""
     throttle = clip(np.random.uniform(0.15, 0.35)
                     + severity_bias*np.random.uniform(0.4, 0.65), 0.1, 1.0)
+    # Floored at 32 m/s. The v2 range reached ~0 m/s at high throttle - flight far below
+    # the cockpit's 35 m/s stall floor - which starved the cooling: 22% of rows had oil
+    # above the 130 C Rotax limit and 4.7% sat at the 150 C sensor stop, hiding 29% of
+    # oil-temperature faults.
     airspeed = clip(np.random.uniform(45, 70)
-                    - severity_bias*np.random.uniform(20, 55), 0.0, 80.0)
+                    - severity_bias*np.random.uniform(20, 55), 32.0, 80.0)
     altitude = np.random.uniform(0, 8000)
     aoa = np.random.uniform(-10, 20)
     return altitude, throttle, airspeed, aoa
 
 
 def sample_start_wear(scen_idx):
-    """Stratified life stage: cycle through deciles, jitter inside each."""
-    lo = (scen_idx % LIFE_STAGE_BINS) / LIFE_STAGE_BINS
+    """Life stage: every NEW_ENGINE_EVERY-th scenario is a new engine; the rest cycle
+    through deciles with jitter inside each, so every stage of life stays represented."""
+    if scen_idx % NEW_ENGINE_EVERY == 0:
+        return float(np.random.uniform(0.0, NEW_ENGINE_WEAR_MAX))
+    k = scen_idx - scen_idx // NEW_ENGINE_EVERY - 1     # contiguous index over the rest
+    lo = (k % LIFE_STAGE_BINS) / LIFE_STAGE_BINS
     hi = lo + 1.0/LIFE_STAGE_BINS
     return float(np.clip(np.random.uniform(lo, hi), 0.0, LIFE_STAGE_MAX))
 
@@ -134,7 +163,7 @@ def run_scenario(engine_model, scen_idx):
             next_leg_change = t + np.random.uniform(LEG_MIN, LEG_MAX)
         twin.throttle = clip(twin.throttle + np.random.normal(0, 0.008) + 0.15*(throttle-twin.throttle), 0.1, 1.0)
         twin.altitude = clip(twin.altitude + np.random.normal(0, 8.0) + 0.05*(altitude-twin.altitude), 0.0, 9000.0)
-        twin.airspeed = clip(twin.airspeed + np.random.normal(0, 0.4) + 0.10*(airspeed-twin.airspeed), 0.0, 80.0)
+        twin.airspeed = clip(twin.airspeed + np.random.normal(0, 0.4) + 0.10*(airspeed-twin.airspeed), 30.0, 80.0)
         twin.aoa = clip(twin.aoa + np.random.normal(0, 0.2) + 0.10*(aoa-twin.aoa), -15.0, 25.0)
 
         o = twin.step()
@@ -164,34 +193,52 @@ class SplitWriter:
     """Buffers rows for one split and flushes numbered parquet chunks.
 
     Peak memory is CHUNK_ROWS rows, not the whole dataset - the reason v2's
-    accumulate-everything approach cannot be reused at 15M rows.
+    accumulate-everything approach cannot be reused at this scale.
     """
 
     def __init__(self, out_dir, split):
         self.out_dir, self.split = out_dir, split
-        self.rows, self.chunk_idx, self.total = [], 0, 0
+        self.blocks, self.n_buffered = [], 0      # list of float32 arrays
+        self.chunk_idx, self.total = 0, 0
         self.index_entries = []      # {"file", "scenario_id"} - what the pipeline reads
         self._pending_sids = set()
 
     def add(self, scenario_id, rows):
-        self.rows.extend([scenario_id] + r for r in rows)
+        """Store as a compact float32 array, NOT a Python list.
+
+        A row held as a Python list of 65 floats costs ~2.1 KB in object
+        overhead; as float32 it is 260 bytes. At 1.5M rows that is the
+        difference between ~3.2 GB and ~390 MB per process.
+        """
+        arr = np.empty((len(rows), len(COLUMNS)), dtype=np.float32)
+        arr[:, 0] = scenario_id
+        arr[:, 1:] = np.asarray(rows, dtype=np.float32)
+        self.blocks.append(arr)
+        self.n_buffered += len(rows)
         self._pending_sids.add(int(scenario_id))
         self.total += len(rows)
-        if len(self.rows) >= CHUNK_ROWS:
+        if self.n_buffered >= CHUNK_ROWS:
             self.flush()
 
     def flush(self):
-        if not self.rows:
+        if not self.blocks:
             return
         self.chunk_idx += 1
         fname = f"{self.split}_chunk_{self.chunk_idx:02d}.parquet"
-        df = pd.DataFrame(self.rows, columns=COLUMNS)
+        df = pd.DataFrame(np.concatenate(self.blocks, axis=0), columns=COLUMNS)
+        # Restore integer dtypes. scenario_id MUST be an integer column:
+        # tf_data_pipeline filters with ("scenario_id", "=", <int>), and pyarrow
+        # predicate pushdown will not match an int against a float column - every
+        # scenario would silently read back empty.
+        df["scenario_id"] = df["scenario_id"].astype("int32")
+        df["is_failed_now"] = df["is_failed_now"].astype("int8")
         df.to_parquet(os.path.join(self.out_dir, fname), engine="pyarrow", index=False)
         for sid in sorted(self._pending_sids):
             self.index_entries.append({"file": fname, "scenario_id": sid})
         print(f"    wrote {fname}: {len(df):,} rows, {len(self._pending_sids)} scenarios")
         sys.stdout.flush()
-        self.rows, self._pending_sids = [], set()
+        self.blocks, self.n_buffered, self._pending_sids = [], 0, set()
+        del df
 
 
 def generate_engine(engine_model, seed, target_rows=TARGET_ROWS, out_dir=None):

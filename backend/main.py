@@ -6,8 +6,11 @@ POST /params and take effect on the very next simulation step - the loop itself 
 stops until POST /stop is called. Live telemetry streams over WebSocket at ~20Hz.
 """
 import asyncio
+import importlib
 import json
+import os
 import time
+import traceback
 from typing import Optional
 
 import httpx
@@ -16,16 +19,45 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from physics import UAVEngineTwin, ENGINE_CONFIGS
-import db
+
+# Physics version for every twin this process creates. v2 (default) is what the
+# live demo and backend/models/ were built on. v3 must be paired with the v3 AI
+# service (backend/aiv3.py) - /state reports both so a mismatch is visible.
+PHYSICS_VERSION = os.environ.get("AERO_PHYSICS_VERSION", "v2").strip().lower()
+if PHYSICS_VERSION not in ("v2", "v3"):
+    raise ValueError(f"AERO_PHYSICS_VERSION must be v2 or v3, got {PHYSICS_VERSION!r}")
+
+# v3 runs persist through dbv3 (real engine-hour RUL). Same function names as db,
+# so nothing below changes.
+db = importlib.import_module("dbv3" if PHYSICS_VERSION == "v3" else "db")
 import advisory
+import residual
+import safety
 import summary
 
 # ai.py runs as its OWN process under a different Python environment (see ai.py's
 # module docstring - the models segfault under this backend's TF version). Calls are
 # async/non-blocking so a slow or down AI service never freezes telemetry to other
 # clients, and every call is wrapped in try/except for the same reason.
-AI_SERVICE_URL = "http://127.0.0.1:8100"
-ai_client = httpx.AsyncClient(timeout=2.0)
+AI_SERVICE_URL = os.environ.get("AERO_AI_URL", "http://127.0.0.1:8100")
+# 5 s read timeout: five Metal predictions per step can take over a second on a busy
+# machine, and the worker is off the physics loop, so waiting costs nothing but that
+# one sample. 1.5 s was measured to time out the first full inference after every
+# warm-up, which reset the AI's window every ~130 samples - it never stayed live.
+# A connect that takes longer than 0.5 s still means the service is down.
+ai_client = httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=0.5))
+
+# ---- safety net settings -----------------------------------------------------------
+AI_QUEUE_MAX = 8              # samples waiting for the AI worker before it is declared stalled
+AI_WARMUP_BACKLOG = 2         # warm-up fast-forward waits for the AI once this many are queued
+AI_WARMUP_MAX_WAIT_S = 2.0    # ...but never longer than this per sample; then real-time pacing
+RECOVERY_WINDOW_S = 30.0      # physics recoveries counted over this window
+MAX_RECOVERIES = 3            # more than this inside the window halts the session safely
+CLIENT_QUEUE_MAX = 3           # frames buffered per browser; older ones are dropped
+CLIENT_STALL_S = 5.0           # a browser that accepts nothing for this long is disconnected
+DB_TIMEOUT_S = 8.0            # endpoint-side wait for Supabase; the write thread may finish later
+DB_MAX_PENDING = 4            # telemetry writes allowed in flight before new ones are skipped
+ai_breaker = safety.CircuitBreaker(failure_threshold=3, cooldown_s=5.0)
 
 # The AI models were trained on data sampled at exactly 1 real second per timestep -
 # a 128-step window means 128 SECONDS of history to the model. The physics loop runs
@@ -44,8 +76,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+def new_twin(engine_model: str) -> UAVEngineTwin:
+    """The ONLY place twins are built, so the physics version cannot be missed."""
+    return UAVEngineTwin(dt=0.01, engine_model=engine_model, physics_version=PHYSICS_VERSION)
+
+
 CURRENT_ENGINE_MODEL = "Rotax_914_ULF"
-twin = UAVEngineTwin(dt=0.01, engine_model=CURRENT_ENGINE_MODEL)
+twin = new_twin(CURRENT_ENGINE_MODEL)
+
+# Physics residuals (backend/residual.py): measured sensors minus what physics v3
+# expects. Model-free, so it keeps producing sensor-integrity and wear evidence while
+# the AI is warming up or down. Fed at the AI cadence (one sample per simulated
+# second) and cleared wherever the AI buffer is. Physics v2 returns enabled=False.
+residual_monitor = residual.ResidualMonitor(lag="exp")
+
+
+def reset_residuals():
+    residual_monitor.reset()
+    state["residuals"] = None
+
+
+def log_telemetry(simulation_id, time_offset_s, raw, ai):
+    """Thread target for telemetry_logs writes. v3 (dbv3) also persists the physics
+    residuals; db.py (v2) keeps its original signature."""
+    if PHYSICS_VERSION == "v3":
+        return db.log_telemetry(simulation_id, time_offset_s, raw, ai, residuals=state["residuals"])
+    return db.log_telemetry(simulation_id, time_offset_s, raw, ai)
 STEPS_PER_BROADCAST = 5  # 0.01s * 5 = 20Hz telemetry rate
 
 # How often a telemetry_logs row is written, in SIMULATED seconds.
@@ -65,6 +121,8 @@ DB_LOG_INTERVAL_S = 10
 # Each selectable engine has its OWN genuinely-trained model set now - AI predictions
 # are meaningful for 912/914/915/916, each using its own weights and scaler (see
 # ai.py's ENGINE_REGISTRY).
+# Fallback only: refresh_ai_version() replaces this with the engines the running AI
+# service actually has models for (v3 has no 912 export yet).
 AI_VALID_ENGINES = {"Rotax_914_ULF", "Rotax_912_ULS", "Rotax_915_iS", "Rotax_916_iS"}
 
 
@@ -75,6 +133,11 @@ state = {
     "last_ai_result": None,
     "ai_step_counter": 0,
     "ai_warmed_up": False,   # True once the AI has returned a real (non-warmup) result
+    # False while the AI service cannot be reached. Warmup fast-forward exists only to
+    # fill the AI's 128 s window quickly; with no AI to fill it, fast-forwarding just
+    # ran physics unthrottled (1,386 simulated seconds in ~40 s) and wrote a telemetry
+    # row every ~0.3 s of wall time. Unreachable -> real-time pacing.
+    "ai_reachable": True,
     "simulation_id": None,   # current Supabase simulations.id, or None if not persisted
     "db_log_counter": 0,     # simulated seconds since the last telemetry_logs write
     # Tracks whether the PHYSICS SESSION is logically ongoing - deliberately
@@ -87,36 +150,168 @@ state = {
     # and is only cleared by a genuine stop/reset/engine-switch.
     "session_active": False,
     "sim_time_offset": 0.0,  # seconds since this simulation started, for telemetry_logs
+    "ai_model_version": None,  # reported by the AI service's /health on each fresh /start
+    "residuals": None,         # latest residual.ResidualMonitor.update() output
+    # ---- safety net (see simulation_loop) ----
+    "sim_health": "idle",      # idle | running | recovered | halted
+    "last_error": None,        # most recent loop/physics failure, for /health and the UI
+    "recoveries": 0,           # physics recoveries this session
+    "recovery_times": [],      # monotonic stamps inside RECOVERY_WINDOW_S
+    "last_good_telemetry": None,
+    "ai_resync": False,        # the AI's window has a gap: /reset it before the next sample
+    "ai_samples_dropped": 0,
+    "db_pending": 0,
+    "db_skipped": 0,
+    "loop_lag_ms": 0.0,        # how far the loop is behind real time (EWMA)
+    "steps": 0,
 }
 
-# Must match ai.py's FEATURE_COLS exactly - the subset of the physics telemetry dict
-# that the AI models were trained on.
+# Must be a SUPERSET of the AI service's feature columns, same names. ai.py (v2)
+# uses the first 24; aiv3.py adds injection_timing. Both select their own columns
+# by name, so sending the superset to either is harmless.
 AI_FEATURE_COLS = [
     "altitude", "throttle", "airspeed", "aoa", "air_density",
     "torque_available_nm", "engine_rpm", "prop_rpm", "prop_torque", "power_kw", "fuel_flow",
     "thrust", "lift", "drag", "thrust_margin", "lift_weight_margin",
     "egt", "cht", "oil_pressure", "oil_temp", "vibx", "viby", "vibz", "rpm_fault",
+    "injection_timing",
 ]
 
 
-async def call_ai_service(telemetry: dict):
-    """Sends one timestep to ai.py, updates state['last_ai_result']. Never raises -
-    if the AI service is down or slow, the physics/telemetry loop keeps running
-    unaffected; the frontend just stops receiving fresh AI fields until it recovers.
-    Returns the parsed result so the caller can detect the warmup-to-ready transition."""
-    payload = {c: telemetry[c] for c in AI_FEATURE_COLS}
-    payload["time"] = telemetry["time"]
+def final_rul_hours(ai: dict):
+    """RUL for simulations.final_rul_hours. ai.py (v2) reports simulated-timescale
+    hours in rul_hours_internal; aiv3.py reports real engine hours in rul_hours."""
+    if ai.get("model_version") == "v3":
+        return ai.get("rul_hours")
+    return ai.get("rul_hours_internal")
+
+
+async def refresh_ai_version():
+    """Records which model version the AI service is serving and warns on mismatch."""
+    global AI_VALID_ENGINES
     try:
-        resp = await ai_client.post(f"{AI_SERVICE_URL}/step", json=payload)
+        resp = await ai_client.get(f"{AI_SERVICE_URL}/health")
+        health = resp.json()
+        state["ai_model_version"] = health.get("model_version", "v2")
+        if isinstance(health.get("available_engines"), list) and health["available_engines"]:
+            AI_VALID_ENGINES = set(health["available_engines"])
+    except Exception:
+        state["ai_model_version"] = None
+        return
+    if state["ai_model_version"] != PHYSICS_VERSION:
+        print(f"WARNING: physics {PHYSICS_VERSION} but the AI service serves "
+              f"{state['ai_model_version']} models - predictions are out of distribution. "
+              "Run ai.py with physics v2, aiv3.py with AERO_PHYSICS_VERSION=v3.")
+
+
+async def call_ai_service(telemetry: dict):
+    """Sends one timestep to the AI service. Never raises: failures come back as an
+    ai_service_unavailable result, and feed the circuit breaker."""
+    try:
+        payload = {c: telemetry[c] for c in AI_FEATURE_COLS}
+        payload["time"] = telemetry["time"]
+        resp = await ai_client.post(f"{AI_SERVICE_URL}/step", json=safety.json_safe(payload))
+        resp.raise_for_status()
         result = resp.json()
-        state["last_ai_result"] = result
+        if not isinstance(result, dict) or "status" not in result:
+            raise ValueError(f"malformed AI response: {str(result)[:120]}")
         return result
     except Exception as e:
-        result = {"status": "ai_service_unavailable", "error": str(e)}
-        state["last_ai_result"] = result
-        return result
+        return {"status": "ai_service_unavailable", "error": f"{type(e).__name__}: {e}"[:300]}
 
-clients: set = set()
+
+async def ai_reset_buffer():
+    try:
+        await ai_client.post(f"{AI_SERVICE_URL}/reset")
+    except Exception:
+        pass
+
+
+async def ai_worker(queue: asyncio.Queue):
+    """The ONLY sender of /step. One worker, one queue: samples reach the AI strictly in
+    simulated-time order however slow it is, and the loop never awaits the network.
+
+    Circuit breaker: after 3 consecutive failures the AI is skipped for 5 s, then probed.
+    Any gap in the AI's 128-sample window (dropped samples, an outage) makes the next
+    sample start with /reset, so the model never sees a window with a hole in it.
+    """
+    while True:
+        out = await queue.get()
+        try:
+            if not ai_breaker.allow():
+                state["ai_resync"] = True          # this sample is lost to the AI
+                state["ai_reachable"] = False
+                state["last_ai_result"] = {"status": "ai_service_unavailable",
+                                           "error": ai_breaker.last_error or "AI service unreachable",
+                                           "retrying": True}
+                continue
+            if state["ai_resync"]:
+                state["ai_resync"] = False
+                state["ai_warmed_up"] = False
+                await ai_reset_buffer()
+            result = await call_ai_service(out)
+            status = result.get("status")
+            if status == "ai_unsupported_engine":
+                # The service is healthy; it just has no model for this engine. Not a
+                # failure, so no breaker trip and no resync churn.
+                ai_breaker.record_success()
+                state["ai_reachable"] = True
+            elif status in ("ok", "warming_up"):
+                if ai_breaker.record_success():
+                    # Back from an outage: the AI's buffer spans the gap. Start clean.
+                    state["ai_warmed_up"] = False
+                    await ai_reset_buffer()
+                state["ai_reachable"] = True
+                if status == "ok":
+                    state["ai_warmed_up"] = True
+            else:
+                # One failed or slow sample loses only that sample: the AI's window just
+                # skips a second. Throwing the whole 128 s window away (the old rule) turned
+                # a single slow reply into two minutes of "Buffering". The window is reset
+                # only after a real outage - the breaker opening - or dropped backlog.
+                ai_breaker.record_failure(result.get("error", ""))
+                if ai_breaker.state != "closed":
+                    state["ai_resync"] = True
+                    state["ai_reachable"] = False
+            state["last_ai_result"] = result
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:                      # never let the worker die
+            print(f"[ai_worker] unexpected error: {e}")
+            state["ai_resync"] = True
+        finally:
+            queue.task_done()
+
+
+def spawn_db_write(fn, *args):
+    """Fire-and-forget Supabase write, bounded: a slow database never piles up threads."""
+    if state["db_pending"] >= DB_MAX_PENDING:
+        state["db_skipped"] += 1
+        return
+
+    async def run():
+        state["db_pending"] += 1
+        try:
+            await asyncio.to_thread(fn, *args)
+        except Exception as e:
+            print(f"[db] background write failed: {e}")
+        finally:
+            state["db_pending"] -= 1
+    asyncio.create_task(run())
+
+
+async def db_call(fn, *args, timeout: float = DB_TIMEOUT_S):
+    """Awaited Supabase call with a deadline. Returns None on timeout or error, so an
+    endpoint (Stop, Reset, Resume) can never hang on the database."""
+    try:
+        return await asyncio.wait_for(asyncio.to_thread(fn, *args), timeout=timeout)
+    except Exception as e:
+        print(f"[db] {getattr(fn, '__name__', fn)} failed or timed out: {e}")
+        return None
+
+# WebSocket -> per-client frame queue. Each browser has its own sender task, so the
+# simulation loop never awaits a socket.
+clients: dict = {}
 
 
 class ParamUpdate(BaseModel):
@@ -129,92 +324,271 @@ class ParamUpdate(BaseModel):
     isa_dev_c: Optional[float] = None
 
 
+async def client_sender(ws: WebSocket, queue: asyncio.Queue):
+    """Writes queued frames to one browser. A tab that is busy (heavy 3D rendering, a
+    background tab) simply receives fewer, newer frames. One that accepts nothing for
+    CLIENT_STALL_S is closed - closed, not just forgotten, so the page's reconnect logic
+    sees onclose and opens a fresh connection instead of waiting on a dead socket."""
+    try:
+        while True:
+            payload = await queue.get()
+            await asyncio.wait_for(ws.send_text(payload), timeout=CLIENT_STALL_S)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        pass
+    finally:
+        clients.pop(ws, None)
+        try:
+            await asyncio.wait_for(ws.close(code=1011), timeout=1.0)
+        except Exception:
+            pass
+
+
 async def broadcast(msg: dict):
+    """Hands the frame to every client's queue without awaiting any socket. When a
+    client's queue is full its oldest frame is dropped - live telemetry only ever needs
+    the newest state."""
     if not clients:
         return
-    dead = []
-    payload = json.dumps(msg)
-    for ws in clients:
+    try:
+        payload = json.dumps(safety.json_safe(msg), allow_nan=False)
+    except (TypeError, ValueError) as e:
+        print(f"[broadcast] unserialisable payload skipped: {e}")
+        return
+    for ws, (queue, _task) in list(clients.items()):
+        if queue.full():
+            try:
+                queue.get_nowait()
+            except asyncio.QueueEmpty:
+                pass
+        queue.put_nowait(payload)
+
+
+def ai_status_label() -> str:
+    r = state["last_ai_result"] or {}
+    if r.get("status") == "ai_unsupported_engine":
+        return "unsupported"
+    if r.get("status") == "ok":
+        return "ok"
+    if r.get("status") == "warming_up":
+        return "warming_up"
+    if r.get("status") == "ai_service_unavailable" or not state["ai_reachable"]:
+        return "unavailable"
+    return "pending"
+
+
+def sim_status() -> dict:
+    """Compact health block attached to every broadcast and to /health."""
+    return {
+        "health": state["sim_health"],
+        "recoveries": state["recoveries"],
+        "last_error": state["last_error"],
+        "ai": ai_status_label(),
+        "ai_breaker": ai_breaker.state,
+        "loop_lag_ms": round(state["loop_lag_ms"], 1),
+    }
+
+
+def record_recovery(err: BaseException) -> bool:
+    """Rebuild the twin from the last good step. False when the session must halt."""
+    global twin
+    now = time.monotonic()
+    state["recovery_times"] = [t for t in state["recovery_times"] if now - t < RECOVERY_WINDOW_S] + [now]
+    state["last_error"] = f"{type(err).__name__}: {err}"[:300]
+    print(f"[simulation] physics fault, attempt {len(state['recovery_times'])}: {state['last_error']}")
+    traceback.print_exception(err)
+    if len(state["recovery_times"]) > MAX_RECOVERIES:
+        state["sim_health"] = "halted"
+        return False
+    fresh = new_twin(CURRENT_ENGINE_MODEL)
+    snap = state["last_good_telemetry"]
+    if snap:
         try:
-            await ws.send_text(payload)
-        except Exception:
-            dead.append(ws)
-    for ws in dead:
-        clients.discard(ws)
+            fresh.restore_state(snap)
+        except Exception as restore_err:
+            print(f"[simulation] restore from last good step failed, using clean twin: {restore_err}")
+            fresh = new_twin(CURRENT_ENGINE_MODEL)
+            for k in ("altitude", "throttle", "airspeed", "aoa", "isa_dev_c"):
+                v = snap.get(k)
+                if isinstance(v, (int, float)) and safety.clamp_param(k, v) is not None:
+                    setattr(fresh, k, safety.clamp_param(k, v))
+    twin = fresh
+    state["recoveries"] += 1
+    state["sim_health"] = "recovered"
+    state["ai_resync"] = True          # the AI window must not bridge the fault
+    return True
 
 
 async def simulation_loop():
-    """Runs forever until state['running'] is set False by /stop.
+    """Runs until state['running'] is set False. Every stage is guarded, so a single
+    fault degrades one feature for one step instead of killing the flight.
 
-    WARMUP FAST-FORWARD: the AI needs a genuine 128 SIMULATED seconds of history before
-    it can predict at all (the model's window size) - but physics itself is cheap to
-    compute, so there is no reason to wait 128 REAL seconds in real-time pace just to
-    fill that buffer. While state['ai_warmed_up'] is False, this loop skips the
-    real-time sleep AND awaits each AI call sequentially (not fire-and-forget) - the
-    sequential await is required for correctness, not just style: without it, physics
-    steps racing ahead of the AI could deliver timesteps out of order into ai.py's
-    rolling buffer, corrupting the very temporal sequence the model depends on. Warmup
-    wall-clock time becomes bounded by the AI's own inference speed (~15-20s for 128
-    sequential calls) instead of artificially waiting out 128 real seconds. Once warmed
-    up, this switches to normal real-time pacing with fire-and-forget AI calls, exactly
-    as before - full model accuracy is unaffected either way, since the AI still
-    receives the complete, correctly-ordered 128 simulated seconds it was trained on."""
+    SAFETY NET
+      physics   each step is validated (safety.telemetry_problem). An exception or a
+                non-finite value rebuilds the twin from the last good step; more than
+                MAX_RECOVERIES in RECOVERY_WINDOW_S halts the session cleanly (the UI is
+                told, Start works again) instead of looping on a broken state.
+      AI        never awaited here. Samples go to ai_worker through a bounded queue;
+                a stalled AI drops samples and resyncs rather than blocking physics.
+      residual  / advisory / broadcast / database: each isolated, failures logged.
+      crash     anything unexpected ends the loop with sim_health "halted" and
+                running False - never a silently dead task behind running=True.
+
+    WARMUP FAST-FORWARD: the AI needs 128 simulated seconds before its first
+    prediction, so until it is warmed up the loop runs faster than real time - but only
+    as fast as the AI worker keeps up (AI_WARMUP_BACKLOG), and only while the AI is
+    reachable. Samples still arrive strictly in order."""
+    global twin
+    queue: asyncio.Queue = asyncio.Queue(maxsize=AI_QUEUE_MAX)
+    worker = asyncio.create_task(ai_worker(queue))
     step_count = 0
     next_tick = time.monotonic()
-    while state["running"]:
-        out = twin.step()
-        state["last_telemetry"] = out
-        step_count += 1
+    if state["sim_health"] in ("idle", "halted"):
+        state["sim_health"] = "running"
+    try:
+        while state["running"]:
+            # ---- physics (guarded) ----
+            try:
+                out = twin.step()
+                problem = safety.telemetry_problem(out)
+                if problem:
+                    raise FloatingPointError(f"invalid physics step: {problem}")
+            except Exception as err:
+                if not record_recovery(err):
+                    state["running"] = False
+                    await broadcast({**(state["last_good_telemetry"] or {}), "ai": state["last_ai_result"],
+                                     "sim_status": sim_status()})
+                    break
+                await asyncio.sleep(0)
+                continue
+            state["last_telemetry"] = out
+            state["last_good_telemetry"] = out
+            state["steps"] += 1
+            step_count += 1
 
-        state["ai_step_counter"] += 1
-        if state["ai_step_counter"] >= AI_STEPS_PER_CALL:
-            state["ai_step_counter"] = 0
-            state["sim_time_offset"] += 1.0   # one simulated second has elapsed
-            if state["ai_warmed_up"]:
-                asyncio.create_task(call_ai_service(out))   # fire-and-forget, never blocks
-                # Logs the PREVIOUS ai result (last_ai_result), not this call's -
-                # same "eventually consistent" tradeoff broadcast() already makes,
-                # since the fire-and-forget call has not resolved yet at this point.
-                # asyncio.to_thread is REQUIRED here, not optional: supabase-py's
-                # .execute() is a synchronous/blocking HTTP call - calling it directly
-                # in this async loop would stall the whole event loop (100Hz physics +
-                # WebSocket broadcasts to every client) for the duration of each
-                # Supabase round-trip. Running it in a thread keeps persistence fully
-                # fire-and-forget, matching call_ai_service's own non-blocking pattern.
+            # ---- once per simulated second: residuals, AI, database ----
+            state["ai_step_counter"] += 1
+            if state["ai_step_counter"] >= AI_STEPS_PER_CALL:
+                state["ai_step_counter"] = 0
+                state["sim_time_offset"] += 1.0
+                try:
+                    state["residuals"] = residual_monitor.update(out, dt=1.0)
+                except Exception as e:
+                    state["residuals"] = {"enabled": False, "reason": f"residual monitor error: {e}"}
+
+                try:
+                    queue.put_nowait(out)
+                except asyncio.QueueFull:
+                    # The AI is stalled. Drop the backlog rather than block physics;
+                    # the worker resets the AI's window before its next sample.
+                    dropped = 0
+                    while not queue.empty():
+                        queue.get_nowait(); queue.task_done(); dropped += 1
+                    state["ai_samples_dropped"] += dropped + 1
+                    state["ai_resync"] = True
+                    queue.put_nowait(out)
+
                 state["db_log_counter"] += 1
                 if state["db_log_counter"] >= DB_LOG_INTERVAL_S:
                     state["db_log_counter"] = 0
-                    asyncio.create_task(asyncio.to_thread(
-                        db.log_telemetry, state["simulation_id"], state["sim_time_offset"], out, state["last_ai_result"]))
-            else:
-                result = await call_ai_service(out)   # sequential during warmup - see docstring
-                if result.get("status") == "ok":
-                    state["ai_warmed_up"] = True
-                state["db_log_counter"] += 1
-                if state["db_log_counter"] >= DB_LOG_INTERVAL_S:
-                    state["db_log_counter"] = 0
-                    asyncio.create_task(asyncio.to_thread(
-                        db.log_telemetry, state["simulation_id"], state["sim_time_offset"], out, result))
+                    spawn_db_write(log_telemetry, state["simulation_id"], state["sim_time_offset"],
+                                   out, state["last_ai_result"])
 
-        if step_count % STEPS_PER_BROADCAST == 0:
-            payload = dict(out)
-            payload["ai"] = state["last_ai_result"]
-            # Derived fresh each broadcast rather than cached in state[]:
-            # last_ai_result is cleared in five different places, and a cached
-            # advisory would have to be cleared in all five or go stale.
-            payload["advisory"] = advisory.build_advisory(state["last_ai_result"], out)
-            await broadcast(payload)
+                # Warm-up fast-forward waits (briefly) for the AI to keep its order.
+                if not state["ai_warmed_up"] and ai_breaker.state == "closed":
+                    waited = 0.0
+                    while (queue.qsize() >= AI_WARMUP_BACKLOG and state["running"]
+                           and waited < AI_WARMUP_MAX_WAIT_S and ai_breaker.state == "closed"):
+                        await asyncio.sleep(0.005)
+                        waited += 0.005
 
-        if state["ai_warmed_up"]:
-            next_tick += twin.dt
-            sleep_for = next_tick - time.monotonic()
-            if sleep_for > 0:
-                await asyncio.sleep(sleep_for)
+            # ---- broadcast at 20 Hz (guarded) ----
+            if step_count % STEPS_PER_BROADCAST == 0:
+                try:
+                    payload = dict(out)
+                    payload["ai"] = state["last_ai_result"]
+                    payload["residuals"] = state["residuals"]
+                    try:
+                        payload["advisory"] = advisory.build_advisory(state["last_ai_result"], out, state["residuals"])
+                    except Exception as e:
+                        payload["advisory"] = {"severity": "nominal", "headline": "Advisory unavailable",
+                                               "insufficient_data": True, "items": [], "error": str(e)[:200]}
+                    payload["sim_status"] = sim_status()
+                    await broadcast(payload)
+                except Exception as e:
+                    print(f"[simulation] broadcast failed: {e}")
+                if state["sim_health"] == "recovered" and not state["recovery_times"]:
+                    state["sim_health"] = "running"
+
+            # ---- pacing ----
+            # Only while the AI is genuinely keeping up: any recent failure (even before
+            # the breaker opens) drops to real time, so an outage never speeds physics up.
+            fast_forward = (not state["ai_warmed_up"] and state["ai_reachable"]
+                            and ai_breaker.state == "closed" and ai_breaker.failures == 0
+                            and ai_status_label() != "unsupported")
+            if fast_forward:
+                next_tick = time.monotonic()
+                await asyncio.sleep(0)
             else:
-                next_tick = time.monotonic()  # fell behind, resync rather than spiral
-        else:
-            next_tick = time.monotonic()  # keep the real-time clock ready for the moment warmup ends
-            await asyncio.sleep(0)  # yield control so broadcasts/other requests are not starved
+                next_tick += twin.dt
+                sleep_for = next_tick - time.monotonic()
+                if sleep_for > 0:
+                    state["loop_lag_ms"] *= 0.98
+                    await asyncio.sleep(sleep_for)
+                else:
+                    state["loop_lag_ms"] = 0.98 * state["loop_lag_ms"] + 0.02 * (-sleep_for * 1000.0)
+                    next_tick = time.monotonic()   # fell behind, resync rather than spiral
+
+            # Recovery stamps age out of the window on their own.
+            if state["recovery_times"] and time.monotonic() - state["recovery_times"][-1] >= RECOVERY_WINDOW_S:
+                state["recovery_times"] = []
+    except asyncio.CancelledError:
+        raise
+    except Exception as err:
+        state["last_error"] = f"{type(err).__name__}: {err}"[:300]
+        state["sim_health"] = "halted"
+        state["running"] = False
+        print("[simulation] loop crashed, session halted safely:")
+        traceback.print_exception(err)
+        try:
+            await broadcast({**(state["last_good_telemetry"] or {}), "ai": state["last_ai_result"],
+                             "sim_status": sim_status()})
+        except Exception:
+            pass
+    finally:
+        worker.cancel()
+        try:
+            await worker
+        except (asyncio.CancelledError, Exception):
+            pass
+
+
+async def stop_loop(timeout: float = 1.5):
+    """Stops the loop and WAITS for it to exit, so a fast Stop->Start can never leave two
+    loops stepping the same twin."""
+    state["running"] = False
+    task = state["task"]
+    state["task"] = None
+    if task is None or task.done():
+        return
+    try:
+        await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
+    except (asyncio.TimeoutError, Exception):
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
+
+
+async def start_loop():
+    await stop_loop()
+    state["running"] = True
+    if state["sim_health"] == "halted":
+        state["recovery_times"] = []
+        state["sim_health"] = "running"
+    state["task"] = asyncio.create_task(simulation_loop())
 
 
 class StartRequest(BaseModel):
@@ -224,9 +598,8 @@ class StartRequest(BaseModel):
 @app.post("/start")
 async def start_sim(req: StartRequest = StartRequest()):
     global twin
-    if state["running"]:
+    if state["running"] and state["task"] is not None and not state["task"].done():
         return {"status": "already_running"}
-    state["running"] = True
     # /start is also called to RESUME from a pause (frontend's onTogglePause -
     # pausing calls /stop with final=false, resuming calls /start again, since the
     # backend loop must actually halt while paused). The freshness check MUST be
@@ -237,7 +610,7 @@ async def start_sim(req: StartRequest = StartRequest()):
     # bug - session_active is independent of whether persistence succeeds.
     if not state["session_active"]:
         state["session_active"] = True
-        twin = UAVEngineTwin(dt=0.01, engine_model=CURRENT_ENGINE_MODEL)
+        twin = new_twin(CURRENT_ENGINE_MODEL)
         # A fresh session takes off from the ground, matching the frontend's own
         # auto-climb takeoff sequence (Simulator.tsx starts its visual at altitude 0
         # and climbs automatically) - the twin's own __init__ default (2000m) would
@@ -248,6 +621,14 @@ async def start_sim(req: StartRequest = StartRequest()):
         state["last_ai_result"] = None
         state["ai_step_counter"] = 0
         state["ai_warmed_up"] = False
+        state["ai_resync"] = False
+        state["recoveries"] = 0
+        state["recovery_times"] = []
+        state["last_error"] = None
+        state["last_good_telemetry"] = None
+        state["sim_health"] = "idle"
+        ai_breaker.reset()
+        reset_residuals()
         # REAL BUG FIXED HERE: this branch reset the PHYSICS twin for a fresh
         # session, but never told ai.py to clear its own rolling 128-step buffer -
         # unlike /reset and /select_engine, which both already do this. Without it,
@@ -259,11 +640,12 @@ async def start_sim(req: StartRequest = StartRequest()):
             await ai_client.post(f"{AI_SERVICE_URL}/reset")
         except Exception:
             pass
+        await refresh_ai_version()
         # simulation_id tracks DB persistence ONLY - independent of session_active,
         # since a session can be genuinely fresh but still have no user_id to
         # persist under (db.start_simulation returns None in that case, by design).
-        state["simulation_id"] = db.start_simulation(req.user_id, CURRENT_ENGINE_MODEL)
-    state["task"] = asyncio.create_task(simulation_loop())
+        state["simulation_id"] = await db_call(db.start_simulation, req.user_id, CURRENT_ENGINE_MODEL)
+    await start_loop()
     return {"status": "started", "simulation_id": state["simulation_id"]}
 
 
@@ -282,9 +664,7 @@ class StopRequest(BaseModel):
 
 @app.post("/stop")
 async def stop_sim(req: StopRequest = StopRequest()):
-    state["running"] = False
-    if state["task"]:
-        state["task"] = None
+    await stop_loop()
     if req.final:
         state["session_active"] = False
     if req.final and state["simulation_id"] is not None:
@@ -294,15 +674,13 @@ async def stop_sim(req: StopRequest = StopRequest()):
         # up to 10 simulated seconds before the state stored in final_telemetry,
         # so a chart would disagree with the run's own summary numbers.
         if state["last_telemetry"] is not None:
-            await asyncio.to_thread(
-                db.log_telemetry, state["simulation_id"],
-                state["sim_time_offset"], state["last_telemetry"], ai)
+            await db_call(log_telemetry, state["simulation_id"],
+                          state["sim_time_offset"], state["last_telemetry"], ai)
         # state["last_telemetry"] is the full raw physics dict as it stood at the
         # exact moment of stopping - already proven JSON-serializable, since this
         # same dict passes through json.dumps() in every WebSocket broadcast.
-        await asyncio.to_thread(
-            db.end_simulation, state["simulation_id"], "stopped",
-            ai.get("health_percent"), ai.get("rul_hours_internal"), state["last_telemetry"])
+        await db_call(db.end_simulation, state["simulation_id"], "stopped",
+                      ai.get("health_percent"), final_rul_hours(ai), safety.json_safe(state["last_telemetry"]))
         # Post-flight narrative summary. Fire-and-forget ON PURPOSE: /stop is also
         # reached via navigator.sendBeacon on pagehide, which cannot consume a
         # response at all, and the Stop button awaits res.ok - so a synchronous
@@ -311,7 +689,7 @@ async def stop_sim(req: StopRequest = StopRequest()):
         # result instead. Captured into a local first because the next line
         # clears state["simulation_id"] before the task ever runs.
         _sim_id = state["simulation_id"]
-        asyncio.create_task(asyncio.to_thread(summary.generate_summary, _sim_id))
+        spawn_background(summary.generate_summary, _sim_id)
         state["simulation_id"] = None
         # Returned so the caller can poll for the summary that the task above is
         # generating. /stop previously returned no id at all, which left the
@@ -324,23 +702,31 @@ async def stop_sim(req: StopRequest = StopRequest()):
 async def reset_sim():
     global twin
     was_running = state["running"]
-    state["running"] = False
-    await asyncio.sleep(0.05)
-    twin = UAVEngineTwin(dt=0.01)
+    await stop_loop()
+    # Previously built without engine_model, so every reset silently rebuilt a 914
+    # twin while the AI service stayed on whichever engine was selected.
+    twin = new_twin(CURRENT_ENGINE_MODEL)
     # A reset genuinely ends whatever flight was in progress - close out its
     # Supabase record properly rather than silently abandoning it. This endpoint
     # relaunches the loop directly (not via /start), so it does not have a user_id
     # to open a fresh row - the NEXT /start call will create one normally.
     if state["simulation_id"] is not None:
         ai = state["last_ai_result"] or {}
-        await asyncio.to_thread(
-            db.end_simulation, state["simulation_id"], "reset",
-            ai.get("health_percent"), ai.get("rul_hours_internal"), state["last_telemetry"])
+        await db_call(db.end_simulation, state["simulation_id"], "reset",
+                      ai.get("health_percent"), final_rul_hours(ai), safety.json_safe(state["last_telemetry"]))
         state["simulation_id"] = None
     state["last_telemetry"] = None
     state["last_ai_result"] = None
     state["ai_step_counter"] = 0
     state["ai_warmed_up"] = False
+    state["ai_resync"] = False
+    state["recoveries"] = 0
+    state["recovery_times"] = []
+    state["last_error"] = None
+    state["last_good_telemetry"] = None
+    state["sim_health"] = "idle"
+    ai_breaker.reset()
+    reset_residuals()
     # This endpoint already creates its own fresh twin directly (above), bypassing
     # /start's session_active check entirely - keep session_active consistent with
     # whatever this reset actually does: True if the loop is relaunched (an
@@ -352,8 +738,7 @@ async def reset_sim():
     except Exception:
         pass   # AI service down is not a reason to fail the reset - degrade gracefully
     if was_running:
-        state["running"] = True
-        state["task"] = asyncio.create_task(simulation_loop())
+        await start_loop()
     return {"status": "reset"}
 
 
@@ -389,23 +774,29 @@ async def select_engine(sel: EngineSelect):
     if sel.engine_model not in ENGINE_CONFIGS:
         return {"status": "error", "message": f"Unknown engine_model. Options: {list(ENGINE_CONFIGS)}"}
 
-    state["running"] = False
+    await stop_loop()
     state["session_active"] = False   # always ends the session - see docstring
-    await asyncio.sleep(0.05)
     # A different engine is genuinely a different flight/aircraft - close out
     # whatever simulation record was open under the OLD engine before switching.
     if state["simulation_id"] is not None:
         ai = state["last_ai_result"] or {}
-        await asyncio.to_thread(
-            db.end_simulation, state["simulation_id"], "engine_switched",
-            ai.get("health_percent"), ai.get("rul_hours_internal"), state["last_telemetry"])
+        await db_call(db.end_simulation, state["simulation_id"], "engine_switched",
+                      ai.get("health_percent"), final_rul_hours(ai), safety.json_safe(state["last_telemetry"]))
         state["simulation_id"] = None
     CURRENT_ENGINE_MODEL = sel.engine_model
-    twin = UAVEngineTwin(dt=0.01, engine_model=CURRENT_ENGINE_MODEL)
+    twin = new_twin(CURRENT_ENGINE_MODEL)
     state["last_telemetry"] = None
     state["last_ai_result"] = None
     state["ai_step_counter"] = 0
     state["ai_warmed_up"] = False
+    state["ai_resync"] = False
+    state["recoveries"] = 0
+    state["recovery_times"] = []
+    state["last_error"] = None
+    state["last_good_telemetry"] = None
+    state["sim_health"] = "idle"
+    ai_breaker.reset()
+    reset_residuals()
     try:
         # Tell ai.py WHICH engine's models to switch to as well (not just reset) -
         # it maintains its own active_engine independently, this keeps the two
@@ -414,6 +805,7 @@ async def select_engine(sel: EngineSelect):
         await ai_client.post(f"{AI_SERVICE_URL}/select_engine", json={"engine_model": CURRENT_ENGINE_MODEL})
     except Exception:
         pass
+    await refresh_ai_version()
     # No auto-restart here, intentionally - see docstring.
 
     return {
@@ -447,36 +839,61 @@ async def resume_sim(req: ResumeRequest):
     the ONLY thing standing between this endpoint and any user resuming anyone
     else's simulation by guessing an id. This check is not optional."""
     global twin, CURRENT_ENGINE_MODEL
-    sim = await asyncio.to_thread(db.get_simulation, req.simulation_id)
+    sim = await db_call(db.get_simulation, req.simulation_id)
     if sim is None:
         return {"status": "error", "message": "Simulation not found"}
     if sim.get("user_id") != req.user_id:
         return {"status": "error", "message": "Not authorized to resume this simulation"}
     if not sim.get("final_telemetry"):
         return {"status": "error", "message": "This simulation has no saved final state to resume from"}
+    run_version = sim.get("model_version") or "v2"
+    if run_version != PHYSICS_VERSION:
+        # One run must stay on one timescale: a v2 run's RUL is simulated hours, a
+        # v3 run's is engine hours, and continuing across them would mix the two.
+        return {"status": "error",
+                "message": f"This run was recorded on physics {run_version}, but the backend is running "
+                           f"{PHYSICS_VERSION}. Resume it with AERO_PHYSICS_VERSION={run_version}."}
 
-    state["running"] = False
+    await stop_loop()
     state["session_active"] = True   # otherwise a later pause->resume via /start
                                       # would see session_active still False, wrongly
                                       # treat itself as "fresh", and discard the
                                       # state just restored here
-    await asyncio.sleep(0.05)
+    try:
+        restored = new_twin(sim["engine_model"])
+        restored.restore_state(sim["final_telemetry"])
+        probe = restored.step()                      # a snapshot that cannot fly is refused
+        problem = safety.telemetry_problem(probe)
+        if problem:
+            raise ValueError(problem)
+        restored = new_twin(sim["engine_model"])
+        restored.restore_state(sim["final_telemetry"])
+    except Exception as e:
+        state["session_active"] = False
+        return {"status": "error", "message": f"The saved state of this run could not be restored safely ({e})."}
     CURRENT_ENGINE_MODEL = sim["engine_model"]
-    twin = UAVEngineTwin(dt=0.01, engine_model=CURRENT_ENGINE_MODEL)
-    twin.restore_state(sim["final_telemetry"])
+    twin = restored
     state["last_telemetry"] = None
     state["last_ai_result"] = None
     state["ai_step_counter"] = 0
     state["ai_warmed_up"] = False
+    state["ai_resync"] = False
+    state["recoveries"] = 0
+    state["recovery_times"] = []
+    state["last_error"] = None
+    state["last_good_telemetry"] = None
+    state["sim_health"] = "idle"
+    ai_breaker.reset()
+    reset_residuals()
     state["db_log_counter"] = 0
     # Continue the SAME run: keep its id and pick the telemetry time axis back up
     # where the previous session left off, so the series is continuous rather than
     # folding back over itself at zero.
     state["simulation_id"] = req.simulation_id
-    state["sim_time_offset"] = await asyncio.to_thread(db.get_max_time_offset, req.simulation_id)
+    state["sim_time_offset"] = (await db_call(db.get_max_time_offset, req.simulation_id)) or 0.0
     # Clear ended_at/outcome - the run is flying again and should not read as
     # finished. end_simulation() sets them again at the next genuine stop.
-    await asyncio.to_thread(db.reopen_simulation, req.simulation_id)
+    await db_call(db.reopen_simulation, req.simulation_id)
     try:
         await ai_client.post(f"{AI_SERVICE_URL}/select_engine", json={"engine_model": CURRENT_ENGINE_MODEL})
     except Exception:
@@ -486,8 +903,7 @@ async def resume_sim(req: ResumeRequest):
     # record, but never actually started the loop - confirmed by a real test where
     # /state kept returning telemetry: null after calling /resume. Without these two
     # lines, "Continue Simulation" would report success but nothing would ever run.
-    state["running"] = True
-    state["task"] = asyncio.create_task(simulation_loop())
+    await start_loop()
 
     return {
         "status": "ok",
@@ -503,24 +919,21 @@ async def resume_sim(req: ResumeRequest):
 
 
 @app.post("/params")
-
 async def update_params(p: ParamUpdate):
-    if p.altitude is not None:
-        twin.altitude = p.altitude
-    if p.throttle is not None:
-        twin.throttle = max(0.0, min(1.0, p.throttle))
-    if p.airspeed is not None:
-        twin.airspeed = p.airspeed
-    if p.aoa is not None:
-        twin.aoa = p.aoa
-    if p.isa_dev_c is not None:
-        # Bounds are a sanity range on the INPUT, not a guarantee about the AI's
-        # trained envelope: clamping isa_dev_c cannot keep air_density inside
-        # [0.5206, 1.2250], since that also depends on altitude. The twin reports
-        # density_in_envelope per step and the UI warns on it.
-        twin.isa_dev_c = max(-30.0, min(50.0, p.isa_dev_c))
+    """Every value is bounded to safety.PARAM_LIMITS before it reaches the twin, and a
+    non-finite value is refused (and reported) instead of poisoning the physics."""
+    rejected = []
+    for name in ("altitude", "throttle", "airspeed", "aoa", "isa_dev_c"):
+        raw = getattr(p, name)
+        if raw is None:
+            continue
+        v = safety.clamp_param(name, raw)
+        if v is None:
+            rejected.append(name)
+            continue
+        setattr(twin, name, v)
     return {"status": "ok", "altitude": twin.altitude, "throttle": twin.throttle,
-            "airspeed": twin.airspeed, "aoa": twin.aoa}
+            "airspeed": twin.airspeed, "aoa": twin.aoa, "rejected": rejected}
 
 
 # NOTE: manual fault triggering was removed. Faults are now fully auto-derived from
@@ -531,14 +944,14 @@ async def update_params(p: ParamUpdate):
 @app.post("/summarize/{sim_id}")
 async def summarize(sim_id: int, req: SummarizeRequest):
     """Regenerate the post-flight summary for a run the caller owns."""
-    row = await asyncio.to_thread(db.get_simulation, sim_id)
+    row = await db_call(db.get_simulation, sim_id)
     if not row:
         return {"status": "error", "detail": "simulation not found"}
     if row.get("user_id") != req.user_id:
         # Same shape as a missing row on purpose - do not confirm existence of
         # another user's run.
         return {"status": "error", "detail": "simulation not found"}
-    result = await asyncio.to_thread(summary.generate_summary, sim_id)
+    result = await db_call(summary.generate_summary, sim_id, timeout=90.0)
     if not result:
         return {"status": "error", "detail": "summary unavailable"}
     return {"status": "ok", "groq_result": result}
@@ -549,31 +962,87 @@ async def get_state():
     return {
         "running": state["running"],
         "engine_model": CURRENT_ENGINE_MODEL,
+        "physics_version": PHYSICS_VERSION,
+        "ai_model_version": state["ai_model_version"],
         "ai_valid": CURRENT_ENGINE_MODEL in AI_VALID_ENGINES,
         "params": {"altitude": twin.altitude, "throttle": twin.throttle,
                     "airspeed": twin.airspeed, "aoa": twin.aoa,
                     "isa_dev_c": twin.isa_dev_c},
-        "telemetry": state["last_telemetry"],
+        "telemetry": safety.json_safe(state["last_telemetry"]),
         "ai": state["last_ai_result"],
-        "advisory": advisory.build_advisory(state["last_ai_result"], state["last_telemetry"]),
+        "residuals": safety.json_safe(state["residuals"]),
+        "advisory": _safe_advisory(),
+        "sim_status": sim_status(),
+    }
+
+
+def _safe_advisory():
+    try:
+        return advisory.build_advisory(state["last_ai_result"], state["last_telemetry"], state["residuals"])
+    except Exception as e:
+        return {"severity": "nominal", "headline": "Advisory unavailable", "insufficient_data": True,
+                "items": [], "error": str(e)[:200]}
+
+
+def spawn_background(fn, *args):
+    """Fire-and-forget work in a thread whose failure is logged, never raised."""
+    async def run():
+        try:
+            await asyncio.to_thread(fn, *args)
+        except Exception as e:
+            print(f"[background] {getattr(fn, '__name__', fn)} failed: {e}")
+    asyncio.create_task(run())
+
+
+@app.get("/health")
+async def health():
+    """Liveness of the simulation itself - what a supervisor or the UI should poll."""
+    task = state["task"]
+    return {
+        "status": "ok" if state["sim_health"] != "halted" else "degraded",
+        "running": state["running"],
+        "loop_alive": bool(task and not task.done()),
+        "physics_version": PHYSICS_VERSION,
+        "engine_model": CURRENT_ENGINE_MODEL,
+        "steps": state["steps"],
+        "sim_status": sim_status(),
+        "ai_samples_dropped": state["ai_samples_dropped"],
+        "db_pending": state["db_pending"],
+        "db_skipped": state["db_skipped"],
+        "clients": len(clients),
     }
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
+    """Close an open flight record cleanly instead of leaving it 'in progress' forever."""
+    was_session = state["session_active"]
+    await stop_loop()
+    if was_session and state["simulation_id"] is not None:
+        ai = state["last_ai_result"] or {}
+        await db_call(db.end_simulation, state["simulation_id"], "server_shutdown",
+                      ai.get("health_percent"), final_rul_hours(ai),
+                      safety.json_safe(state["last_telemetry"]), timeout=4.0)
     await ai_client.aclose()
 
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    clients.add(websocket)
+    queue: asyncio.Queue = asyncio.Queue(maxsize=CLIENT_QUEUE_MAX)
+    sender = asyncio.create_task(client_sender(websocket, queue))
+    clients[websocket] = (queue, sender)
     try:
         if state["last_telemetry"]:
-            await websocket.send_text(json.dumps(state["last_telemetry"]))
+            first = {**state["last_telemetry"], "ai": state["last_ai_result"],
+                     "residuals": state["residuals"], "sim_status": sim_status()}
+            queue.put_nowait(json.dumps(safety.json_safe(first), allow_nan=False))
         while True:
             await websocket.receive_text()  # keep connection alive / detect disconnect
     except WebSocketDisconnect:
         pass
+    except Exception as e:
+        print(f"[ws] connection closed on error: {e}")
     finally:
-        clients.discard(websocket)
+        clients.pop(websocket, None)
+        sender.cancel()

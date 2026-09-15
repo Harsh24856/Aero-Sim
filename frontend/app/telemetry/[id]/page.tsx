@@ -6,8 +6,9 @@ import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import { supabase } from "@/lib/supabase";
 import { ArrowLeft, Play, Gauge, Thermometer, Activity, Fuel } from "lucide-react";
-import { simRulHoursToPercent } from "@/lib/timeScale";
-import { formatAirspeed, formatAirspeedSecondary, formatAltitude, formatAltitudeFeet, formatRulSimHours, isRulExtrapolated } from "@/lib/units";
+import { modelVersionOf, rulPercentOf, tboHoursOf } from "@/lib/timeScale";
+import ModelBadge from "@/components/ModelBadge";
+import { formatAirspeed, formatAirspeedSecondary, formatAltitude, formatAltitudeFeet, formatRul, isRulOutOfRange } from "@/lib/units";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
@@ -24,6 +25,8 @@ type Simulation = {
   final_health_percent: number | null;
   final_rul_hours: number | null;
   final_telemetry: Record<string, unknown> | null;
+  model_version: string | null;
+  tbo_hours: number | null;
   groq_result: {
     status?: string; headline?: string; summary?: string; risk?: string; model?: string;
     findings?: string[]; recommendations?: string[];
@@ -64,7 +67,7 @@ export default function TelemetryDetailPage() {
       // rather than leaking whether the id exists at all.
       const { data, error } = await supabase
         .from("simulations")
-        .select("id, user_id, engine_model, started_at, ended_at, outcome, final_health_percent, final_rul_hours, final_telemetry, groq_result")
+        .select("id, user_id, engine_model, started_at, ended_at, outcome, final_health_percent, final_rul_hours, final_telemetry, groq_result, model_version, tbo_hours")
         .eq("id", id)
         .single();
       if (cancelled) return;
@@ -170,6 +173,7 @@ export default function TelemetryDetailPage() {
                   <div className="flex items-center gap-2 mb-1">
                     <h1 className="font-headline-display text-[26px] md:text-[32px] font-bold text-primary uppercase tracking-tight">
                       {sim.engine_model.replace(/_/g, " ")}
+                      <ModelBadge version={modelVersionOf(sim)} />
                     </h1>
                     <span className="text-[11px] font-mono text-on-surface-variant/60 border border-outline-variant/30 rounded px-2 py-0.5">
                       ID #{sim.id}
@@ -213,12 +217,17 @@ export default function TelemetryDetailPage() {
                 <div className="bg-surface/80 border border-outline-variant/30 rounded-lg p-5">
                   <div className="text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">Final RUL</div>
                   <div className="text-3xl font-bold text-primary">
-                    {sim.final_rul_hours != null ? `${Math.min(100, simRulHoursToPercent(sim.final_rul_hours, typeof sim.final_telemetry?.time === "number" ? sim.final_telemetry.time : undefined)).toFixed(0)}%` : "--"}
+                    {(() => {
+                      const pct = sim.final_rul_hours != null
+                        ? rulPercentOf(sim.final_rul_hours, modelVersionOf(sim), typeof sim.final_telemetry?.time === "number" ? sim.final_telemetry.time : undefined, tboHoursOf(sim))
+                        : null;
+                      return pct == null ? "--" : `${pct.toFixed(0)}%`;
+                    })()}
                   </div>
                   {sim.final_rul_hours != null && (
                     <div className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mt-1">
-                      {formatRulSimHours(sim.final_rul_hours)}
-                      {isRulExtrapolated(sim.final_rul_hours) && (
+                      {formatRul(sim.final_rul_hours, modelVersionOf(sim))}
+                      {isRulOutOfRange(sim.final_rul_hours, modelVersionOf(sim), tboHoursOf(sim)) && (
                         <span className="text-tertiary"> &middot; extrapolated</span>
                       )}
                     </div>

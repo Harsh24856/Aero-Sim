@@ -9,8 +9,16 @@
 *.swp
 *.swo
 
+# ─── Local tool state ─────────────────────────────────────────────────────────
+.playwright-mcp/
+.serena/
+
 # ─── Validation (local-only — datasets, notebooks, trained model artifacts) ───
-/validation/
+# Everything under validation/ stays local except the training/evaluation code.
+/validation/*
+!/validation/*.py
+!/validation/requirements.txt
+!/validation/*.ipynb
 
 # ─── Large binary transfer files ──────────────────────────────────────────────
 model_b64_transfer.txt

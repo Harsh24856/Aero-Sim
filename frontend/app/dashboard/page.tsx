@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import { supabase } from "@/lib/supabase";
-import { simRulHoursToPercent, simSecondsToRealHours } from "@/lib/timeScale";
+import { engineHoursOf, flightHours, modelVersionOf, rulPercentOf, tboHoursOf } from "@/lib/timeScale";
+import ModelBadge from "@/components/ModelBadge";
 import { Rocket, History, ListChecks, TrendingUp, Clock, ChevronRight, LogOut } from "lucide-react";
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -21,6 +22,8 @@ type SimulationRow = {
   final_health_percent: number | null;
   final_rul_hours: number | null;
   final_telemetry: Record<string, unknown> | null;
+  model_version: string | null;
+  tbo_hours: number | null;
 };
 
 const ENGINE_COLORS: Record<string, string> = {
@@ -61,7 +64,7 @@ export default function DashboardPage() {
         // handful - RLS already scopes this to the signed-in user's own runs.
         supabase
           .from("simulations")
-          .select("id, engine_model, started_at, ended_at, outcome, final_health_percent, final_rul_hours, final_telemetry")
+          .select("id, engine_model, started_at, ended_at, outcome, final_health_percent, final_rul_hours, final_telemetry, model_version, tbo_hours")
           .order("started_at", { ascending: false })
           .limit(30),
       ]);
@@ -85,15 +88,19 @@ export default function DashboardPage() {
       : null;
 
     const rulPercents = simulations
-      .filter((s) => s.final_rul_hours != null)
-      .map((s) => Math.min(100, simRulHoursToPercent(s.final_rul_hours as number, elapsedSecondsOf(s))));
+      .map((s) => s.final_rul_hours != null
+        ? rulPercentOf(s.final_rul_hours, modelVersionOf(s), elapsedSecondsOf(s), tboHoursOf(s))
+        : null)
+      .filter((v): v is number => v != null);
     const avgRulPercent = rulPercents.length
       ? rulPercents.reduce((sum, v) => sum + v, 0) / rulPercents.length
       : null;
 
     const totalFlightHours = simulations.reduce((sum, s) => {
+      // v3 runs count engine hours (wear x TBO); legacy v2 runs their real-world equivalent.
+      if (modelVersionOf(s) === "v3") return sum + (engineHoursOf(s) ?? 0);
       const secs = elapsedSecondsOf(s);
-      return secs != null ? sum + simSecondsToRealHours(secs) : sum;
+      return secs != null ? sum + flightHours(secs, "v2") : sum;
     }, 0);
 
     return { totalRuns: simulations.length, avgHealth, avgRulPercent, totalFlightHours };
@@ -108,7 +115,7 @@ export default function DashboardPage() {
       .map((s, i) => ({
         run: i + 1,
         health: s.final_health_percent,
-        rul: s.final_rul_hours != null ? Math.min(100, simRulHoursToPercent(s.final_rul_hours, elapsedSecondsOf(s))) : null,
+        rul: s.final_rul_hours != null ? rulPercentOf(s.final_rul_hours, modelVersionOf(s), elapsedSecondsOf(s), tboHoursOf(s)) : null,
         date: new Date(s.started_at).toLocaleDateString(),
       }));
   }, [simulations]);
@@ -175,7 +182,7 @@ export default function DashboardPage() {
               <div className="p-2.5 bg-tertiary/10 rounded"><Clock size={20} className="text-tertiary" /></div>
               <div>
                 <div className="text-2xl font-bold text-primary">{stats.totalFlightHours.toFixed(1)}h</div>
-                <div className="text-[11px] uppercase tracking-[0.1em] text-on-surface-variant">Flight Time (real-world eq.)</div>
+                <div className="text-[11px] uppercase tracking-[0.1em] text-on-surface-variant" title="v3 runs: engine hours (wear x TBO). Legacy runs: real-world equivalent flight time.">Engine Hours Flown</div>
               </div>
             </div>
           </div>
@@ -251,7 +258,7 @@ export default function DashboardPage() {
               <div className="border border-outline-variant/30 rounded-lg overflow-hidden">
                 {simulations.slice(0, 8).map((sim) => {
                   const rulPct = sim.final_rul_hours != null
-                    ? Math.min(100, simRulHoursToPercent(sim.final_rul_hours, elapsedSecondsOf(sim)))
+                    ? rulPercentOf(sim.final_rul_hours, modelVersionOf(sim), elapsedSecondsOf(sim), tboHoursOf(sim))
                     : null;
                   return (
                     <Link
@@ -260,7 +267,7 @@ export default function DashboardPage() {
                       className="flex items-center justify-between px-4 py-3 border-b border-outline-variant/20 last:border-b-0 hover:bg-surface-container-highest/40 transition-colors"
                     >
                       <div>
-                        <div className="text-[13px] text-primary font-medium">{formatEngine(sim.engine_model)}</div>
+                        <div className="text-[13px] text-primary font-medium">{formatEngine(sim.engine_model)}<ModelBadge version={modelVersionOf(sim)} /></div>
                         <div className="text-[11px] text-on-surface-variant">{new Date(sim.started_at).toLocaleString()}</div>
                       </div>
                       <div className="flex items-center gap-5 text-[12px]">

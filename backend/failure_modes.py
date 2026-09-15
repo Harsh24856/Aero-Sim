@@ -135,6 +135,23 @@ class FailureModes:
             return 1.0
         return 1.0 - 0.60*self.severity["cooling_degradation"]
 
+    def cooling_heat_delta(self, power_kw):
+        """Heat the degraded cooling system can no longer reject, in deg C, as
+        (CHT rise, oil-temperature rise).
+
+        The airspeed multiplier above alone moved CHT by only ~9 C at FULL severity
+        (914 cruise 100 -> 110 C), and by 1-3 C at a typical 0.1-0.3 - inside normal
+        spread, so no model could learn the mode (phase-4 AUC 0.58-0.72). A blocked
+        radiator or fouled fins leave heat in the engine in proportion to the heat being
+        made, so this scales with shaft power: ~+30 C CHT / +18 C oil at full severity
+        at cruise, more when working hard.
+        """
+        if not self.enabled:
+            return 0.0, 0.0
+        s = self.severity["cooling_degradation"]
+        load = 12.0 + 0.45 * max(0.0, power_kw)
+        return s * load, s * 0.6 * load
+
     def cht_tau_multiplier(self):
         """Degraded cooling also makes the head SLOWER to shed heat."""
         if not self.enabled:
