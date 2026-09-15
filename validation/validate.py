@@ -7,7 +7,7 @@ from physics import UAVEngineTwin
 
 df = pd.read_csv(os.path.join(os.path.dirname(__file__), "simulink_ground_truth.csv"))
 
-twin = UAVEngineTwin(dt=0.01)
+twin = UAVEngineTwin(dt=0.01, physics_version="v2")
 twin.omega = 3000.0 * 2*np.pi/60.0  # match Simulink initial condition
 
 results = {k: [] for k in ["EngineRPM","PropRPM","Thrust","PropTorque","Power_kW",

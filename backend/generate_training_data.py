@@ -42,7 +42,7 @@ writer.writerow(COLUMNS)
 
 row_count = 0
 for scen in range(N_SCENARIOS):
-    twin = UAVEngineTwin(dt=DT)
+    twin = UAVEngineTwin(dt=DT, physics_version="v2")
     twin.altitude = np.random.uniform(0, 8000)
     twin.throttle = np.random.uniform(0.15, 1.0)
     twin.airspeed = np.random.uniform(5, 75)

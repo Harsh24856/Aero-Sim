@@ -2,7 +2,7 @@ import sys, time; sys.path.insert(0, ".")
 from physics import UAVEngineTwin
 
 for dt in [0.01, 0.05, 0.1]:
-    twin = UAVEngineTwin(dt=dt)
+    twin = UAVEngineTwin(dt=dt, physics_version="v2")
     twin.throttle = 0.6
     n_steps = 20000
     t0 = time.time()

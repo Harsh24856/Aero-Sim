@@ -6,7 +6,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import Navbar from "@/components/Navbar";
 import { MISSION_PRESETS, presetDuration, type MissionPreset } from "@/lib/missionPresets";
-import { simSecondsToRealHours } from "@/lib/timeScale";
+import { formatSimClock } from "@/lib/timeScale";
 import { Mountain, Clock, Thermometer, Activity, Play, Film, FileText, ChevronRight } from "lucide-react";
 
 const ENGINES = [
@@ -143,7 +143,7 @@ export default function MissionPage() {
 
                     <div className="mt-auto flex items-center justify-between gap-3">
                       <span className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant">
-                        {dur}s sim &middot; {simSecondsToRealHours(dur).toFixed(2)} h real
+                        {formatSimClock(dur)} flight
                       </span>
                       <button
                         onClick={() => setPending(p)}

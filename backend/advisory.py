@@ -121,7 +121,8 @@ DEGRADATION_WARNING = 0.8
 # NOT trying to duplicate the model - they cover conditions that are unsafe
 # regardless of what the model believes, which is exactly the role a
 # conventional limit check should keep in a predictive system.
-OIL_PRESSURE_MIN_BAR = 2.0
+# Physics reports oil pressure in psi (~30-90 in flight); Rotax minimum is 0.8 bar = 12 psi.
+OIL_PRESSURE_MIN_PSI = 12.0
 OIL_TEMP_MAX_C = 130.0
 
 SIGNATURE_WORDS = {
@@ -379,11 +380,11 @@ def _limit_items(telemetry: Optional[dict]) -> list[dict[str, Any]]:
     """Conventional limit checks (deliberately kept) and environment validity."""
     items: list[dict[str, Any]] = []
     oil_p = _f(telemetry, "oil_pressure")
-    if oil_p is not None and oil_p < OIL_PRESSURE_MIN_BAR:
+    if oil_p is not None and oil_p < OIL_PRESSURE_MIN_PSI:
         items.append({
             "code": "OIL_PRESS_LOW", "channel": "oil_pressure", "subsystem": "Lubrication",
             "severity": "warning",
-            "message": f"Oil pressure {oil_p:.1f} below {OIL_PRESSURE_MIN_BAR:.1f} minimum.",
+            "message": f"Oil pressure {oil_p:.1f} psi below {OIL_PRESSURE_MIN_PSI:.0f} psi minimum.",
             "action": "Reduce power and land as soon as practicable; check oil level and pump before next flight.",
         })
 

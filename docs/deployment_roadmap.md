@@ -23,8 +23,10 @@ Status of the physics-v3 programme against PS 26054, and what remains before v3 
    signature accuracy per fault type in `docs/model_cards.md`.
 3. **End-to-end check with persistence.** One logged-in v3 flight: confirm `simulations.model_version = 'v3'`,
    engine-hour RUL on the report, history and replay pages, and residual columns filled.
-4. **Confirm TBO values** (912/914/916 2000 h, 915 iS 1200 h) against Rotax service documentation.
-5. Then set `DEFAULT_PHYSICS_VERSION = "v3"` in `physics.py` and make `aiv3.py` the default AI service.
+4. ~~**Confirm TBO values.**~~ Done 2026-09-15: 912 ULS 2000 h (Rotax datasheet), 914 2000 h (with
+   SB-914-039UL), 915 iS 1200 h, 916 iS 2000 h.
+5. ~~**Flip the default.**~~ Done 2026-09-15: `DEFAULT_PHYSICS_VERSION = "v3"`, `main.py` defaults to v3, README
+   starts `aiv3.py`; legacy generators and `validate.py` pin `physics_version="v2"`.
 
 ## Physics fixes and regeneration
 
@@ -40,7 +42,12 @@ Status of the physics-v3 programme against PS 26054, and what remains before v3 
   reliability written. RUL MAE: 914 1.15%, 912 0.77%, 915 0.62%, 916 0.68% of TBO. The 916 RPM diagnosis channel is
   marked unreliable (precision 0.05) and cannot cap health. Previous exports: `backend/models_v3_backup_pre_final_20260915_0907/`.
 
-**Open:**
+- **Oil-pressure limit** in `advisory.py` is now 12 psi (Rotax 0.8 bar); the old 2.0 could never fire.
+- **Takeoff alert hold** (`main.py` `hold_alerts_outside_envelope`): fault and failure-mode alerts are held
+  while the AI's 128 s window still contains ground-roll samples below the 32 m/s dataset floor. Removes the
+  ~60 s false misfire/combustion alarm the 916 raised after every takeoff; health and RUL still display.
+
+**Closed (kept for history):**
 
 - **Oil-pressure limit check.** `advisory.py` uses a 2.0 minimum while the physics reports ~30-90 (psi);
   align the limit with the unit.
@@ -52,7 +59,7 @@ Status of the physics-v3 programme against PS 26054, and what remains before v3 
 | Edge deployment (TFLite + latency) | `validation/export_edge.py` written; run when the GPU is free |
 | Federated learning demo | `validation/federated_demo.py` written; run when the GPU is free |
 | Uncertainty on RUL | not possible with MC-dropout on this architecture; a deep-ensemble or quantile head is the option |
-| Mission-preset durations | `/mission` presets still quote v2 "h real" equivalents |
+| Mission-preset durations | Fixed: `/mission` presets show flight time, not v2 "h real" equivalents |
 
 ## Operational rules
 

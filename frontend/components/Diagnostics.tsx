@@ -19,6 +19,8 @@ export type AiResult = {
   failure_modes?: Record<string, { severity_percent: number; present: boolean; threshold?: number }>;
   steps_collected?: number;
   steps_needed?: number;
+  // main.py: fault alerts held while the AI window still contains ground-roll samples
+  settling?: boolean;
 };
 
 // Mirrors backend/advisory.py build_advisory(). Deterministic, computed
@@ -172,6 +174,12 @@ export default function Diagnostics({ ai = null, advisory = null, residuals = nu
             <div className="mt-1 h-1 overflow-hidden rounded bg-[#211510]">
               <div className="h-full bg-[#ff8050]" style={{ width: `${(100 * ai.steps_collected) / ai.steps_needed}%` }} />
             </div>
+          </div>
+        )}
+
+        {ai?.status === "ok" && ai.settling && (
+          <div role="status" className="border border-[#4c3025] bg-[#0d0e0d] p-2 text-[8px] text-[#d9c0ae] md:text-[9px]">
+            AI settling after takeoff - fault alerts are held until the last 128 s of flight are above 32 m/s.
           </div>
         )}
 
