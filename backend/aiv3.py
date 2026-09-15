@@ -234,6 +234,8 @@ def load_engine(key):
         "failure_modes_model": _load(os.path.join(model_dir, heads["failure_modes"]["file"])),
         "rul_model":           _load(os.path.join(model_dir, heads["rul"]["file"])),
         "failure_mode_thresholds": manifest.get("failure_mode_thresholds") or {},
+        # Test-split RUL mean absolute error, shown as the RUL uncertainty band.
+        "rul_mae_hours": (manifest.get("rul_test") or {}).get("mae_hours"),
         # Channels whose confident fault calls were no better than chance on the test
         # split (validation/parity_ai_v3.py). Missing section -> every channel trusted.
         "unreliable_channels": {
@@ -339,6 +341,7 @@ def run_inference(engine=None):
         "health_percent": round(health_percent, 4),
         "rul_hours": round(rul_hours, 3),
         "rul_units": "engine_hours",
+        "rul_mae_hours": engine["rul_mae_hours"],
         "tbo_hours": tbo,
         "rul_percent_remaining": round(max(0.0, min(100.0, 100.0 * rul_hours / tbo)), 4),
         "rul_out_of_range": rul_hours > RUL_OUT_OF_RANGE_FRAC * tbo,

@@ -49,14 +49,14 @@ Status of the physics-v3 programme against PS 26054, and what remains before v3 
 
 **Open, found by the plant-mismatch evaluation (see model cards):**
 
-- **Residual wear voting.** Temperature groups alone can move the wear index, so sensor calibration offsets
-  read as wear and push healthy oil-pressure and vibration channels into deviation. Require at least one
-  mechanical group (oil pressure or vibration) to agree before the index moves, then re-run
-  `validation/residual_eval.py` and `validation/mismatch_eval.py`.
+- **Residual wear voting.** Temperature calibration offsets read as wear and push healthy oil-pressure and
+  vibration channels into deviation. Three mechanical-anchored voting designs fixed that but raised false
+  alarms on real flight data to 24-45% (model cards); the fix needs per-installation sensor calibration at
+  engine fit (zero the residuals on a known-healthy ground run), not a voting rule.
 - **Residual tolerances for real sensors.** Vibration (0.0005 g) and RPM (5 rpm) scales are sized to simulator
   noise; calibrate them on real bench data or widen them for hardware.
-- **Sensor vs engine attribution.** When the residuals isolate one drifting channel and the AI raises
-  failure modes, the advisory should lead with the suspected sensor.
+- ~~**Sensor vs engine attribution.**~~ Done: `RES_<CH>_SENSOR_SUSPECT` advisory item.
+- ~~**RUL uncertainty band.**~~ Done: test-split MAE served as `rul_mae_hours` and shown in the cockpit.
 
 **Closed (kept for history):**
 
