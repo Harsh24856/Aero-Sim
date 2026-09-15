@@ -328,6 +328,22 @@ curl -X POST http://localhost:8000/params \
 curl http://localhost:8100/health   # backend_validated must be true
 ```
 
+#### Fly the aircraft over CAN
+
+The twin can monitor an engine it does not simulate itself. With the stack running, open the
+simulate page for the engine (e.g. `/simulate?engine=Rotax_914_ULF`) and press Start, then:
+
+```bash
+cd backend
+./.venv/bin/python can_ingest.py --bus udp            # bridge: CAN frames -> /params + /measured
+./.venv/bin/python aircraft_sim.py --engine Rotax_914_ULF --profile mission --mismatch none
+```
+
+The Diagnostics panel shows **CAN LIVE** while sensor frames arrive. `--mismatch calibration |
+engine_spread | noisy_sensors | sensor_drift | v2_plant` flies an engine that differs from the twin;
+`validation/mismatch_eval.py` scores those profiles (run it with no flight live). On Linux or real
+hardware use `--bus socketcan:can0` (needs `pip install python-can`) on both sides.
+
 #### Physics v3 (default) and legacy v2
 
 Physics v3 is the default: `main.py` runs v3 physics and expects `backend/aiv3.py`

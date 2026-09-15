@@ -128,6 +128,21 @@ the next 20 Hz broadcast, **p50 260 ms, p95 378 ms** over 107 samples of a 914 c
 1.18 s outlier on the first sample after warm-up. The AI runs once per simulated second, so every diagnosis
 is on screen before the next sample exists; physics loop lag stayed at 0 ms and no samples were dropped.
 
+**Aircraft over CAN** (2026-09-15, plan P3). A separate process (`aircraft_sim.py`) flew its own 914
+through takeoff, climb, cruise and a 0.95-throttle leg, sending only CAN frames over the UDP multicast bus;
+the twin received set-points and measured sensors through `can_ingest.py` (112,000+ frames, 0 lost,
+0 rejected). Results with no mismatch:
+
+- The twin's own EGT/CHT tracked the measured values to within 0.5 C from set-points alone, and the AI
+  warmed up in real time on measured data (health 99.2-99.9% at climb and cruise, detection confidence
+  0.00-0.01, no residual deviations).
+- Before the power leg, cruise health drifted down to 92.3% with no detection and no residual deviation -
+  a soft AI health estimate, not an alarm.
+- At 0.95 throttle the aircraft's physics injected a stress fault on its EGT sensor, which pinned at 999 C
+  while the twin's physics expected 834-924 C. The residuals flagged EGT, oil pressure, oil temperature
+  and vibration; the AI raised detection at 100% confidence (health 0%), the advisory went to warning and
+  the low-health vignette fired. The fault existed only in the aircraft; the twin found it from the bus.
+
 ## Physics residuals (model-free)
 
 `backend/residual.py`. Expected values reproduce the dataset's clean sensor values to p99 errors of

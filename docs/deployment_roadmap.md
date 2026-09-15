@@ -14,7 +14,7 @@ Status of the physics-v3 programme against PS 26054, and what remains before v3 
 | Advisory | failure-mode, engine-hour RUL, residual and saturation items; v2 output unchanged |
 | Persistence | Supabase migration `add_physics_v3_model_versioning` (all earlier runs marked `v2`); `dbv3.py` |
 | Frontend | version-aware RUL and flight time, legacy badge, live failure-mode and residual panels |
-| Vehicle interface | `can_ingest.py` CAN frames to `/params` (SocketCAN / python-can / loopback) |
+| Vehicle interface | Plant and twin split over CAN: `aircraft_sim.py` (simulated aircraft) -> `can_bus.py` frames (UDP multicast or SocketCAN/python-can) -> `can_ingest.py` -> `/params` + `/measured`; verified live, 0 frames lost |
 
 ## Before flipping the default to v3
 
