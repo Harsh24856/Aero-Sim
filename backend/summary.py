@@ -48,7 +48,7 @@ if _enabled:
         print(f"[summary] Groq client unavailable, summaries disabled: {exc}")
         _enabled = False
 else:
-    print("[summary] GROQ_API_KEY not set - post-flight summaries disabled (this is fine).")
+    print("[summary] GROQ_API_KEY not set - post-flight summaries use the local template (this is fine).")
 
 
 # ai.py's own ceiling: the training generator's 20,000s censoring cutoff, above
@@ -237,6 +237,96 @@ def build_digest(sim_row: dict, log_rows: list[dict]) -> dict[str, Any]:
     return digest
 
 
+LOCAL_MODEL_NAME = "local template (offline)"
+
+
+def local_summary(digest: dict[str, Any], reason: str) -> dict[str, Any]:
+    """Deterministic post-flight summary built from the digest alone - no network.
+
+    Used when Groq is not configured or unreachable, so every report still has a
+    headline, findings and recommendations. It states only what the digest holds.
+    """
+    import advisory                                  # local: summary is imported by main before advisory
+
+    ch = digest.get("channels") or {}
+    limits = digest.get("reference_limits") or REFERENCE_LIMITS
+    engine = (digest.get("engine_model") or "Engine").replace("_", " ")
+    health = digest.get("final_health_percent")
+    findings: list[str] = []
+    recs: list[str] = []
+    rank = {"low": 0, "moderate": 1, "high": 2}
+    risk = "low"
+
+    def raise_risk(level: str) -> None:
+        nonlocal risk
+        if rank[level] > rank[risk]:
+            risk = level
+
+    if not digest.get("ai_diagnostics_available"):
+        findings.append("AI diagnostics produced no output for this run; judge it on the sensor limits only.")
+    if isinstance(health, (int, float)):
+        findings.append(f"Final engine health {health:.1f}%.")
+        raise_risk("high" if health < 50 else "moderate" if health < 80 else "low")
+
+    if digest.get("model_version") == "v3" and isinstance(digest.get("final_rul_engine_hours"), (int, float)):
+        pct = digest.get("rul_percent_of_tbo")
+        findings.append(f"Remaining useful life {digest['final_rul_engine_hours']:.0f} engine hours"
+                        + (f" ({pct:.1f}% of the {digest.get('tbo_hours'):.0f} h TBO)." if pct is not None else "."))
+
+    exceeded = []
+    for col, key, name in (("egt", "egt_operating_max_c", "EGT"), ("cht", "cht_operating_max_c", "CHT"),
+                           ("oil_temp", "oil_temp_max_c", "oil temperature")):
+        peak = (ch.get(col) or {}).get("max")
+        limit = limits.get(key)
+        if isinstance(peak, (int, float)) and limit and peak > limit:
+            exceeded.append(f"{name} {peak:.0f} C (limit {limit:.0f} C)")
+    if exceeded:
+        findings.append("Temperature limits exceeded: " + ", ".join(exceeded) + ".")
+        recs.append("Inspect cooling, mixture and temperature sensors before the next sortie.")
+        raise_risk("moderate")
+    oil_min = (ch.get("oil_pressure") or {}).get("min")
+    if isinstance(oil_min, (int, float)) and oil_min < advisory.OIL_PRESSURE_MIN_PSI:
+        findings.append(f"Oil pressure fell to {oil_min:.1f} psi, below the {advisory.OIL_PRESSURE_MIN_PSI:.0f} psi minimum.")
+        recs.append("Check oil level, pump and pressure sender before further flight.")
+        raise_risk("high")
+
+    modes = (digest.get("failure_modes") or {}).get("rows_flagged_per_mode") or {}
+    if modes:
+        findings.append("AI flagged engine failure modes: "
+                        + ", ".join(f"{m.replace('_', ' ')} ({n} rows)" for m, n in modes.items()) + ".")
+        recs.append("Review the flagged failure modes on the replay page and inspect the matching subsystems.")
+        raise_risk("moderate")
+    deviations = (digest.get("physics_residuals") or {}).get("rows_deviating_per_channel") or {}
+    if deviations:
+        findings.append("Sensors disagreed with the physics model on: "
+                        + ", ".join(f"{c.replace('_', ' ')} ({n} rows)" for c, n in deviations.items()) + ".")
+        recs.append("Verify calibration of the sensors that disagreed with physics.")
+
+    if not recs:
+        recs.append("No limit exceedances or flagged faults - continue routine monitoring.")
+    if risk == "high":
+        recs.insert(0, "Ground the aircraft pending inspection.")
+
+    duration = digest.get("duration_simulated_seconds") or 0
+    headline = f"{engine}: {'health ' + format(health, '.0f') + '%, ' if isinstance(health, (int, float)) else ''}{risk} risk"
+    summary_text = (f"{engine} flew {duration:.0f} simulated seconds with {digest.get('telemetry_rows', 0)} telemetry rows "
+                    f"and {digest.get('fault_detected_rows', 0)} rows with a detected fault. "
+                    + " ".join(findings[:3]))
+    return {
+        "status": "ok",
+        "model": LOCAL_MODEL_NAME,
+        "offline": True,
+        "reason": reason,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "headline": headline[:90],
+        "summary": summary_text,
+        "findings": findings[:5],
+        "recommendations": recs[:5],
+        "risk": risk,
+        "digest": digest,
+    }
+
+
 def _fallback(reason: str) -> dict[str, Any]:
     return {
         "status": "unavailable",
@@ -254,6 +344,7 @@ def generate_summary(simulation_id: int) -> Optional[dict[str, Any]]:
         print("[summary] Supabase disabled; nothing to summarize.")
         return None
 
+    digest = None
     try:
         sim_row = db.get_simulation(simulation_id)
         if not sim_row:
@@ -264,9 +355,9 @@ def generate_summary(simulation_id: int) -> Optional[dict[str, Any]]:
         digest = build_digest(sim_row, log_rows)
 
         if not _enabled or _client is None:
-            payload = _fallback("GROQ_API_KEY not configured")
-            payload["digest"] = digest
+            payload = local_summary(digest, "GROQ_API_KEY not configured")
             db.save_groq_result(simulation_id, payload)
+            print(f"[summary] simulation {simulation_id} summarized ({LOCAL_MODEL_NAME})")
             return payload
 
         completion = _client.chat.completions.create(
@@ -323,7 +414,10 @@ def generate_summary(simulation_id: int) -> Optional[dict[str, Any]]:
             return payload
         print(f"[summary] generation failed for {simulation_id}: {exc}")
         try:
-            payload = _fallback(str(exc))
+            # Groq unreachable (no network at the venue, rate limit, outage): fall back
+            # to the local template rather than leaving the report without a summary.
+            payload = (local_summary(digest, f"Groq unavailable: {exc}") if digest is not None
+                       else _fallback(str(exc)))
             db.save_groq_result(simulation_id, payload)
             return payload
         except Exception:

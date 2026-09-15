@@ -12,6 +12,7 @@
 # ─── Local tool state ─────────────────────────────────────────────────────────
 .playwright-mcp/
 .serena/
+.logs/
 
 # ─── Validation (local-only — datasets, notebooks, trained model artifacts) ───
 # Everything under validation/ stays local except the training/evaluation code.

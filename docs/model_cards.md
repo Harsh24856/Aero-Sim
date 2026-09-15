@@ -106,16 +106,27 @@ BSFC-only linear fit scores 5.55%. The head uses the window, not a single ratio.
 
 ## Live stack check
 
-`aiv3.py` + `main.py` on physics v3, 2500 m, 45 m/s, 75 s after warm-up:
+2026-09-15, retrained models, `aiv3.py` + `main.py` on physics v3. Headless run at 1,500 m / 45 m/s,
+throttle 0.5 (cruise) then 0.7 at 2,500 m:
 
-| Engine | Throttle | Health | Faults flagged | RUL predicted / true |
-|---|---|---|---|---|
-| 914 | 0.60 | 99.8% | none | 1829 / 1978 h |
-| 915 | 0.30 | 99.9% | none | 1090 / 1187 h |
-| 916 | 0.30 | 99.5% | none | 1034 / 1189 h |
+| Engine | Cruise health | Cruise RUL error | Throttle 0.7 |
+|---|---|---|---|
+| 914 | 87-100% | 4-5% of TBO | 94.7-100%, no faults (none injected) |
+| 912 | 99.7-99.9% | 6% of TBO | not run |
+| 915 | 100% | 3-4% of TBO | vibration stress faults injected by physics; detected, health 0% |
+| 916 | 99.6-100% | 2-3% of TBO | vibration stress faults injected by physics; detected, health 0% |
 
-At 0.6 throttle 915 and 916 sit at redline (see roadmap), where the physics itself drives oil-pressure
-and vibration stress to 100%; the models report that correctly as 0% health.
+Browser flights (takeoff from the runway, 35% throttle, 1,000 m) on all four engines: health 98-100% at cruise,
+advisory nominal. Full throttle on the 915 drove EGT/CHT to their sensor limits; detection, the warning
+advisory and the low-health vignette fired, and health recovered to 97.8% after throttling back. The 916's
+first AI windows after takeoff (which contain ground roll below the 32 m/s dataset floor) raised detection
+confidence 0.77-0.86; `main.py` holds those alerts until the window is clear (see roadmap).
+
+**Real-time latency** (M2, 8 GB, AI on Metal TensorFlow, all five heads per sample; `/health`
+`sim_status.ai_latency_ms`): from a physics sample entering the AI queue to its diagnosis being stored for
+the next 20 Hz broadcast, **p50 260 ms, p95 378 ms** over 107 samples of a 914 cruise flight, with a single
+1.18 s outlier on the first sample after warm-up. The AI runs once per simulated second, so every diagnosis
+is on screen before the next sample exists; physics loop lag stayed at 0 ms and no samples were dropped.
 
 ## Physics residuals (model-free)
 
@@ -130,5 +141,16 @@ One simulated hour per engine on live physics (100 Hz, random flight legs includ
 | 915 | 0.006 / 0.009 | 0% on every channel |
 | 916 | 0.009 / 0.037 | 0% except oil pressure 0.81% |
 
-Full scoring on the test split (detection rate and signature accuracy per fault type):
-**pending** — run `validation/residual_eval.py` and update this section.
+Full scoring on the regenerated v3 data (`validation/residual_eval.py`, ~125k rows / 14-15 scenarios per
+engine, 2026-09-15). "Detect" is the share of injected-fault rows the residual flags; "signature" is the share
+where it also names the right fault type. The 912 has not been scored yet.
+
+| Engine | Max false-alarm rate | Wear index MAE / corr | Bias detect / signature | Drift | Noise | Spike | Stuck-At |
+|---|---|---|---|---|---|---|---|
+| 914 | 0.05% | 0.005 / 0.999 | 100% / 78% | 99% / 26% | 99% / 27% | 98% / 0% | 77% / 94% |
+| 915 | 0.05% | 0.003 / 1.000 | 100% / 84% | 98% / 32% | 99% / 16% | 98% / 0% | 93% / 94% |
+| 916 | 0.00% | 0.003 / 1.000 | 100% / 83% | 99% / 26% | 99% / 17% | 98% / 0% | 91% / 92% |
+
+Detection is strong for every fault type; naming the type is not. Drift reads as bias, and noise and spike
+read as drift or noise, because a one-second residual cannot separate a short spike from noise. Use the
+residual layer to say *that* a sensor disagrees with physics, and the diagnosis model to say *how*.
