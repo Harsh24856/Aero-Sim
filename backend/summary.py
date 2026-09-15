@@ -1,7 +1,7 @@
 """Post-flight mission summary via Groq (PS 26054 section F, mission reports).
 
 SCOPE - read this before extending it
--------------------------------------
+---------------------------------------
 This is a NARRATIVE layer over a run that has already finished. It is NOT the
 maintenance advisory: that lives in advisory.py, is deterministic, runs onboard
 in real time, and must keep working with no network. Nothing safety-relevant
@@ -61,7 +61,17 @@ else:
 # ceiling (max 546.6), so scaling would have reported ~197,000 hours of
 # remaining life. RUL is handed over on the model's own scale, with the ceiling
 # and an explicit out-of-range flag so the model can caveat instead of guess.
-MAX_SIM_LIFE_HOURS = 20000.0 / 3600.0   # 5.556
+MAX_SIM_LIFE_HOURS = 20000.0 / 3600.0   # 5.556 - v2 runs only
+
+# Operating limits handed to the model as reference. Without them it judged a
+# 585 C EGT on a Rotax 916 iS "far above typical limits" - the limit is ~950 C.
+# Values are the ones this codebase already uses: physics.py's sensor comments
+# (EGT operating limit ~950 C, CHT ~135-150 C) and advisory.py's oil-temp limit.
+REFERENCE_LIMITS = {
+    "egt_operating_max_c": 950.0,
+    "cht_operating_max_c": 150.0,
+    "oil_temp_max_c": 130.0,
+}
 
 # Channels whose min/mean/max are worth putting in front of the model.
 _NUMERIC_COLS = [
@@ -82,12 +92,24 @@ SYSTEM_PROMPT = (
     "- Note that the first 128 simulated seconds of any mission have no AI "
     "output by design (model window fill), so early blanks are not a fault.\n"
     "- Be concise and specific. No preamble, no marketing language.\n"
-    "- RUL: `final_rul_hours_model_scale` is on the MODEL's own compressed "
+    "- Check `model_version` first.\n"
+    "  - v2: `final_rul_hours_model_scale` is on the MODEL's own compressed "
     "scale, not real flight hours - never present it as real hours or convert "
     "it. Judge it against `rul_model_ceiling_hours`, and prefer discussing the "
     "health/RUL percentages. If `rul_is_extrapolated_beyond_ceiling` is true, "
     "say plainly that the estimate lies beyond the model's trained range and "
     "should be treated as indicative only.\n"
+    "  - v3: `final_rul_engine_hours` IS real engine hours remaining against "
+    "`tbo_hours`; `rul_percent_of_tbo` is that as a percentage. Report them "
+    "directly.\n"
+    "- Judge temperatures ONLY against `reference_limits`. Do not call a value "
+    "high unless it exceeds its limit there.\n"
+    "- If `ai_diagnostics_available` is false, the AI service produced no output "
+    "for this run: say diagnostics were unavailable. That is a gap in monitoring, "
+    "not evidence of an engine problem, and must not raise the risk level on its own.\n"
+    "- v3 runs may include `failure_modes` (engine faults flagged by the AI) and "
+    "`physics_residuals` (sensors disagreeing with the physics model, and a wear "
+    "index from 0 to 1). Use them when present.\n"
     "- The `units` object gives the unit of every channel. Use exactly those "
     "units and never convert or relabel them - temperatures are Celsius, not "
     "Fahrenheit. Airspeed may additionally be given in knots (1 m/s = 1.94 kt).\n"
@@ -161,13 +183,44 @@ def build_digest(sim_row: dict, log_rows: list[dict]) -> dict[str, Any]:
         "ai_warmup_rows_without_output": len(log_rows) - len(ai_rows),
         "fault_detected_rows": len(faults),
         "final_health_percent": sim_row.get("final_health_percent"),
-        "final_rul_hours_model_scale": sim_row.get("final_rul_hours"),
-        "rul_model_ceiling_hours": round(MAX_SIM_LIFE_HOURS, 3),
-        "rul_is_extrapolated_beyond_ceiling": (
-            sim_row["final_rul_hours"] > MAX_SIM_LIFE_HOURS
-            if isinstance(sim_row.get("final_rul_hours"), (int, float)) else None),
+        "model_version": sim_row.get("model_version") or "v2",
+        "ai_diagnostics_available": len(ai_rows) > 0,
+        "reference_limits": REFERENCE_LIMITS,
         "channels": {c: _stats(log_rows, c) for c in _NUMERIC_COLS},
     }
+    rul = sim_row.get("final_rul_hours")
+    if digest["model_version"] == "v3":
+        tbo = sim_row.get("tbo_hours")
+        digest["tbo_hours"] = tbo
+        digest["final_rul_engine_hours"] = rul
+        digest["rul_percent_of_tbo"] = (round(100.0 * rul / tbo, 1)
+                                        if isinstance(rul, (int, float)) and tbo else None)
+    else:
+        digest["final_rul_hours_model_scale"] = rul
+        digest["rul_model_ceiling_hours"] = round(MAX_SIM_LIFE_HOURS, 3)
+        digest["rul_is_extrapolated_beyond_ceiling"] = (
+            rul > MAX_SIM_LIFE_HOURS if isinstance(rul, (int, float)) else None)
+
+    # v3 telemetry rows carry failure modes and physics residuals (dbv3.py).
+    fm_counts: dict[str, int] = {}
+    for r in log_rows:
+        for mode, v in (r.get("failure_modes") or {}).items():
+            if isinstance(v, dict) and v.get("present"):
+                fm_counts[mode] = fm_counts.get(mode, 0) + 1
+    if fm_counts:
+        digest["failure_modes"] = {"rows_flagged_per_mode": fm_counts}
+    idx_rows = [r for r in log_rows if isinstance(r.get("degradation_index"), (int, float))]
+    if idx_rows:
+        dev_counts: dict[str, int] = {}
+        for r in idx_rows:
+            for ch in r.get("residual_deviations") or []:
+                dev_counts[ch] = dev_counts.get(ch, 0) + 1
+        digest["physics_residuals"] = {
+            "wear_index_first": round(idx_rows[0]["degradation_index"], 4),
+            "wear_index_last": round(idx_rows[-1]["degradation_index"], 4),
+            "rows": len(idx_rows),
+            "rows_deviating_per_channel": dev_counts,
+        }
 
     if ai_rows:
         digest["health_trajectory"] = {

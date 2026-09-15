@@ -6,8 +6,9 @@ import Link from "next/link";
 import { ArrowLeft, Film, RefreshCw, Sparkles, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import Navbar from "@/components/Navbar";
-import { simSecondsToRealHours, simRulHoursToPercent } from "@/lib/timeScale";
-import { formatRulSimHours, isRulExtrapolated } from "@/lib/units";
+import { engineHoursOf, flightHours, formatSimClock, modelVersionOf, rulPercentOf, tboHoursOf } from "@/lib/timeScale";
+import ModelBadge from "@/components/ModelBadge";
+import { formatRul, isRulOutOfRange } from "@/lib/units";
 
 const API = "http://localhost:8000";
 
@@ -34,6 +35,8 @@ type SimRow = {
   final_health_percent: number | null;
   final_rul_hours: number | null;
   final_telemetry: Record<string, unknown> | null;
+  model_version: string | null;
+  tbo_hours: number | null;
   groq_result: GroqResult | null;
 };
 
@@ -58,7 +61,7 @@ export default function MissionReportPage() {
   const fetchSim = useCallback(async () => {
     const { data, error } = await supabase
       .from("simulations")
-      .select("id, user_id, engine_model, started_at, ended_at, outcome, final_health_percent, final_rul_hours, final_telemetry, groq_result")
+      .select("id, user_id, engine_model, started_at, ended_at, outcome, final_health_percent, final_rul_hours, final_telemetry, groq_result, model_version, tbo_hours")
       .eq("id", id)
       .single();
     if (error || !data) return null;
@@ -119,6 +122,10 @@ export default function MissionReportPage() {
   const g = sim?.groq_result ?? null;
   const wear = typeof sim?.final_telemetry?.wear === "number" ? (sim.final_telemetry.wear as number) : null;
   const simSeconds = typeof sim?.final_telemetry?.time === "number" ? (sim.final_telemetry.time as number) : null;
+  const version = modelVersionOf(sim);
+  const rulPct = sim?.final_rul_hours != null
+    ? rulPercentOf(sim.final_rul_hours, version, simSeconds ?? undefined, tboHoursOf(sim))
+    : null;
 
   return (
     <>
@@ -143,7 +150,7 @@ export default function MissionReportPage() {
                     <span className="ml-3 text-[12px] font-mono text-tertiary/70 align-middle">ID #{sim.id}</span>
                   </h1>
                   <div className="text-[12px] text-on-surface-variant mt-1">
-                    {sim.engine_model.replace(/_/g, " ")} &middot; {new Date(sim.started_at).toLocaleString()}
+                    {sim.engine_model.replace(/_/g, " ")}<ModelBadge version={version} /> &middot; {new Date(sim.started_at).toLocaleString()}
                     {sim.outcome && <> &middot; {sim.outcome.toUpperCase()}</>}
                   </div>
                 </div>
@@ -170,26 +177,43 @@ export default function MissionReportPage() {
                       OWN scale underneath; they are not converted to real-world hours,
                       because that mapping breaks above ai.py's 5.556 sim h ceiling. */}
                   <div className="text-3xl font-bold text-primary">
-                    {sim.final_rul_hours === null ? "--" : `${Math.min(100, simRulHoursToPercent(sim.final_rul_hours, simSeconds ?? undefined)).toFixed(0)}%`}
+                    {rulPct == null ? "--" : `${rulPct.toFixed(0)}%`}
                   </div>
                   {sim.final_rul_hours !== null && (
                     <div className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mt-1">
-                      {formatRulSimHours(sim.final_rul_hours)}
-                      {isRulExtrapolated(sim.final_rul_hours) && (
+                      {formatRul(sim.final_rul_hours, version)}
+                      {isRulOutOfRange(sim.final_rul_hours, version, tboHoursOf(sim)) && (
                         <span className="text-tertiary"> &middot; extrapolated</span>
                       )}
                     </div>
                   )}
                 </div>
                 <div className="bg-surface/80 border border-outline-variant/30 rounded-lg p-5">
-                  <div className="text-[11px] uppercase tracking-[0.1em] text-on-surface-variant">Mission Time</div>
-                  <div className="text-3xl font-bold text-primary">
-                    {simSeconds === null ? "--" : `${simSeconds.toFixed(0)}s`}
-                  </div>
-                  {simSeconds !== null && (
-                    <div className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mt-1">
-                      {simSecondsToRealHours(simSeconds).toFixed(2)} h real
-                    </div>
+                  {version === "v3" ? (
+                    <>
+                      {/* v3: engine hours on the engine (wear x TBO) - the clock RUL counts on. */}
+                      <div className="text-[11px] uppercase tracking-[0.1em] text-on-surface-variant">Engine Hours</div>
+                      <div className="text-3xl font-bold text-primary">
+                        {engineHoursOf(sim) == null ? "--" : `${(engineHoursOf(sim) as number).toFixed(1)}h`}
+                      </div>
+                      {simSeconds !== null && (
+                        <div className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mt-1">
+                          sim {formatSimClock(simSeconds)}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <div className="text-[11px] uppercase tracking-[0.1em] text-on-surface-variant">Mission Time</div>
+                      <div className="text-3xl font-bold text-primary">
+                        {simSeconds === null ? "--" : `${simSeconds.toFixed(0)}s`}
+                      </div>
+                      {simSeconds !== null && (
+                        <div className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mt-1">
+                          {flightHours(simSeconds, version).toFixed(2)} h real
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
                 <div className="bg-surface/80 border border-outline-variant/30 rounded-lg p-5">

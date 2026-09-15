@@ -1,0 +1,326 @@
+{
+  "engine_model": "Rotax_914_ULF",
+  "key": "914",
+  "physics_version": "v3",
+  "tbo_hours": 2000.0,
+  "exported_at": "2026-09-15 09:07:17",
+  "contract": {
+    "window_size": 128,
+    "stride": 64,
+    "n_features": 25,
+    "feature_cols": [
+      "altitude",
+      "throttle",
+      "airspeed",
+      "aoa",
+      "air_density",
+      "torque_available_nm",
+      "engine_rpm",
+      "prop_rpm",
+      "prop_torque",
+      "power_kw",
+      "fuel_flow",
+      "thrust",
+      "lift",
+      "drag",
+      "thrust_margin",
+      "lift_weight_margin",
+      "egt",
+      "cht",
+      "oil_pressure",
+      "oil_temp",
+      "vibx",
+      "viby",
+      "vibz",
+      "rpm_fault",
+      "injection_timing"
+    ],
+    "rul_aux_order": [
+      "running_mean_severity",
+      "elapsed_hours",
+      "running_max_severity",
+      "recent_severity_mean",
+      "severity_trend",
+      "cum_high_throttle_frac",
+      "oil_press_ratio",
+      "vib_ratio",
+      "bsfc_ratio",
+      "cht_excess"
+    ],
+    "channels": [
+      "egt",
+      "cht",
+      "oil_pressure",
+      "oil_temp",
+      "vibx",
+      "viby",
+      "vibz",
+      "rpm"
+    ],
+    "fault_types": [
+      "none",
+      "Bias",
+      "Drift",
+      "Spike",
+      "Stuck-At",
+      "Noise"
+    ],
+    "failure_modes": [
+      "misfire",
+      "injector_fouling",
+      "cooling_degradation",
+      "combustion_instability"
+    ],
+    "detection_threshold": 0.05,
+    "severity_rpm_divisor": 5800.0,
+    "severity_power_divisor": 85.0,
+    "rul_units": "engine hours remaining against tbo_hours"
+  },
+  "heads": {
+    "detection": {
+      "file": "914_detection.keras",
+      "source_checkpoint": "phase1_detection_914.keras",
+      "output": "y_detection",
+      "inputs": [
+        "x"
+      ],
+      "output_shape": [
+        1
+      ],
+      "sha256": "024279f7cac71231e7b76d433d85f5c0e1d36674bfd0d417acbd7e7bf62eb36a",
+      "test_metrics": {
+        "acc": 0.953464686870575,
+        "auc": 0.983903169631958,
+        "loss": 0.1583894044160843,
+        "minutes": 47.7
+      },
+      "parity_max_abs": {
+        "extract": 0.0,
+        "reload": 0.0
+      }
+    },
+    "diagnosis": {
+      "file": "914_diagnosis.keras",
+      "source_checkpoint": "phase2_diagnosis_914.keras",
+      "output": "y_diagnosis",
+      "inputs": [
+        "x"
+      ],
+      "output_shape": [
+        8,
+        6
+      ],
+      "sha256": "e990f350c7f747712057de42227038a65677011bc8ebc32f66d1dc5ebe25e8ae",
+      "test_metrics": {
+        "loss": 15.868038177490234,
+        "y_detection_loss": 0.12945565581321716,
+        "y_diagnosis_fault_recall": 0.9684203863143921,
+        "y_diagnosis_loss": 0.3147715628147125,
+        "y_diagnosis_macro_f1": 0.6632571816444397,
+        "minutes": 74.0
+      },
+      "parity_max_abs": {
+        "extract": 0.0,
+        "reload": 0.0
+      }
+    },
+    "severity": {
+      "file": "914_severity.keras",
+      "source_checkpoint": "phase3_severity_914.keras",
+      "output": "y_severity",
+      "inputs": [
+        "x"
+      ],
+      "output_shape": [
+        8
+      ],
+      "sha256": "30e809a3c5e68511d9285c6b41bd7ab39784bab28e23f4098fdb11f31dbdd0fd",
+      "test_metrics": {
+        "loss": 22.076566696166992,
+        "y_detection_loss": 0.20988257229328156,
+        "y_diagnosis_loss": 0.4361141622066498,
+        "y_severity_loss": 0.0030486511532217264,
+        "y_severity_nonzero_severity_mae": 0.019687315449118614,
+        "y_severity_nonzero_severity_mse": 0.009787707589566708,
+        "minutes": 33.9
+      },
+      "parity_max_abs": {
+        "extract": 0.0,
+        "reload": 0.0
+      }
+    },
+    "failure_modes": {
+      "file": "914_failure_modes.keras",
+      "source_checkpoint": "phase4_failure_modes_914.keras",
+      "output": "y_failure_mode",
+      "inputs": [
+        "x"
+      ],
+      "output_shape": [
+        4
+      ],
+      "sha256": "5bdb1ccdde7a6210f8cd36ecbac6e6e964c1478da9c1e97ecc29854e2de928d2",
+      "test_metrics": {
+        "auc_all": 0.8760397434234619,
+        "auc_all_det": 0.9358255863189697,
+        "auc_combustion_instability": 0.8883813619613647,
+        "auc_cooling_degradation": 0.8211147785186768,
+        "auc_det_combustion_instability": 0.9329224824905396,
+        "auc_det_cooling_degradation": 0.8929257392883301,
+        "auc_det_injector_fouling": 0.977025032043457,
+        "auc_det_misfire": 0.9485806226730347,
+        "auc_injector_fouling": 0.8990851640701294,
+        "auc_misfire": 0.9202357530593872,
+        "loss": 0.06438495963811874,
+        "mae": 0.02219347096979618,
+        "minutes": 45.1
+      },
+      "parity_max_abs": {
+        "extract": 0.0,
+        "reload": 0.0
+      }
+    },
+    "rul": {
+      "file": "914_rul.keras",
+      "source_checkpoint": "phase5_rul_914.keras",
+      "output": "y_rul_hours",
+      "inputs": [
+        "x",
+        "x_rul_aux"
+      ],
+      "output_shape": [
+        1
+      ],
+      "sha256": "d38ff83f43258fa56332c2089c7fb88652270f05ec11a5323c1917d076b7ff1a",
+      "test_metrics": {
+        "loss": 0.7624922394752502,
+        "mae": 22.939197540283203,
+        "mae_pct_tbo": 1.1457571983337402,
+        "mae_hours": 22.915143966674805,
+        "corr": 0.998049732009704,
+        "monotonic": true,
+        "bin_means": [
+          60.90155029296875,
+          199.43283081054688,
+          338.5869445800781,
+          499.92987060546875,
+          638.982666015625,
+          773.1107788085938,
+          951.3521728515625,
+          1144.5252685546875,
+          1383.1300048828125,
+          1728.6954345703125
+        ],
+        "mae_hours_bsfc_imputed": 22.97698402404785,
+        "mae_pct_tbo_bsfc_imputed": 1.1488492012023925,
+        "baseline_bsfc_only_pct_tbo": 4.132563781738281,
+        "minutes": 52.6
+      },
+      "parity_max_abs": {
+        "extract": 0.0,
+        "reload": 0.0
+      }
+    }
+  },
+  "scaler": {
+    "file": "scaler_914.pkl",
+    "sha256": "a08c4974bf8de68477852ba9deaacd7ba23b592ae3a850207af74fb786069a8d",
+    "fit_on": "train split only, over contract.feature_cols"
+  },
+  "diagnosis_channel_reliability": {
+    "method": "test split; confident call = non-none class at >= 0.7; reliable if precision >= 0.5 and >= 2x base rate",
+    "channels": {
+      "egt": {
+        "reliable": true,
+        "precision": 0.96,
+        "recall": 0.896,
+        "base_rate": 0.027,
+        "confident_call_rate": 0.025
+      },
+      "cht": {
+        "reliable": true,
+        "precision": 0.862,
+        "recall": 0.412,
+        "base_rate": 0.113,
+        "confident_call_rate": 0.054
+      },
+      "oil_pressure": {
+        "reliable": true,
+        "precision": 0.991,
+        "recall": 0.033,
+        "base_rate": 0.213,
+        "confident_call_rate": 0.007
+      },
+      "oil_temp": {
+        "reliable": true,
+        "precision": 0.979,
+        "recall": 0.34,
+        "base_rate": 0.027,
+        "confident_call_rate": 0.009
+      },
+      "vibx": {
+        "reliable": true,
+        "precision": 0.999,
+        "recall": 0.988,
+        "base_rate": 0.218,
+        "confident_call_rate": 0.215
+      },
+      "viby": {
+        "reliable": true,
+        "precision": 0.999,
+        "recall": 0.993,
+        "base_rate": 0.218,
+        "confident_call_rate": 0.216
+      },
+      "vibz": {
+        "reliable": true,
+        "precision": 0.999,
+        "recall": 0.99,
+        "base_rate": 0.218,
+        "confident_call_rate": 0.216
+      },
+      "rpm": {
+        "reliable": true,
+        "precision": null,
+        "recall": 0.0,
+        "base_rate": 0.025,
+        "confident_call_rate": 0.0
+      }
+    }
+  },
+  "failure_mode_thresholds": {
+    "misfire": 0.07856,
+    "injector_fouling": 0.07035,
+    "cooling_degradation": 0.16306,
+    "combustion_instability": 0.15151
+  },
+  "failure_mode_threshold_stats": {
+    "method": "max F1 on the test split; positives severity >= DETECTION_THRESHOLD, negatives severity == 0",
+    "per_mode": {
+      "misfire": {
+        "f1": 0.689,
+        "precision": 0.7086,
+        "recall": 0.6705,
+        "positive_rate": 0.0769
+      },
+      "injector_fouling": {
+        "f1": 0.875,
+        "precision": 0.9644,
+        "recall": 0.8008,
+        "positive_rate": 0.0897
+      },
+      "cooling_degradation": {
+        "f1": 0.6368,
+        "precision": 0.8543,
+        "recall": 0.5076,
+        "positive_rate": 0.1001
+      },
+      "combustion_instability": {
+        "f1": 0.5684,
+        "precision": 0.4916,
+        "recall": 0.6735,
+        "positive_rate": 0.0592
+      }
+    }
+  }
+}

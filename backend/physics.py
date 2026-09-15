@@ -31,7 +31,7 @@ TBO_HOURS = {
     "Rotax_912_ULS": 2000.0,
     "Rotax_914_ULF": 2000.0,
     "Rotax_915_iS":  1200.0,
-    "Rotax_916_iS":  1200.0,
+    "Rotax_916_iS":  2000.0,   # launched with a 2,000 h TBO; the 915 iS carries ~1,200 h
 }
 
 ENGINE_CONFIGS = {
@@ -86,6 +86,30 @@ ENGINE_CONFIGS = {
 }
 
 
+# Physics v3 propeller per engine. v2 keeps the shared ENGINE_CONFIGS propeller
+# bit-for-bit (the live demo and backend/models/ were built on it).
+#
+# All four engines shared one 2.0 m prop sized for the 914. The 915/916 make 170-193 Nm
+# against 90-139 Nm, so that prop could not absorb their torque: they pinned at the
+# 5,800 rpm redline from 57%/51% throttle at 1,500 m, which drove oil-pressure and
+# vibration stress to 100% and health to 0% at ordinary cruise.
+#
+# Sized by steady-state torque balance to match the 914 on the threshold that matters -
+# the throttle at which rpm reaches 85% of redline and _conditions() starts vibration
+# stress. 914: 90/78/39% at 0/1,500/8,000 m; 915 at 2.30 m: 89/77/38%; 916 at 2.28 m:
+# 89/77/39%. (Matching redline throttle instead left both faulting from ~55-65%,
+# because their torque peaks mid-range.) Full throttle then absorbs ~450 Nm and makes
+# ~2,000 N, so the torque and thrust caps are raised for these two to avoid clipping.
+V3_PROP_OVERRIDES = {
+    # 912: makes less torque than the 914 on the same 2.0 m prop, so it reached the
+    # vibration-stress rpm only at 97/84/42% throttle (0/1,500/8,000 m) and got fewer
+    # faults. 1.97 m matches the 914 exactly: 90/78/39%.
+    "Rotax_912_ULS": {"D_PROP": 1.97},
+    "Rotax_915_iS": {"D_PROP": 2.30, "PROPTORQUE_SAT": (0.0, 600.0), "THRUST_SAT": (0.0, 2500.0)},
+    "Rotax_916_iS": {"D_PROP": 2.28, "PROPTORQUE_SAT": (0.0, 600.0), "THRUST_SAT": (0.0, 2500.0)},
+}
+
+
 class UAVEngineTwin:
     FAULT_CHANNELS = ["egt","cht","oil_pressure","oil_temp","vibx","viby","vibz","rpm"]
 
@@ -126,6 +150,9 @@ class UAVEngineTwin:
         self.CL_POINTS = np.array(cfg["CL_POINTS"], dtype=float)
         self.CD0 = cfg["CD0"]
         self.CD_K = cfg["CD_K"]
+        if _v3:
+            for key, value in V3_PROP_OVERRIDES.get(engine_model, {}).items():
+                setattr(self, key, value)
 
         # Real max power (kW), computed properly across the whole torque curve rather
         # than assumed at redline - power = torque*rpm/9549 can peak at a MID-range
@@ -212,7 +239,7 @@ class UAVEngineTwin:
         self.WEAR_OIL_PRESS_FRAC = 0.30 * _g   # bearing clearance -> pressure falls
         self.WEAR_CHT_RISE_C     = 25.0 * _g   # blow-by / deposits -> hotter heads
         self.WEAR_EGT_RISE_C     = 45.0 * _g   # combustion phasing -> hotter exhaust
-        self.WEAR_OILTEMP_RISE_C = 15.0 * _g   # friction heat into the oil
+        self.WEAR_OILTEMP_RISE_C = 10.0 * _g   # friction heat into the oil (15 ran too hot, see OILT_COEF)
         self.WEAR_VIB_FRAC       = 1.50 * _g   # imbalance / bearing wear
         self.WEAR_BSFC_FRAC      = 0.18 * _g   # more fuel for the same power
         self.WEAR_TORQUE_FRAC    = 0.12 * _g   # lost peak torque
@@ -229,11 +256,22 @@ class UAVEngineTwin:
             self.CHT_COEF = ( 75.0,  30.0, 0.004, 0.25, 0.35)
             self.SENSOR_EGT_MAX = 1000.0   # sensor range; ~950 is the OPERATING limit
             self.SENSOR_CHT_MAX =  200.0   # sensor range; ~135-150 is the operating limit
+            # 180, not 150: a hot-day, high-power, worn engine legitimately runs 130-150 C,
+            # and a 150 stop then hid Bias faults on top of it (3.4% of rows pinned).
+            self.SENSOR_OILT_MAX = 180.0
+            # Oil temperature target (base, throttle, rpm, airspeed cooling, ISA).
+            # The v2-inherited (60, 30, 0.01, 0.3, 0.8) put 22-24% of FAULT-FREE v3 rows
+            # above the 130 C Rotax limit (median 113 C). These give median ~104 C,
+            # standard day / low wear ~91-95 C, and ~3.5% above 130 C on hot high-power
+            # legs - a Rotax runs 90-110 C normally.
+            self.OILT_COEF = (70.0, 30.0, 0.006, 0.3, 0.5)
         else:
             self.EGT_COEF = (300.0, 400.0, 0.050, 5.00)
             self.CHT_COEF = (200.0, 250.0, 0.030, 5.00, 1.80)
             self.SENSOR_EGT_MAX = 950.0
             self.SENSOR_CHT_MAX = 260.0
+            self.SENSOR_OILT_MAX = 150.0
+            self.OILT_COEF = (60.0, 30.0, 0.01, 0.3, 0.8)
 
         # --- Electrical + injection (PS section B). Monitor-only channels, except
         # injection_timing which IS a model input (see tf_data_pipeline.py).
@@ -450,11 +488,13 @@ class UAVEngineTwin:
         egt_target = (e0 + e1*throttle + e2*engine_rpm + e3*power_kw
                       + 0.6*self.isa_dev_c + self.WEAR_EGT_RISE_C*self.wear
                       + self.failure_modes.egt_delta())
-        cht_target = (c0 + c1*throttle + c2*engine_rpm + c3*power_kw - c4*cool
+        cool_cht_rise, cool_oil_rise = self.failure_modes.cooling_heat_delta(power_kw)
+        cht_target = (c0 + c1*throttle + c2*engine_rpm + c3*power_kw - c4*cool + cool_cht_rise
                       + (0.7 if self.physics_version == "v3" else 0.0)*self.isa_dev_c
                       + self.WEAR_CHT_RISE_C*self.wear)
-        oiltemp_target = (60 + 30*throttle + 0.01*engine_rpm - 0.3*cool
-                          + 0.8*self.isa_dev_c + self.WEAR_OILTEMP_RISE_C*self.wear)
+        o0, o1, o2, o3, o4 = self.OILT_COEF
+        oiltemp_target = (o0 + o1*throttle + o2*engine_rpm - o3*cool + cool_oil_rise
+                          + o4*self.isa_dev_c + self.WEAR_OILTEMP_RISE_C*self.wear)
 
         # First-order thermal lag: signal chases the target at a rate set by tau.
         # This is what makes CHT/OilTemp/EGT actually warm up over real time instead
@@ -521,7 +561,7 @@ class UAVEngineTwin:
             [0, self.SENSOR_CHT_MAX],   # CHT C - v2 used 260, which the mis-calibrated
                                         # model sat against in 99.8% of rows
             [0, 150],    # OilPressure
-            [0, 150],    # OilTemp C
+            [0, self.SENSOR_OILT_MAX],    # OilTemp C
             [0, 1.0],    # VibX g
             [0, 1.0],    # VibY g
             [0, 1.0],    # VibZ g
@@ -584,6 +624,21 @@ class UAVEngineTwin:
         rpm_frac = engine_rpm / self.RPM_MAX
         power_frac = power_kw / self.MAX_POWER_KW  # per-engine rated power, not hardcoded to 914
         cooling = min(1.0, airspeed / 50.0)
+        if self.physics_version == "v3":
+            # v3 thresholds. The dataset floors airspeed at ~30 m/s (no sub-stall flight),
+            # which made the v2 CHT condition (cooling < 0.6, i.e. < 30 m/s) unreachable,
+            # and EGT's > 85% power became too rare - both channels got ZERO faults in a
+            # 300k-row sample, so their diagnosis could not be learned.
+            return np.array([
+                power_frac > 0.75,                          # EGT
+                (power_frac > 0.60) and (airspeed < 42.0),  # CHT: working hard with poor airflow
+                rpm_frac > 0.90,                            # OilPressure
+                power_frac > 0.75,                          # OilTemp
+                rpm_frac > 0.85,                            # VibX
+                rpm_frac > 0.85,                            # VibY
+                rpm_frac > 0.85,                            # VibZ
+                False,                                      # RPM (no physical condition)
+            ], dtype=bool), rpm_frac, power_frac, cooling
         return np.array([
             power_frac > 0.85,                          # EGT
             (power_frac > 0.70) and (cooling < 0.6),    # CHT
@@ -610,9 +665,11 @@ class UAVEngineTwin:
                 self.stress[i] = max(0.0, self.stress[i] - self.DECAY_RATE*dt)
 
         # Rare independent RPM sensor glitch - electrical noise (Spike) or a stuck
-        # connector/sender unit (Stuck-At), 50/50, since both are real failure modes
-        # for this channel and neither is condition-driven.
-        if not self._auto_active[7] and np.random.rand() < 0.001*dt*100:
+        # connector/sender unit (Stuck-At), since both are real failure modes for this
+        # channel and neither is condition-driven.
+        if self.physics_version == "v3":
+            self._rpm_glitch_step_v3(dt)
+        elif not self._auto_active[7] and np.random.rand() < 0.001*dt*100:
             self._auto_active[7] = True
             glitch_is_stuck = np.random.rand() < 0.5
             self.fault_type[7] = 4 if glitch_is_stuck else 3   # Stuck-At or Spike
@@ -622,6 +679,10 @@ class UAVEngineTwin:
         elif self._auto_active[7] and self.t > self.fault_start[7] + self.fault_duration[7]:
             self._auto_active[7] = False
             self.fault_type[7] = 0
+
+        if self.physics_version == "v3":
+            self._stress_faults_step_v3()
+            return
 
         # Channel-specific type + severity, scaled continuously by current stress
         auto_type = [2, 1, 2, 1, 5, 5, 5]       # Drift,Bias,Drift,Bias,Noise,Noise,Noise
@@ -644,6 +705,65 @@ class UAVEngineTwin:
                 self.fault_type[i] = 0
             if self._auto_active[i]:
                 self.severity[i] = sev(i)
+
+    # ---- physics v3 sensor faults -------------------------------------------------
+    # Measured on a v3 sample before this change:
+    #  - every channel only ever got ONE fault type (EGT always Drift, vibration always
+    #    Noise, ...), so fault-type diagnosis was structurally uninformative;
+    #  - the RPM glitch was active in 24% of rows, a Spike showed on a single 1 s sample,
+    #    and glitched readings deviated by a median 26 rpm against 33 rpm of normal
+    #    noise, so the RPM diagnosis learned nothing on any engine.
+    # Stuck-At is kept off the stress-driven channels: temperatures and pressure sit at a
+    # steady value for long stretches, so a frozen reading would be invisible - label noise.
+    V3_FAULT_POOL = {
+        0: (1, 2, 5),      # EGT: Bias, Drift, Noise
+        1: (1, 2, 5),      # CHT
+        2: (1, 2),         # oil pressure: Bias, Drift
+        3: (1, 2),         # oil temp
+        4: (5, 1, 3),      # vib x: Noise, Bias, Spike
+        5: (5, 1, 3),      # vib y
+        6: (5, 1, 3),      # vib z
+    }
+    RPM_GLITCH_RATE_V3 = 0.0015        # onsets per second -> active ~3% of the time
+
+    def _v3_severity(self, i, ft, s):
+        """Visible, stress-scaled magnitude for fault type ft on channel i (stress s 0..1).
+        Bias: offset. Drift: rate per second (capped by DRIFT_CAP_FRAC). Noise: std dev.
+        Spike: jump size (applied intermittently in _inject_faults)."""
+        if i == 0:   # EGT, C
+            return {1: 40.0 + 100.0*s, 2: 0.5 + 3.0*s, 5: 10.0 + 30.0*s}[ft]
+        if i == 1:   # CHT, C
+            return {1: 20.0 + 80.0*s, 2: 0.2 + 1.0*s, 5: 5.0 + 15.0*s}[ft]
+        if i == 2:   # oil pressure, dropping
+            return {1: -(10.0 + 30.0*s), 2: -(0.05 + 0.30*s)}[ft]
+        if i == 3:   # oil temp, C
+            return {1: 10.0 + 30.0*s, 2: 0.1 + 0.5*s}[ft]
+        return {5: 0.01 + 0.05*s, 1: 0.03 + 0.10*s, 3: 0.20 + 0.30*s}[ft]   # vibration, g
+
+    def _stress_faults_step_v3(self):
+        for i in range(7):
+            if not self._auto_active[i] and self.stress[i] > self.TRIGGER_THRESHOLD:
+                self._auto_active[i] = True
+                self.fault_type[i] = float(np.random.choice(self.V3_FAULT_POOL[i]))
+                self.fault_start[i] = self.t
+                self.fault_duration[i] = 1e9  # stays on while condition persists
+            elif self._auto_active[i] and self.stress[i] < self.CLEAR_THRESHOLD:
+                self._auto_active[i] = False
+                self.fault_type[i] = 0
+            if self._auto_active[i]:
+                self.severity[i] = self._v3_severity(i, int(self.fault_type[i]), self.stress[i])
+
+    def _rpm_glitch_step_v3(self, dt):
+        if not self._auto_active[7] and np.random.rand() < self.RPM_GLITCH_RATE_V3 * dt:
+            self._auto_active[7] = True
+            stuck = np.random.rand() < 0.3
+            self.fault_type[7] = 4 if stuck else 3
+            self.severity[7] = 40.0                        # spike size: severity*10 rpm
+            self.fault_start[7] = self.t
+            self.fault_duration[7] = float(np.random.uniform(20.0, 60.0) if stuck else np.random.uniform(3.0, 8.0))
+        elif self._auto_active[7] and self.t > self.fault_start[7] + self.fault_duration[7]:
+            self._auto_active[7] = False
+            self.fault_type[7] = 0
 
     def _update_wear(self, dt, engine_rpm, power_kw):
         """Irreversible wear accumulation. Uses CONTINUOUS operating severity (not the
@@ -683,7 +803,12 @@ class UAVEngineTwin:
                     disp = float(np.clip(disp, -cap, cap))
                 faulty[i] = healthy[i] + disp
             elif ft == 3:
-                if (t - self.fault_start[i]) % 5 < 0.1:
+                if self.physics_version == "v3":
+                    # v3: repeated jumps on about half the samples for the whole fault,
+                    # both directions, so a spike is visible at any sampling rate.
+                    if np.random.rand() < 0.5:
+                        faulty[i] = healthy[i] + sev*10*(1.0 if np.random.rand() < 0.5 else -1.0)
+                elif (t - self.fault_start[i]) % 5 < 0.1:
                     faulty[i] = healthy[i] + sev*10
             elif ft == 4:
                 faulty[i] = self._stuck_vals[i]

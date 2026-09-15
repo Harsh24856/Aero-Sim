@@ -5,6 +5,8 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, FileText } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { modelVersionOf } from "@/lib/timeScale";
+import ModelBadge from "@/components/ModelBadge";
 import Navbar from "@/components/Navbar";
 import MissionReplay, { type ReplayRow } from "@/components/MissionReplay";
 
@@ -19,6 +21,7 @@ type SimMeta = {
   started_at: string;
   ended_at: string | null;
   outcome: string | null;
+  model_version: string | null;
 };
 
 export default function MissionReplayPage() {
@@ -41,7 +44,7 @@ export default function MissionReplayPage() {
       // on, "exists but not yours" and "does not exist" should look identical.
       const { data: simRow, error } = await supabase
         .from("simulations")
-        .select("id, engine_model, started_at, ended_at, outcome")
+        .select("id, engine_model, started_at, ended_at, outcome, model_version")
         .eq("id", id)
         .single();
       if (cancelled) return;
@@ -81,6 +84,7 @@ export default function MissionReplayPage() {
                 <div>
                   <h1 className="font-headline-display text-[26px] md:text-[32px] font-bold text-primary uppercase tracking-tight">
                     {sim.engine_model.replace(/_/g, " ")}
+                    <ModelBadge version={modelVersionOf(sim)} />
                     <span className="ml-3 text-[12px] font-mono text-tertiary/70 align-middle">ID #{sim.id}</span>
                   </h1>
                   <div className="text-[12px] text-on-surface-variant mt-1">
@@ -97,7 +101,7 @@ export default function MissionReplayPage() {
                 </Link>
               </header>
 
-              <MissionReplay rows={rows} />
+              <MissionReplay rows={rows} modelVersion={modelVersionOf(sim)} />
             </>
           )}
         </div>

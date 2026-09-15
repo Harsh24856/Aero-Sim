@@ -318,6 +318,25 @@ curl -X POST http://localhost:8000/params \
 curl http://localhost:8100/health   # backend_validated must be true
 ```
 
+#### Physics v3 stack (opt-in)
+
+v3 models (`backend/models_v3/`, RUL in real engine hours, engine failure modes) are served by
+`backend/aiv3.py` with the same endpoints. Run **either** `ai.py` **or** `aiv3.py` - both bind 8100 -
+and start the physics backend with the matching version:
+
+```bash
+# AI service, v3 (from backend/, validated Metal environment)
+cd backend && ../validation/venv/bin/uvicorn aiv3:app --host 127.0.0.1 --port 8100
+
+# Physics backend, v3 (from backend/)
+AERO_PHYSICS_VERSION=v3 uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+`GET /state` on port 8000 reports `physics_version` and `ai_model_version`; they must match.
+v3 responses carry `model_version`, `rul_hours` / `tbo_hours` (engine hours) and `failure_modes`,
+and have no `rul_hours_internal`. v3 runs persist through `backend/dbv3.py`; the database has no
+`model_version` column yet, so do not run v3 against production data.
+
 ---
 
 ## Validation and Training

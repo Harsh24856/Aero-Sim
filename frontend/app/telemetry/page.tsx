@@ -6,7 +6,8 @@ import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import { supabase } from "@/lib/supabase";
 import { ChevronRight, TrendingUp, Activity, ListChecks } from "lucide-react";
-import { simRulHoursToPercent } from "@/lib/timeScale";
+import { modelVersionOf, rulPercentOf, tboHoursOf } from "@/lib/timeScale";
+import ModelBadge from "@/components/ModelBadge";
 
 type SimulationRow = {
   id: number;
@@ -17,6 +18,8 @@ type SimulationRow = {
   final_health_percent: number | null;
   final_rul_hours: number | null;
   final_telemetry: Record<string, unknown> | null;
+  model_version: string | null;
+  tbo_hours: number | null;
 };
 
 function outcomeBadgeClass(outcome: string | null): string {
@@ -46,7 +49,7 @@ export default function TelemetryListPage() {
       // an explicit .eq("user_id", ...) filter, the policy enforces it either way.
       const { data, error } = await supabase
         .from("simulations")
-        .select("id, engine_model, started_at, ended_at, outcome, final_health_percent, final_rul_hours, final_telemetry")
+        .select("id, engine_model, started_at, ended_at, outcome, final_health_percent, final_rul_hours, final_telemetry, model_version, tbo_hours")
         .order("started_at", { ascending: false });
       if (!cancelled) {
         if (!error && data) setSimulations(data);
@@ -72,7 +75,8 @@ export default function TelemetryListPage() {
   })();
   const bestRulPercent = simulations.reduce<number | null>((best, s) => {
     if (s.final_rul_hours == null) return best;
-    const pct = simRulHoursToPercent(s.final_rul_hours, typeof s.final_telemetry?.time === "number" ? s.final_telemetry.time : undefined);
+    const pct = rulPercentOf(s.final_rul_hours, modelVersionOf(s), typeof s.final_telemetry?.time === "number" ? s.final_telemetry.time : undefined, tboHoursOf(s));
+    if (pct == null) return best;
     return best == null ? pct : Math.max(best, pct);
   }, null);
 
@@ -137,7 +141,7 @@ export default function TelemetryListPage() {
               </div>
               {simulations.map((sim) => {
                 const rulPct = sim.final_rul_hours != null
-                  ? Math.min(100, simRulHoursToPercent(sim.final_rul_hours, typeof sim.final_telemetry?.time === "number" ? sim.final_telemetry.time : undefined))
+                  ? rulPercentOf(sim.final_rul_hours, modelVersionOf(sim), typeof sim.final_telemetry?.time === "number" ? sim.final_telemetry.time : undefined, tboHoursOf(sim))
                   : null;
                 return (
                   <Link
@@ -146,7 +150,7 @@ export default function TelemetryListPage() {
                     className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-4 items-center px-4 py-3.5 border-b border-outline-variant/20 last:border-b-0 hover:bg-surface-container-highest/40 transition-colors"
                   >
                     <div>
-                      <div className="text-[13px] text-primary font-medium">{sim.engine_model.replace(/_/g, " ")}</div>
+                      <div className="text-[13px] text-primary font-medium">{sim.engine_model.replace(/_/g, " ")}<ModelBadge version={modelVersionOf(sim)} /></div>
                       <div className="text-[11px] text-on-surface-variant">{new Date(sim.started_at).toLocaleString()}</div>
                     </div>
                     <span className={`w-24 justify-self-end text-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.05em] ${outcomeBadgeClass(sim.outcome)}`}>

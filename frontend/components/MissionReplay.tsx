@@ -6,7 +6,7 @@ import {
   ResponsiveContainer, ReferenceLine,
 } from "recharts";
 import { Play, Pause, SkipBack, SkipForward, AlertTriangle } from "lucide-react";
-import { simSecondsToRealHours } from "@/lib/timeScale";
+import { flightHours, formatSimClock, type ModelVersion } from "@/lib/timeScale";
 import { formatAirspeed, formatAirspeedSecondary, formatAltitude, formatAltitudeFeet } from "@/lib/units";
 
 /**
@@ -56,7 +56,7 @@ function fmt(v: number | null | undefined, digits = 1, suffix = ""): string {
   return `${v.toFixed(digits)}${suffix}`;
 }
 
-export default function MissionReplay({ rows }: { rows: ReplayRow[] }) {
+export default function MissionReplay({ rows, modelVersion = "v2" }: { rows: ReplayRow[]; modelVersion?: ModelVersion }) {
   const [idx, setIdx] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
@@ -188,7 +188,11 @@ export default function MissionReplay({ rows }: { rows: ReplayRow[] }) {
           <span className="text-primary">
             T+{cur.time_offset_s.toFixed(0)}s
             <span className="text-on-surface-variant ml-2">
-              ({simSecondsToRealHours(cur.time_offset_s).toFixed(2)} h real)
+              {/* v3 replay rows carry no wear, so show the simulated clock rather than
+                  pretending seconds are engine hours. */}
+              {modelVersion === "v3"
+                ? `(sim ${formatSimClock(cur.time_offset_s)})`
+                : `(${flightHours(cur.time_offset_s, modelVersion).toFixed(2)} h real)`}
             </span>
           </span>
           <span className="text-on-surface-variant">

@@ -1,7 +1,7 @@
 import { AlertTriangle, CheckCircle2, FileText, Wrench } from "lucide-react";
-import { simSecondsToRealHours } from "@/lib/timeScale";
+import { flightHours, formatSimClock } from "@/lib/timeScale";
 
-export type AiDiagnosisChannel = { fault_type: string; confidence: number };
+export type AiDiagnosisChannel = { fault_type: string; confidence: number; reliable?: boolean };
 export type AiResult = {
   status: string;
   fault_detected?: boolean;
@@ -12,6 +12,11 @@ export type AiResult = {
   health_percent?: number;
   rul_percent_remaining?: number;
   rul_hours_internal?: number;
+  // physics v3 (backend/aiv3.py): RUL in real engine hours, plus engine failure modes
+  model_version?: string;
+  rul_hours?: number;
+  tbo_hours?: number;
+  failure_modes?: Record<string, { severity_percent: number; present: boolean; threshold?: number }>;
   steps_collected?: number;
   steps_needed?: number;
 };
@@ -34,9 +39,41 @@ export type Advisory = {
   items?: AdvisoryItem[];
 };
 
+// Mirrors backend/residual.py ResidualMonitor.update(). Model-free physics
+// residuals - present only on physics v3, and available while the AI warms up.
+export type ResidualChannel = {
+  label: string; unit: string; measured: number; expected: number;
+  residual: number; z: number; status: string; signature: string | null;
+};
+export type Residuals = {
+  enabled: boolean;
+  degradation_index?: number;
+  deviations?: string[];
+  saturated?: string[];
+  channels?: Record<string, ResidualChannel>;
+};
+
+// Safety net (backend/main.py sim_status and the page's WebSocket watchdog).
+export type LinkState = "connecting" | "open" | "stale" | "lost";
+export type SimStatus = {
+  health: "idle" | "running" | "recovered" | "halted";
+  recoveries: number;
+  last_error: string | null;
+  ai: "ok" | "warming_up" | "unavailable" | "unsupported" | "pending";
+  ai_breaker: "closed" | "open" | "half_open";
+  loop_lag_ms: number;
+};
+
 export type DiagnosticsProps = {
   ai?: AiResult | null;
   advisory?: Advisory | null;
+  residuals?: Residuals | null;
+  // physics_version from the live telemetry. Decides the flight-time scale even
+  // when the AI service is down and there is no ai.model_version to read.
+  physicsVersion?: string;
+  link?: LinkState;            // only passed while a flight is running
+  engineHours?: number | null; // v3: engine hour meter (wear x TBO)
+  simStatus?: SimStatus | null;
   simSeconds?: number;   // live elapsed simulated flight time (rawTelemetry.time)
 };
 
@@ -65,7 +102,9 @@ const AI_CHANNELS = [
 // were removed since Sensr's "All Sensors" list already shows the real
 // telemetry, and this panel's actual job is the AI's diagnosis, not duplicating
 // raw sensor readouts.
-export default function Diagnostics({ ai = null, advisory = null, simSeconds }: DiagnosticsProps) {
+export default function Diagnostics({ ai = null, advisory = null, residuals = null, physicsVersion, link, engineHours, simStatus = null, simSeconds }: DiagnosticsProps) {
+  const v3 = ai?.model_version === "v3" || physicsVersion === "v3";
+  const labelOf = (c: string) => residuals?.channels?.[c]?.label ?? c;
   return (
     <aside className="panel-shell flex h-full min-h-0 flex-col overflow-hidden p-2.5 md:p-3.5">
       <h2 className="panel-heading flex items-center justify-between">
@@ -78,12 +117,47 @@ export default function Diagnostics({ ai = null, advisory = null, simSeconds }: 
           instead of a static value only visible after stopping. */}
       {simSeconds !== undefined && (
         <div className="mt-2 flex items-center justify-between border border-[#352722] bg-[#0d0e0d] px-2 py-1.5 text-[8px] uppercase tracking-[0.1em] text-[#bca18e] md:text-[9px]">
-          <span>Flight Time (real-world eq.)</span>
-          <span className="font-mono text-[#efe0d5]">{simSecondsToRealHours(simSeconds).toFixed(2)}h</span>
+          {v3 ? (
+            <>
+              {/* v3: engine hours are the clock RUL counts down on; the simulated
+                  clock is shown beside them for reference. */}
+              <span title="Engine hour meter: hours on this engine (wear x TBO), the same clock RUL counts down on. Wear is time-compressed in the simulation.">Engine Hours</span>
+              <span className="text-right font-mono text-[#efe0d5]">
+                {engineHours != null ? `${engineHours.toFixed(1)}h` : "--"}
+                <span className="ml-1.5 text-[#aa8f7f]">sim {formatSimClock(simSeconds)}</span>
+              </span>
+            </>
+          ) : (
+            <>
+              <span>Flight Time (real-world eq.)</span>
+              <span className="font-mono text-[#efe0d5]">{flightHours(simSeconds, "v2").toFixed(2)}h</span>
+            </>
+          )}
         </div>
       )}
 
       <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+        {(link === "lost" || link === "stale") && (
+          <div role="status" className="border border-[#84432c] bg-[#21130f] p-2 text-[8px] text-[#ff9a72] md:text-[9px]">
+            {link === "lost"
+              ? "Connection to the simulator lost - reconnecting automatically..."
+              : "No telemetry for a few seconds - waiting for the simulator..."}
+          </div>
+        )}
+
+        {simStatus?.health === "halted" && (
+          <div role="alert" className="border border-[#84432c] bg-[#21130f] p-2 text-[8px] text-[#ff9a72] md:text-[9px]">
+            Simulation halted safely after repeated physics faults. Press Start to continue from the last good state.
+            {simStatus.last_error && <div className="mt-1 text-[#aa8f7f]">{simStatus.last_error}</div>}
+          </div>
+        )}
+
+        {simStatus?.health === "recovered" && (
+          <div role="status" className="border border-[#84642c] bg-[#1c1710] p-2 text-[8px] text-[#ffd27a] md:text-[9px]">
+            Physics fault recovered automatically - the flight continued from the last good state.
+          </div>
+        )}
+
         {!ai && (
           <div className="border border-[#352722] bg-[#0d0e0d] p-2 text-[8px] text-[#aa8f7f] md:text-[9px]">
             Waiting for AI service...
@@ -101,10 +175,31 @@ export default function Diagnostics({ ai = null, advisory = null, simSeconds }: 
           </div>
         )}
 
+        {ai?.status === "ai_unsupported_engine" && (
+          <div className="border border-[#4c3025] bg-[#14100d] p-2 text-[8px] text-[#e8c9a0] md:text-[9px]">
+            No AI model for this engine on physics v3 yet. Physics, residuals and the advisory keep working.
+          </div>
+        )}
+
         {ai?.status === "ai_service_unavailable" && (
           <div className="border border-[#84432c] bg-[#21130f] p-2 text-[8px] text-[#ff9a72] md:text-[9px]">
-            AI service unavailable
+            AI service unavailable{simStatus?.ai_breaker && simStatus.ai_breaker !== "closed" ? " - retrying automatically" : ""}. The simulation keeps running.
           </div>
+        )}
+
+        {residuals?.enabled && (
+          <article className="border border-[#352722] bg-[#0d0e0d] p-2">
+            <div className="flex items-center justify-between text-[7px] uppercase tracking-[0.11em] text-[#bca18e] md:text-[9px]">
+              <span>Physics Residuals</span>
+              <span className="font-mono text-[#efe0d5]">wear idx {(residuals.degradation_index ?? 0).toFixed(2)}</span>
+            </div>
+            <div className={`mt-1 text-[8px] md:text-[9px] ${(residuals.deviations?.length ?? 0) > 0 ? "text-[#ff9a72]" : "text-[#7fc87f]"}`}>
+              {(residuals.deviations?.length ?? 0) > 0
+                ? `Disagrees with physics: ${(residuals.deviations ?? []).map(labelOf).join(", ")}`
+                : "All sensors agree with physics"}
+              {(residuals.saturated?.length ?? 0) > 0 && ` · at range limit: ${(residuals.saturated ?? []).map(labelOf).join(", ")}`}
+            </div>
+          </article>
         )}
 
         {ai?.status === "ok" && (
@@ -140,8 +235,29 @@ export default function Diagnostics({ ai = null, advisory = null, simSeconds }: 
                 <strong className="text-[11px] font-normal text-[#efe0d5] md:text-[14px]">
                   {(ai.rul_percent_remaining ?? 0).toFixed(1)}%
                 </strong>
+                {v3 && ai.rul_hours != null && (
+                  <div className="mt-0.5 text-[7px] uppercase tracking-[0.1em] text-[#aa8f7f] md:text-[8px]">
+                    {Math.round(ai.rul_hours).toLocaleString()} engine h{ai.tbo_hours ? ` of ${ai.tbo_hours.toLocaleString()} TBO` : ""}
+                  </div>
+                )}
               </article>
             </div>
+
+            {v3 && ai.failure_modes && (
+              <article className="border border-[#352722] bg-[#0d0e0d] p-2">
+                <div className="text-[7px] uppercase tracking-[0.11em] text-[#bca18e] md:text-[9px]">Engine Failure Modes</div>
+                <div className="mt-1 grid grid-cols-2 gap-x-2 gap-y-0.5">
+                  {Object.entries(ai.failure_modes).map(([mode, fm]) => (
+                    <div key={mode} className="flex items-center justify-between gap-1 text-[8px] md:text-[9px]">
+                      <span className={`capitalize ${fm.present ? "text-[#ff9a72]" : "text-[#aa8f7f]"}`}>{mode.replace(/_/g, " ")}</span>
+                      <span className={fm.present ? "text-[#ff9a72]" : "text-[#7fc87f]"}>
+                        {fm.present ? `${Math.round(fm.severity_percent)}%` : "OK"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </article>
+            )}
 
             {advisory && !advisory.insufficient_data && (
               <article className={`border p-2 ${ADVISORY_STYLE[advisory.severity].box}`}>
@@ -176,7 +292,13 @@ export default function Diagnostics({ ai = null, advisory = null, simSeconds }: 
               {AI_CHANNELS.map((ch) => {
                 const faultType = ai.diagnosis?.[ch.key]?.fault_type ?? "none";
                 const pct = Math.round(ai.severity_percent?.[ch.key] ?? 0);
-                const active = faultType !== "none";
+                // reliable === false: this engine's model was measured no better than chance
+                // on this channel, so its call is not shown as a fault.
+                const uncalibrated = ai.diagnosis?.[ch.key]?.reliable === false;
+                // v3: a call below the 70% confidence floor (the same one the health cap and the
+                // advisory use) is not a fault. v2 display is left exactly as it was.
+                const confident = !v3 || (ai.diagnosis?.[ch.key]?.confidence ?? 0) >= 0.7;
+                const active = faultType !== "none" && !uncalibrated && confident;
                 return (
                   <article key={ch.key} className={`border p-1.5 ${active ? "border-[#84432c] bg-[#21130f]" : "border-[#352722] bg-[#0d0e0d]"}`}>
                     <div className="flex items-center justify-between text-[7px] uppercase tracking-[0.1em] text-[#bca18e] md:text-[8px]">
@@ -184,7 +306,7 @@ export default function Diagnostics({ ai = null, advisory = null, simSeconds }: 
                       <span>{pct}%</span>
                     </div>
                     <div className={`mt-0.5 text-[9px] font-normal md:text-[10px] ${active ? "text-[#ff9a72]" : "text-[#7fc87f]"}`}>
-                      {active ? faultType : "OK"}
+                      {uncalibrated ? <span className="text-[#aa8f7f]" title="This engine's model is not reliable on this channel">Uncalibrated</span> : active ? faultType : "OK"}
                     </div>
                   </article>
                 );
