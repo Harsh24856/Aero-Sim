@@ -322,5 +322,11 @@
         "positive_rate": 0.0523
       }
     }
+  },
+  "rul_test": {
+    "mae_hours": 13.64,
+    "mae_pct_tbo": 0.682,
+    "corr": 0.9991,
+    "source": "validation/models/phase5_rul_916_test.json"
   }
 }

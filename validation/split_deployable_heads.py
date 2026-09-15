@@ -116,6 +116,13 @@ def export_engine(engine):
     shutil.copy2(C.scaler_path(engine), scaler_dst)
     manifest["scaler"] = {"file": os.path.basename(scaler_dst), "sha256": sha256(scaler_dst),
                           "fit_on": "train split only, over contract.feature_cols"}
+    rul_metrics = manifest["heads"].get("rul", {}).get("test_metrics") or {}
+    if "mae_hours" in rul_metrics:
+        # aiv3.py serves this as the RUL uncertainty band (rul_mae_hours).
+        manifest["rul_test"] = {"mae_hours": round(rul_metrics["mae_hours"], 2),
+                                "mae_pct_tbo": round(rul_metrics.get("mae_pct_tbo", float("nan")), 3),
+                                "corr": round(rul_metrics.get("corr", float("nan")), 4),
+                                "source": f"validation/models/phase5_rul_{key}_test.json"}
     with open(os.path.join(out_dir, "manifest.json"), "w") as f:
         json.dump(manifest, f, indent=2)
     print(f"  {key}: wrote {out_dir}")

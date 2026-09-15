@@ -154,7 +154,7 @@ def build_advisory(ai_result: Optional[dict], telemetry: Optional[dict],
     if not ai_ok:
         # Warming up, AI offline, or no result yet. Physics residuals need no model,
         # so they still speak; otherwise say "no data" plainly - it is not "nominal".
-        items = _residual_items(residuals, {}, set(), ai_available=False)
+        items = _residual_items(residuals, {}, {}, ai_available=False)
         if not items:
             return {
                 "severity": "nominal",
@@ -206,14 +206,15 @@ def build_advisory(ai_result: Optional[dict], telemetry: Optional[dict],
         channel_items[ch] = item
 
     # ---- engine failure modes (v3) -----------------------------------------
-    explained: set[str] = set()
+    explained: dict[str, list[str]] = {}    # channel -> active failure modes that move it
     for mode, fm in ((ai_result or {}).get("failure_modes") or {}).items():
         advice = FAILURE_MODE_ADVICE.get(mode)
         if advice is None or not isinstance(fm, dict) or not fm.get("present"):
             continue
         sev = _f(fm, "severity_percent") or 0.0
         level = "warning" if sev >= FM_WARNING else "caution" if sev >= FM_CAUTION else "advisory"
-        explained |= advice["channels"]
+        for ch in advice["channels"]:
+            explained.setdefault(ch, []).append(mode)
         items.append({
             "code": f"FM_{mode.upper()}",
             "channel": None,
@@ -287,19 +288,22 @@ def _fmt(value: float, unit: str, signed: bool = False) -> str:
     return f"{value:{'+' if signed else ''}.{places}f} {unit}".rstrip()
 
 
-def _residual_items(residuals: Optional[dict], channel_items: dict, explained: set,
+def _residual_items(residuals: Optional[dict], channel_items: dict, explained: dict,
                     ai_available: bool = True) -> list[dict[str, Any]]:
     """Physics-residual deviations and the residual-implied degradation index.
 
     A deviation on a channel the AI already flagged is appended to that item as
     independent corroboration. A deviation on a channel an active failure mode
-    physically moves is left to the failure-mode item. Anything else is the
-    sensor-drift case: physics and the other channels disagree with this one.
+    physically moves is left to the failure-mode item - unless it is the ONLY one of
+    that mode's channels disagreeing with physics with a sensor-like signature, where a
+    single drifting sender can mimic the engine fault. Anything else is the sensor-drift
+    case: physics and the other channels disagree with this one.
     """
     out: list[dict[str, Any]] = []
     if not isinstance(residuals, dict) or not residuals.get("enabled"):
         return out
     channels = residuals.get("channels") or {}
+    deviating = set(residuals.get("deviations") or []) - {"rpm"}
     for ch in residuals.get("deviations") or []:
         if ch == "rpm":
             # The physics glitches the RPM sender ~10% of seconds (brief Spike /
@@ -320,6 +324,19 @@ def _residual_items(residuals: Optional[dict], channel_items: dict, explained: s
             channel_items[ch]["message"] += f" Physics residual agrees: {what}."
             continue
         if ch in explained:
+            modes = explained[ch]
+            others = set().union(*(FAILURE_MODE_ADVICE[m]["channels"] for m in modes)) - {ch, "rpm"}
+            if sig in ("bias", "drift", "stuck") and not (others & deviating):
+                names = " / ".join(FAILURE_MODE_ADVICE[m]["name"] for m in modes)
+                out.append({
+                    "code": f"RES_{ch.upper()}_SENSOR_SUSPECT",
+                    "channel": ch,
+                    "subsystem": "Sensor integrity",
+                    "severity": "caution",
+                    "message": (f"The AI indicates {names}, but only {label} disagrees with physics ({what}); "
+                                f"a faulty {label} sensor can mimic it."),
+                    "action": f"Verify the {label} sensor against a reference before engine work. " + _sensor_action(label, sig),
+                })
             continue
         subsystem = CHANNEL_MEANING.get(ch, ("Sensors", ""))[0]
         level = "warning" if abs(z) >= RESIDUAL_WARNING_Z else "caution"

@@ -169,6 +169,23 @@ What this shows:
 - An engine whose thermal behaviour differs from the twin's (v2 plant) breaks both layers - as it should:
   a new engine type needs the physics recalibrated before the twin can judge it.
 
+**Follow-ups from the mismatch evaluation (2026-09-15):**
+
+- *Sensor-vs-engine attribution (shipped).* `advisory.py` now raises `RES_<CH>_SENSOR_SUSPECT` when the AI
+  reports a failure mode but only one of that mode's channels disagrees with physics with a bias, drift or stuck
+  signature: "The AI indicates cooling degradation, but only CHT disagrees with physics; a faulty CHT sensor can
+  mimic it." When the mode's channels move together (a real cooling fault moves CHT and oil temperature) the
+  item is not raised.
+- *RUL uncertainty band (shipped).* `aiv3.py` returns `rul_mae_hours` from each manifest's `rul_test` block (the
+  held-out test MAE: 912 ±15 h, 914 ±23 h, 915 ±7 h, 916 ±14 h) and the cockpit shows "1,886 ±23 engine h".
+  Live flights measured 2-6% of TBO, so the band is the model's test accuracy, not a live guarantee.
+- *Residual wear voting (investigated, not changed).* Three designs that stop temperature calibration offsets
+  from moving the wear index were scored on the regenerated data. All fixed the calibration cascade in the
+  mismatch test (wear index 0.012 vs true 0.020, only the offset channels flagged) but broke wear tracking on
+  real flight data, where oil-pressure and vibration faults are common: false alarms rose from 0-0.05% to
+  24-45% and the index correlation fell from 0.999 to 0.73-0.80. The original voting stays; calibration offsets
+  on temperature senders remain a known limitation, mitigated by the sensor-suspect attribution above.
+
 ## Physics residuals (model-free)
 
 `backend/residual.py`. Expected values reproduce the dataset's clean sensor values to p99 errors of

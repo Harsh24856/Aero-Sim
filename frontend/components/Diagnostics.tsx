@@ -15,6 +15,7 @@ export type AiResult = {
   // physics v3 (backend/aiv3.py): RUL in real engine hours, plus engine failure modes
   model_version?: string;
   rul_hours?: number;
+  rul_mae_hours?: number | null;   // test-split mean absolute error, the RUL uncertainty band
   tbo_hours?: number;
   failure_modes?: Record<string, { severity_percent: number; present: boolean; threshold?: number }>;
   steps_collected?: number;
@@ -256,8 +257,12 @@ export default function Diagnostics({ ai = null, advisory = null, residuals = nu
                   {(ai.rul_percent_remaining ?? 0).toFixed(1)}%
                 </strong>
                 {v3 && ai.rul_hours != null && (
-                  <div className="mt-0.5 text-[7px] uppercase tracking-[0.1em] text-[#aa8f7f] md:text-[8px]">
-                    {Math.round(ai.rul_hours).toLocaleString()} engine h{ai.tbo_hours ? ` of ${ai.tbo_hours.toLocaleString()} TBO` : ""}
+                  <div
+                    className="mt-0.5 text-[7px] uppercase tracking-[0.1em] text-[#aa8f7f] md:text-[8px]"
+                    title={ai.rul_mae_hours != null ? `Uncertainty band: mean absolute error on the held-out test split (${Math.round(ai.rul_mae_hours)} h). Live flights have measured 2-6% of TBO.` : undefined}
+                  >
+                    {Math.round(ai.rul_hours).toLocaleString()}
+                    {ai.rul_mae_hours != null ? ` ±${Math.round(ai.rul_mae_hours)}` : ""} engine h{ai.tbo_hours ? ` of ${ai.tbo_hours.toLocaleString()} TBO` : ""}
                   </div>
                 )}
               </article>
