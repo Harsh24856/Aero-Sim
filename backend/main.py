@@ -8,6 +8,7 @@ stops until POST /stop is called. Live telemetry streams over WebSocket at ~20Hz
 import asyncio
 import importlib
 import json
+import math
 import os
 import time
 import traceback
@@ -97,6 +98,7 @@ def reset_residuals():
     state["residuals"] = None
     state["measured"] = {}
     state["measured_at"] = None
+    reset_rul_filter()
 
 
 # Measured sensors from the aircraft (can_ingest.py -> POST /measured). While fresh they
@@ -203,6 +205,7 @@ state = {
     "measured_at": None,       # monotonic time of the last accepted /measured
     "measured_posts": 0,
     "last_data_source": "sim", # a switch sim <-> can restarts the AI window and residuals
+    "rul_filter": {"ema": None, "shown": None, "t": None, "wear": None},   # see smooth_rul
     "ai_samples_dropped": 0,
     "db_pending": 0,
     "db_skipped": 0,
@@ -304,6 +307,45 @@ def hold_alerts_outside_envelope(sample: dict, result: dict) -> dict:
     return held
 
 
+# Remaining life can only fall - hours accumulate and nothing repairs the engine in flight -
+# but the RUL head answers each 128 s window afresh, and its sample-to-sample jitter (a few
+# hours) is larger than the real decrease over a minute, so the raw value wanders upward.
+# What the cockpit, advisory and database see is smoothed and never rises within a flight:
+#     shown = min(previous shown - engine hours consumed since, EMA of the model's RUL)
+# The model's own value stays in rul_hours_raw. Reset on a new flight, engine or data source.
+RUL_SMOOTH_S = 60.0
+
+
+def reset_rul_filter():
+    state["rul_filter"] = {"ema": None, "shown": None, "t": None, "wear": None}
+
+
+def smooth_rul(sample: dict, result: dict) -> dict:
+    if result.get("status") != "ok" or not isinstance(result.get("rul_hours"), (int, float)):
+        return result
+    f = state["rul_filter"]
+    t, wear, tbo = sample.get("time"), sample.get("wear"), result.get("tbo_hours")
+    raw = float(result["rul_hours"])
+    if f["t"] is not None and isinstance(t, (int, float)) and t < f["t"]:
+        reset_rul_filter()                       # clock restarted: a new flight
+        f = state["rul_filter"]
+    if f["ema"] is None:
+        f["ema"] = f["shown"] = raw
+    else:
+        dt = max(0.0, float(t) - f["t"]) if isinstance(t, (int, float)) and f["t"] is not None else 1.0
+        f["ema"] += (1.0 - math.exp(-dt / RUL_SMOOTH_S)) * (raw - f["ema"])
+        consumed = (max(0.0, float(wear) - f["wear"]) * float(tbo)
+                    if isinstance(wear, (int, float)) and f["wear"] is not None and tbo else 0.0)
+        f["shown"] = min(f["shown"] - consumed, f["ema"])
+    f["shown"] = max(0.0, f["shown"])
+    f["t"] = t if isinstance(t, (int, float)) else f["t"]
+    f["wear"] = float(wear) if isinstance(wear, (int, float)) else f["wear"]
+    out = {**result, "rul_hours_raw": raw, "rul_hours": round(f["shown"], 3)}
+    if tbo:
+        out["rul_percent_remaining"] = round(max(0.0, min(100.0, 100.0 * f["shown"] / float(tbo))), 4)
+    return out
+
+
 async def ai_worker(queue: asyncio.Queue):
     """The ONLY sender of /step. One worker, one queue: samples reach the AI strictly in
     simulated-time order however slow it is, and the loop never awaits the network.
@@ -352,7 +394,7 @@ async def ai_worker(queue: asyncio.Queue):
                 if ai_breaker.state != "closed":
                     state["ai_resync"] = True
                     state["ai_reachable"] = False
-            state["last_ai_result"] = hold_alerts_outside_envelope(out, result)
+            state["last_ai_result"] = smooth_rul(out, hold_alerts_outside_envelope(out, result))
         except asyncio.CancelledError:
             raise
         except Exception as e:                      # never let the worker die
@@ -589,6 +631,7 @@ async def simulation_loop():
                     state["residuals"] = None
                     state["ai_resync"] = True
                     state["ai_warmed_up"] = False
+                    reset_rul_filter()
                 try:
                     state["residuals"] = residual_monitor.update(out, dt=1.0)
                 except Exception as e:
