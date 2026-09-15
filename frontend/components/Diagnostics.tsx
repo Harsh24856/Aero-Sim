@@ -54,6 +54,9 @@ export type Residuals = {
   deviations?: string[];
   saturated?: string[];
   channels?: Record<string, ResidualChannel>;
+  zeroing?: boolean;                    // sender-offset calibration in progress
+  samples_left?: number;
+  offsets?: Record<string, number>;     // applied sender offsets from zeroing
 };
 
 // Safety net (backend/main.py sim_status and the page's WebSocket watchdog).
@@ -79,6 +82,7 @@ export type DiagnosticsProps = {
   simStatus?: SimStatus | null;
   simSeconds?: number;   // live elapsed simulated flight time (rawTelemetry.time)
   dataSource?: string;   // "can" when sensors arrive from the aircraft over CAN (main.py /measured)
+  onZeroSensors?: () => void;   // POST /residuals/zero - only offered while a flight is running
 };
 
 // Cockpit palette per severity. Kept local to this file on purpose: the
@@ -106,7 +110,7 @@ const AI_CHANNELS = [
 // were removed since Sensr's "All Sensors" list already shows the real
 // telemetry, and this panel's actual job is the AI's diagnosis, not duplicating
 // raw sensor readouts.
-export default function Diagnostics({ ai = null, advisory = null, residuals = null, physicsVersion, link, engineHours, simStatus = null, simSeconds, dataSource }: DiagnosticsProps) {
+export default function Diagnostics({ ai = null, advisory = null, residuals = null, physicsVersion, link, engineHours, simStatus = null, simSeconds, dataSource, onZeroSensors }: DiagnosticsProps) {
   const v3 = ai?.model_version === "v3" || physicsVersion === "v3";
   const labelOf = (c: string) => residuals?.channels?.[c]?.label ?? c;
   return (
@@ -214,11 +218,34 @@ export default function Diagnostics({ ai = null, advisory = null, residuals = nu
               <span>Physics Residuals</span>
               <span className="font-mono text-[#efe0d5]">wear idx {(residuals.degradation_index ?? 0).toFixed(2)}</span>
             </div>
-            <div className={`mt-1 text-[8px] md:text-[9px] ${(residuals.deviations?.length ?? 0) > 0 ? "text-[#ff9a72]" : "text-[#7fc87f]"}`}>
-              {(residuals.deviations?.length ?? 0) > 0
-                ? `Disagrees with physics: ${(residuals.deviations ?? []).map(labelOf).join(", ")}`
-                : "All sensors agree with physics"}
-              {(residuals.saturated?.length ?? 0) > 0 && ` · at range limit: ${(residuals.saturated ?? []).map(labelOf).join(", ")}`}
+            {residuals.zeroing ? (
+              <div role="status" className="mt-1 text-[8px] text-[#ffd27a] md:text-[9px]">
+                Zeroing sensors - hold steady{residuals.samples_left != null ? ` (${residuals.samples_left} s)` : ""}
+              </div>
+            ) : (
+              <div className={`mt-1 text-[8px] md:text-[9px] ${(residuals.deviations?.length ?? 0) > 0 ? "text-[#ff9a72]" : "text-[#7fc87f]"}`}>
+                {(residuals.deviations?.length ?? 0) > 0
+                  ? `Disagrees with physics: ${(residuals.deviations ?? []).map(labelOf).join(", ")}`
+                  : "All sensors agree with physics"}
+                {(residuals.saturated?.length ?? 0) > 0 && ` · at range limit: ${(residuals.saturated ?? []).map(labelOf).join(", ")}`}
+              </div>
+            )}
+            <div className="mt-1 flex items-center justify-between gap-2 text-[7px] text-[#aa8f7f] md:text-[8px]">
+              <span title="Sender offsets measured on a known-healthy run and subtracted from every reading">
+                {residuals.offsets && Object.keys(residuals.offsets).length > 0
+                  ? `Offsets: ${Object.entries(residuals.offsets).map(([c, v]) => `${labelOf(c)} ${v > 0 ? "+" : ""}${v.toFixed(1)}`).join(", ")}`
+                  : "Sensors not zeroed"}
+              </span>
+              {onZeroSensors && !residuals.zeroing && (
+                <button
+                  type="button"
+                  onClick={onZeroSensors}
+                  title="Only on a known-healthy engine held at a steady operating point: measures each sender's offset over 60 s"
+                  className="shrink-0 border border-[#4c3025] px-1.5 py-0.5 uppercase tracking-[0.1em] text-[#d9c0ae] hover:border-[#ff8050]"
+                >
+                  Zero sensors
+                </button>
+              )}
             </div>
           </article>
         )}
@@ -259,7 +286,7 @@ export default function Diagnostics({ ai = null, advisory = null, residuals = nu
                 {v3 && ai.rul_hours != null && (
                   <div
                     className="mt-0.5 text-[7px] uppercase tracking-[0.1em] text-[#aa8f7f] md:text-[8px]"
-                    title={ai.rul_mae_hours != null ? `Uncertainty band: mean absolute error on the held-out test split (${Math.round(ai.rul_mae_hours)} h). Live flights have measured 2-6% of TBO.` : undefined}
+                    title={ai.rul_mae_hours != null ? `Uncertainty band: the model's measured error on held-out data for an engine at this life stage (±${Math.round(ai.rul_mae_hours)} h). Nearly-new engines are under-predicted - by 37-109 h depending on the engine - so the band widens there.` : undefined}
                   >
                     {Math.round(ai.rul_hours).toLocaleString()}
                     {ai.rul_mae_hours != null ? ` ±${Math.round(ai.rul_mae_hours)}` : ""} engine h{ai.tbo_hours ? ` of ${ai.tbo_hours.toLocaleString()} TBO` : ""}

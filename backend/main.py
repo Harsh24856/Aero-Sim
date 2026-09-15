@@ -94,6 +94,9 @@ residual_monitor = residual.ResidualMonitor(lag="exp")
 
 
 def reset_residuals():
+    # Sensor offsets from zeroing belong to one engine installation (POST /residuals/zero).
+    residual_monitor.offsets = dict(state["residual_offsets"].get(CURRENT_ENGINE_MODEL, {}))
+    residual_monitor._zeroing = None
     residual_monitor.reset()
     state["residuals"] = None
     state["measured"] = {}
@@ -206,6 +209,7 @@ state = {
     "measured_posts": 0,
     "last_data_source": "sim", # a switch sim <-> can restarts the AI window and residuals
     "rul_filter": {"ema": None, "shown": None, "t": None, "wear": None},   # see smooth_rul
+    "residual_offsets": {},    # engine -> sensor offsets from zeroing (residual.ResidualMonitor.begin_zeroing)
     "ai_samples_dropped": 0,
     "db_pending": 0,
     "db_skipped": 0,
@@ -634,6 +638,10 @@ async def simulation_loop():
                     reset_rul_filter()
                 try:
                     state["residuals"] = residual_monitor.update(out, dt=1.0)
+                    if isinstance(state["residuals"], dict) and state["residuals"].get("zeroed") is not None:
+                        state["residual_offsets"][CURRENT_ENGINE_MODEL] = dict(state["residuals"]["zeroed"])
+                    if isinstance(state["residuals"], dict):
+                        state["residuals"]["offsets"] = dict(residual_monitor.offsets)
                 except Exception as e:
                     state["residuals"] = {"enabled": False, "reason": f"residual monitor error: {e}"}
 
@@ -1101,6 +1109,24 @@ async def update_params(p: ParamUpdate):
         setattr(twin, name, v)
     return {"status": "ok", "altitude": twin.altitude, "throttle": twin.throttle,
             "airspeed": twin.airspeed, "aoa": twin.aoa, "rejected": rejected}
+
+
+ZERO_SAMPLES = 60   # seconds of steady, known-healthy running averaged into the offsets
+
+
+@app.post("/residuals/zero")
+async def zero_residuals():
+    """Calibrate sender offsets on a known-healthy ground run (residual.py begin_zeroing).
+    Uses the twin's accumulated wear as the known engine condition; the offsets apply to
+    this engine from the next sample and are kept until the backend restarts."""
+    if not state["running"]:
+        return {"status": "error", "detail": "start a flight and hold a steady operating point first"}
+    if PHYSICS_VERSION != "v3":
+        return {"status": "error", "detail": "physics residuals need physics v3"}
+    residual_monitor.begin_zeroing(known_wear=float(twin.wear), samples=ZERO_SAMPLES)
+    state["residuals"] = {"enabled": True, "zeroing": True, "samples_left": ZERO_SAMPLES,
+                          "deviations": [], "saturated": [], "channels": {}}
+    return {"status": "ok", "samples": ZERO_SAMPLES, "known_wear": round(float(twin.wear), 4)}
 
 
 @app.post("/measured")
