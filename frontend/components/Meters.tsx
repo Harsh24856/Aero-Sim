@@ -63,6 +63,8 @@ export type MetersProps = {
   paused: boolean;
   onTogglePause: () => void;
   isSignedIn?: boolean | null;   // null = auth check still in flight
+  /** The aircraft is on the CAN bus and owns the set-points: sliders lock, gauges show its values */
+  canLive?: boolean;
 };
 
 const TICK_COUNT = 52;
@@ -82,6 +84,7 @@ export default function Meters({
   paused,
   onTogglePause,
   isSignedIn = true,
+  canLive = false,
 }: MetersProps) {
   const fraction = Math.max(0, Math.min(1, speedKnots / MAX_SPEED));
 
@@ -180,8 +183,14 @@ export default function Meters({
         </div>
       </div>
 
+      {canLive && (
+        <div role="status" className="relative z-10 mt-1 border border-[#2f4a30] bg-[#0d150e] px-2 py-1 text-center text-[8px] uppercase tracking-[0.12em] text-[#a8e0a8] md:text-[9px]">
+          Aircraft on CAN bus - throttle and speed come from the aircraft
+        </div>
+      )}
+
       {/* ── Middle section: Throttle & Speed Target sliders side by side ── */}
-      <div className="relative z-10 my-2 grid grid-cols-2 gap-4 md:gap-6">
+      <div className={`relative z-10 my-2 grid grid-cols-2 gap-4 md:gap-6 ${canLive ? "opacity-60" : ""}`}>
         {/* Throttle Slider */}
         <div>
           <div className="flex items-center justify-between text-[8px] uppercase tracking-[0.12em] text-[#d9c0ae] md:text-[10px]">
@@ -201,6 +210,7 @@ export default function Meters({
             min="0"
             max="100"
             value={throttle}
+            disabled={canLive}
             onChange={(e) => onThrottleChange(Number(e.target.value))}
           />
           <div className="mt-0.5 flex justify-between font-mono text-[7px] text-[#8a7263] md:text-[8px]">
@@ -229,6 +239,7 @@ export default function Meters({
             max={MAX_SPEED}
             step="1"
             value={Math.round(mpsToKnots(airspeedTarget))}
+            disabled={canLive}
             onChange={(e) => onAirspeedTargetChange(knotsToMps(Number(e.target.value)))}
           />
           {/* Endpoints spelled out: the speed track starts at the stall floor,

@@ -77,6 +77,7 @@ HIGH_THROTTLE_THRESHOLD = 0.7
 NOMINAL_BSFC = 0.300
 DETECTION_THRESHOLD = 0.05          # fallback "present" threshold for a failure mode
 RUL_OUT_OF_RANGE_FRAC = 1.05        # RUL above 105% of TBO is extrapolation
+NEAR_NEW_BAND_FRAC = 0.90           # predictions at/above this share of TBO use the nearly-new error band
 RPM_FAULT_CONFIDENCE_FLOOR = 0.70   # same rule as ai.py
 
 BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -236,6 +237,9 @@ def load_engine(key):
         "failure_mode_thresholds": manifest.get("failure_mode_thresholds") or {},
         # Test-split RUL mean absolute error, shown as the RUL uncertainty band.
         "rul_mae_hours": (manifest.get("rul_test") or {}).get("mae_hours"),
+        # The head under-predicts nearly-new engines (true RUL >= 97% TBO) by 37-109 h on the
+        # test split - larger than its overall MAE - so that error is the honest band there.
+        "rul_near_new_mae_hours": (manifest.get("rul_test") or {}).get("near_new_mae_hours"),
         # Channels whose confident fault calls were no better than chance on the test
         # split (validation/parity_ai_v3.py). Missing section -> every channel trusted.
         "unreliable_channels": {
@@ -297,6 +301,11 @@ def run_inference(engine=None):
     fm = np.asarray(engine["failure_modes_model"].predict(x, verbose=0))[0]          # (4,)
     rul_hours = float(np.squeeze(
         engine["rul_model"].predict({"x": x, "x_rul_aux": aux}, verbose=0)))
+    # Uncertainty band: the overall test MAE, or the (larger) nearly-new error when the
+    # prediction itself is in the nearly-new range.
+    rul_band = engine["rul_mae_hours"]
+    if engine["rul_near_new_mae_hours"] and rul_hours >= NEAR_NEW_BAND_FRAC * engine["tbo_hours"]:
+        rul_band = max(rul_band or 0.0, engine["rul_near_new_mae_hours"])
 
     unreliable = engine["unreliable_channels"]
     diagnosis, faulty_channels = {}, []
@@ -318,9 +327,14 @@ def run_inference(engine=None):
         failure_modes[mode] = {"severity_percent": float(fm[i] * 100.0),
                                "present": bool(fm[i] >= thr), "threshold": thr}
 
-    # Health reflects both sensor-channel faults and engine failure modes.
+    # Health reflects both sensor-channel faults and engine failure modes. A failure mode
+    # counts only once the head flags it present (probability >= its tuned threshold):
+    # sub-threshold probabilities of 3-8% used to be subtracted as damage, so healthy
+    # engines drifted to ~92% at cruise with nothing detected.
     graded = [severity_percent[c] / 100.0 for c in CHANNELS if c != "rpm"]
-    health_percent = 100.0 * (1.0 - max(max(graded), float(np.max(fm))))
+    fm_damage = max((float(fm[i]) for i, mode in enumerate(FAILURE_MODES)
+                     if failure_modes[mode]["present"]), default=0.0)
+    health_percent = 100.0 * (1.0 - max(max(graded), fm_damage))
     # The 70% cap on a confident rpm fault applies only where that call is measured to be
     # informative. On an unreliable channel it capped a healthy 915 at 70% on every sample.
     if (diagnosis["rpm"]["reliable"] and diagnosis["rpm"]["fault_type"] != "none"
@@ -341,7 +355,7 @@ def run_inference(engine=None):
         "health_percent": round(health_percent, 4),
         "rul_hours": round(rul_hours, 3),
         "rul_units": "engine_hours",
-        "rul_mae_hours": engine["rul_mae_hours"],
+        "rul_mae_hours": rul_band,
         "tbo_hours": tbo,
         "rul_percent_remaining": round(max(0.0, min(100.0, 100.0 * rul_hours / tbo)), 4),
         "rul_out_of_range": rul_hours > RUL_OUT_OF_RANGE_FRAC * tbo,

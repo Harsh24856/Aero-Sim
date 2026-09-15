@@ -118,6 +118,7 @@ function SimulatePageInner() {
   // Physics generation of the live twin, from the telemetry itself - available even
   // when the AI service is down and there is no ai.model_version to read.
   const livePhysicsVersion = (rawTelemetry as { physics_version?: string } | null)?.physics_version;
+  const canLive = started && (rawTelemetry as { data_source?: string } | null)?.data_source === "can";
   // v3 "flight time" is the engine hour meter: wear x TBO, exactly TBO minus the true
   // RUL. A per-session delta was tried first and read 0.0 h - its baseline was taken
   // from the previous flight's last frame (higher wear) before the new twin's first
@@ -624,9 +625,12 @@ function SimulatePageInner() {
           </div>
           <div className="min-h-0" style={{ flex: '50 1 0%' }}>
             <Meters
-              speedKnots={liveTelemetry ? mpsToKnots(liveTelemetry.speed) : 0}
-              altitude={liveTelemetry?.altitude ?? 0}
-              throttle={throttle}
+              // While the aircraft is on the CAN bus it owns the set-points (main.py ignores
+              // the sliders), so the gauges show its values from telemetry, not local state.
+              canLive={canLive}
+              speedKnots={canLive ? mpsToKnots(Number(rawTelemetry?.airspeed ?? 0)) : liveTelemetry ? mpsToKnots(liveTelemetry.speed) : 0}
+              altitude={canLive ? Number(rawTelemetry?.altitude ?? 0) : liveTelemetry?.altitude ?? 0}
+              throttle={canLive ? Math.round(Number(rawTelemetry?.throttle ?? 0) * 100) : throttle}
               onThrottleChange={setThrottle}
               airspeedTarget={airspeedTarget}
               onAirspeedTargetChange={setAirspeedTarget}
@@ -643,7 +647,7 @@ function SimulatePageInner() {
             whatever the backend telemetry stream happens to contain (which could
             be leftover/unrelated to this frontend session entirely), showing a
             "moving" flight time even while paused or never started. */}
-        <Diagnostics ai={aiResult} advisory={advisory} residuals={residuals} physicsVersion={livePhysicsVersion} link={started && !paused ? link : undefined} engineHours={started ? sessionEngineHours : undefined} simStatus={simStatus} simSeconds={started && !paused ? rawTelemetry?.time : undefined} dataSource={started ? (rawTelemetry as { data_source?: string } | null)?.data_source : undefined} />
+        <Diagnostics ai={aiResult} advisory={advisory} residuals={residuals} physicsVersion={livePhysicsVersion} link={started && !paused ? link : undefined} engineHours={started ? sessionEngineHours : undefined} simStatus={simStatus} simSeconds={started && !paused ? rawTelemetry?.time : undefined} dataSource={started ? (rawTelemetry as { data_source?: string } | null)?.data_source : undefined} onZeroSensors={started && !paused ? () => { fetch(`${API}/residuals/zero`, { method: "POST" }).catch(() => {}); } : undefined} />
       </div>
 
       <HealthVignette

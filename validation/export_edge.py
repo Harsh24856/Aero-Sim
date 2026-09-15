@@ -44,6 +44,34 @@ def convert(model, fp16, allow_flex):
     return conv.convert()
 
 
+def unroll_lstms(model):
+    """An edge-convertible copy of the RUL head with identical weights and outputs.
+
+    1. Every LSTM is unrolled over the fixed 128-step window, so the graph uses TFLite builtin
+       ops instead of the TensorList/Flex graph.
+    2. The final softplus is rebuilt in the numerically stable form relu(x) + log(1 + exp(-|x|)).
+       TFLite evaluates softplus as log(1 + exp(x)); the head's output bias starts at 600 h,
+       exp(x) overflows float32 above x ~ 88.7, and every prediction became ln(FLT_MAX) = 88.72 h.
+    Models without an LSTM are returned unchanged."""
+    cfg = model.get_config()
+    lstms = [layer for layer in cfg["layers"] if layer.get("class_name") == "LSTM"]
+    if not lstms:
+        return model
+    for layer in lstms:
+        layer["config"]["unroll"] = True
+    keras.config.enable_unsafe_deserialization()        # the encoder contains a Lambda
+    clone = keras.Model.from_config(cfg)
+    clone.set_weights(model.get_weights())
+    try:
+        raw = clone.get_layer("rul_dense_out").output
+    except ValueError:
+        return clone
+    ops = keras.ops
+    stable = keras.layers.Lambda(lambda z: ops.relu(z) + ops.log(1.0 + ops.exp(-ops.abs(z))),
+                                 name="y_rul_hours_stable_softplus")(raw)
+    return keras.Model(clone.inputs, stable, name=f"{model.name}_edge")
+
+
 def run_tflite(blob, feeds):
     interp = tf.lite.Interpreter(model_content=blob, num_threads=1)
     interp.allocate_tensors()
@@ -103,12 +131,17 @@ def main():
                 t0 = time.perf_counter(); model.predict(one, verbose=0); t_keras.append(time.perf_counter() - t0)
             samples = [{"x": X[i], **({"x_rul_aux": AUX[i]} if needs_aux else {})} for i in range(a.samples)]
             row = {"keras_ms_p50": round(1000 * float(np.median(t_keras[1:])), 2)}
+            conv_model = unroll_lstms(model)
+            if conv_model is not model:
+                row["unrolled_lstm"] = True
+                row["unrolled_keras_max_abs_diff"] = float(np.max(np.abs(
+                    np.asarray(conv_model.predict(feed, verbose=0)) - ref)))
             for variant, fp16 in (("float32", False), ("float16", True)):
                 flex = False
                 try:
-                    blob = convert(model, fp16, allow_flex=False)
+                    blob = convert(conv_model, fp16, allow_flex=False)
                 except Exception:
-                    blob, flex = convert(model, fp16, allow_flex=True), True
+                    blob, flex = convert(conv_model, fp16, allow_flex=True), True
                 path = os.path.join(edge_dir, f"{key}_{head}_{variant}.tflite")
                 open(path, "wb").write(blob)
                 try:

@@ -76,6 +76,8 @@ STUCK_SAMPLES = 5      # identical consecutive readings while physics says the v
 MIN_SAMPLES = 10       # before any status other than "settling"
 WEAR_RATE_MAX = 0.002  # per second; ~10x the fastest wear seen in live physics
 MIN_VOTING_GROUPS = 2
+ZERO_CHANNELS = ("egt", "cht", "oil_temp", "oil_pressure")   # steady offsets; not vibration (gain) or rpm
+ZERO_MIN_SAMPLES = 30
 
 _VOTE_GROUPS = {"egt": ("egt",), "cht": ("cht",), "oil_temp": ("oil_temp",),
                 "oil_pressure": ("oil_pressure",), "vib": ("vibx", "viby", "vibz")}
@@ -101,12 +103,36 @@ class ResidualMonitor:
     Call reset() whenever a new flight or engine starts.
     """
 
-    def __init__(self, lag="exp", scales=None):
+    def __init__(self, lag="exp", scales=None, offsets=None):
         if lag not in ("exp", "euler"):
             raise ValueError("lag must be 'exp' or 'euler'")
         self.lag = lag
         self.scales = dict(SCALE, **(scales or {}))
+        # Per-installation sensor calibration (see zero()). Subtracted from the measured
+        # value before anything else, and kept across reset() - it belongs to the sensors.
+        self.offsets = dict(offsets or {})
+        self._zeroing = None
         self.reset()
+
+    def begin_zeroing(self, known_wear, samples=ZERO_MIN_SAMPLES):
+        """Calibrate out steady sender offsets on a known-healthy ground run.
+
+        Temperature and oil-pressure senders are routinely a few units off at installation.
+        Uncalibrated, the thermal groups read that as wear, and the wrong wear then drags the
+        healthy channels' expected values with it. Residuals taken mid-flight are already
+        contaminated by that, so zeroing runs as its own mode: wear is FIXED at the engine's
+        known value (its hour meter), temperatures are compared with the steady physics value
+        (the engine must have held one operating point for several minutes - oil temperature
+        lags ~100 s), and after `samples` readings the median residual of each zeroable channel
+        becomes its offset. Zeroing over a real sensor fault would hide it: known-healthy only.
+        """
+        self.reset()
+        self._zeroing = {"wear": float(known_wear), "left": int(samples),
+                         "res": {c: [] for c in ZERO_CHANNELS}}
+
+    @property
+    def zeroing(self):
+        return self._zeroing is not None
 
     def reset(self):
         self.n = 0
@@ -128,6 +154,8 @@ class ResidualMonitor:
             isa = float(t.get("isa_dev_c") or 0.0)
             meas = {c: float(t[c]) for c in CHANNELS if c != "rpm"}
             meas["rpm"] = float(t["rpm_fault"])
+            for c, off in self.offsets.items():
+                meas[c] -= off
         except (KeyError, TypeError, ValueError) as e:
             return {"enabled": False, "reason": f"telemetry missing or invalid: {e}"}
 
@@ -141,6 +169,27 @@ class ResidualMonitor:
 
         def oil_p0(oil_temp):
             return 90.0*(1.0 - math.exp(-rpm/1500.0)) + 3.0*thr - 0.15*(oil_temp - 80.0)
+
+        if self._zeroing is not None:
+            z = self._zeroing
+            w = z["wear"]
+            exp_z = {"egt": target["egt"] + WEAR_EGT_RISE_C*w, "cht": target["cht"] + WEAR_CHT_RISE_C*w,
+                     "oil_temp": target["oil_temp"] + WEAR_OILTEMP_RISE_C*w}
+            exp_z["oil_pressure"] = oil_p0(target["oil_temp"] + WEAR_OILTEMP_RISE_C*w) * (1.0 - WEAR_OIL_PRESS_FRAC*w)
+            for c in ZERO_CHANNELS:
+                if not saturated[c]:
+                    z["res"][c].append(meas[c] - exp_z[c])
+            z["left"] -= 1
+            if z["left"] > 0:
+                return {"enabled": True, "zeroing": True, "samples_left": z["left"], "deviations": [],
+                        "saturated": [], "channels": {}, "degradation_index": w}
+            for c, vals in z["res"].items():
+                if vals:
+                    self.offsets[c] = round(self.offsets.get(c, 0.0) + statistics.median(vals), 4)
+            self._zeroing = None
+            self.reset()
+            return {"enabled": True, "zeroing": False, "zeroed": dict(self.offsets), "deviations": [],
+                    "saturated": [], "channels": {}, "degradation_index": w}
 
         def raw_votes(th, oilp_healthy):
             v = {"oil_pressure": ((1.0 - meas["oil_pressure"]/oilp_healthy)/WEAR_OIL_PRESS_FRAC
