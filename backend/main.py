@@ -20,10 +20,10 @@ from pydantic import BaseModel
 
 from physics import UAVEngineTwin, ENGINE_CONFIGS
 
-# Physics version for every twin this process creates. v2 (default) is what the
-# live demo and backend/models/ were built on. v3 must be paired with the v3 AI
-# service (backend/aiv3.py) - /state reports both so a mismatch is visible.
-PHYSICS_VERSION = os.environ.get("AERO_PHYSICS_VERSION", "v2").strip().lower()
+# Physics version for every twin this process creates. v3 (default) pairs with the
+# v3 AI service (backend/aiv3.py, backend/models_v3/); AERO_PHYSICS_VERSION=v2 runs the
+# legacy physics with ai.py and backend/models/. /state reports both so a mismatch is visible.
+PHYSICS_VERSION = os.environ.get("AERO_PHYSICS_VERSION", "v3").strip().lower()
 if PHYSICS_VERSION not in ("v2", "v3"):
     raise ValueError(f"AERO_PHYSICS_VERSION must be v2 or v3, got {PHYSICS_VERSION!r}")
 
@@ -159,6 +159,8 @@ state = {
     "recovery_times": [],      # monotonic stamps inside RECOVERY_WINDOW_S
     "last_good_telemetry": None,
     "ai_resync": False,        # the AI's window has a gap: /reset it before the next sample
+    "ai_settle_until": 0.0,    # sim time until which AI alerts are held (see hold_alerts_outside_envelope)
+    "ai_last_sample_time": None,
     "ai_samples_dropped": 0,
     "db_pending": 0,
     "db_skipped": 0,
@@ -227,6 +229,39 @@ async def ai_reset_buffer():
         pass
 
 
+# The v3 dataset never flies below 32 m/s (generate_dataset_v3.py airspeed floor), but
+# every in-app flight starts with a ground roll. Until the AI's 128 s window holds only
+# in-envelope samples its fault and failure-mode calls are extrapolation - the 916 raised
+# a ~60 s false misfire/combustion alarm after every takeoff - so those alerts are held.
+AI_ENVELOPE_MIN_AIRSPEED_MS = 32.0
+AI_WINDOW_S = 128.0
+
+
+def hold_alerts_outside_envelope(sample: dict, result: dict) -> dict:
+    """Return result with fault alerts cleared while the AI window still contains
+    below-envelope (ground roll) samples. Health and RUL pass through unchanged."""
+    if PHYSICS_VERSION != "v3":
+        return result
+    t = sample.get("time")
+    if not isinstance(t, (int, float)):
+        return result
+    last = state["ai_last_sample_time"]
+    if last is not None and t < last:           # clock restarted: a new flight
+        state["ai_settle_until"] = 0.0
+    state["ai_last_sample_time"] = t
+    airspeed = sample.get("airspeed")
+    if isinstance(airspeed, (int, float)) and airspeed < AI_ENVELOPE_MIN_AIRSPEED_MS:
+        state["ai_settle_until"] = t + AI_WINDOW_S
+    if result.get("status") != "ok" or t >= state["ai_settle_until"]:
+        return result
+    held = {**result, "settling": True, "fault_detected": False, "faulty_channels": []}
+    modes = result.get("failure_modes")
+    if isinstance(modes, dict):
+        held["failure_modes"] = {k: ({**v, "present": False} if isinstance(v, dict) else v)
+                                 for k, v in modes.items()}
+    return held
+
+
 async def ai_worker(queue: asyncio.Queue):
     """The ONLY sender of /step. One worker, one queue: samples reach the AI strictly in
     simulated-time order however slow it is, and the loop never awaits the network.
@@ -273,7 +308,7 @@ async def ai_worker(queue: asyncio.Queue):
                 if ai_breaker.state != "closed":
                     state["ai_resync"] = True
                     state["ai_reachable"] = False
-            state["last_ai_result"] = result
+            state["last_ai_result"] = hold_alerts_outside_envelope(out, result)
         except asyncio.CancelledError:
             raise
         except Exception as e:                      # never let the worker die

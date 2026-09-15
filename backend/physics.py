@@ -17,9 +17,9 @@ from failure_modes import FailureModes
 #
 # v3 deliberately CHANGES the observable distribution (real thermal calibration,
 # plus wear that is actually visible in the sensors), which invalidates every
-# model trained on v2 data - and those are the models backend/models/ serves
-# today. Keep this at "v2" until the retrained models are deployed, then flip.
-DEFAULT_PHYSICS_VERSION = "v2"
+# model trained on v2 data (backend/models/). The retrained v3 models are deployed
+# in backend/models_v3/, so v3 is the default; pass physics_version="v2" for legacy.
+DEFAULT_PHYSICS_VERSION = "v3"
 
 # Time Between Overhauls, real engine hours. This is the scale the v3 RUL label
 # is expressed against: rul_hours_true = TBO_HOURS - accumulated_hours.

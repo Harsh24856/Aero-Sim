@@ -57,7 +57,7 @@ n_failed = 0
 n_censored = 0
 
 for scen in range(N_SCENARIOS):
-    twin = UAVEngineTwin(dt=DT)
+    twin = UAVEngineTwin(dt=DT, physics_version="v2")
     severity_bias = np.random.uniform(0.0, 1.0)   # this "pilot" personality persists all life
     altitude, throttle, airspeed, aoa = sample_leg_target(severity_bias)
     twin.altitude, twin.throttle, twin.airspeed, twin.aoa = altitude, throttle, airspeed, aoa

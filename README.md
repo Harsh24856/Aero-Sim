@@ -159,7 +159,7 @@ From `backend/` (the module is imported as `ai`, so the working directory matter
 
 ```bash
 cd backend
-../validation/venv/bin/uvicorn ai:app --reload --host 0.0.0.0 --port 8100
+../validation/venv/bin/uvicorn aiv3:app --host 0.0.0.0 --port 8100
 ```
 
 No environment activation needed — calling the venv's `uvicorn` directly is
@@ -256,7 +256,7 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 **Terminal 2 — AI Service** (start this before Terminal 1, so the first simulated second has somewhere to go)
 ```bash
 cd backend
-../validation/venv/bin/uvicorn ai:app --reload --host 0.0.0.0 --port 8100
+../validation/venv/bin/uvicorn aiv3:app --host 0.0.0.0 --port 8100
 ```
 Confirm `"backend_validated": true` at <http://localhost:8100/health> before trusting any diagnostics.
 
@@ -318,18 +318,17 @@ curl -X POST http://localhost:8000/params \
 curl http://localhost:8100/health   # backend_validated must be true
 ```
 
-#### Physics v3 stack (opt-in)
+#### Physics v3 (default) and legacy v2
 
-v3 models (`backend/models_v3/`, RUL in real engine hours, engine failure modes) are served by
-`backend/aiv3.py` with the same endpoints. Run **either** `ai.py` **or** `aiv3.py` - both bind 8100 -
-and start the physics backend with the matching version:
+Physics v3 is the default: `main.py` runs v3 physics and expects `backend/aiv3.py`
+(models in `backend/models_v3/`, RUL in real engine hours, engine failure modes).
+The legacy v2 stack is still available. Run **either** `ai.py` **or** `aiv3.py` - both bind 8100 -
+with the matching physics version:
 
 ```bash
-# AI service, v3 (from backend/, validated Metal environment)
-cd backend && ../validation/venv/bin/uvicorn aiv3:app --host 127.0.0.1 --port 8100
-
-# Physics backend, v3 (from backend/)
-AERO_PHYSICS_VERSION=v3 uvicorn main:app --reload --host 0.0.0.0 --port 8000
+# Legacy v2: AI service and physics backend (from backend/)
+cd backend && ../validation/venv/bin/uvicorn ai:app --host 127.0.0.1 --port 8100
+AERO_PHYSICS_VERSION=v2 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 `GET /state` on port 8000 reports `physics_version` and `ai_model_version`; they must match.

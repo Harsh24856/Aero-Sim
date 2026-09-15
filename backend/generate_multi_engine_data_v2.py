@@ -54,7 +54,7 @@ def generate_engine_dataset(engine_model: str, seed: int, target_rows: int) -> p
     n_failed, n_censored = 0, 0
 
     while len(rows) < target_rows:
-        twin = UAVEngineTwin(dt=DT, engine_model=engine_model)
+        twin = UAVEngineTwin(dt=DT, engine_model=engine_model, physics_version="v2")
         severity_bias = np.random.uniform(0.0, 1.0)
         altitude, throttle, airspeed, aoa = sample_leg_target(severity_bias)
         twin.altitude, twin.throttle, twin.airspeed, twin.aoa = altitude, throttle, airspeed, aoa
