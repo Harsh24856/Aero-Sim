@@ -13,6 +13,8 @@
 .playwright-mcp/
 .serena/
 .logs/
+# TFLite edge exports: build output of validation/export_edge.py (report in validation/models/)
+/backend/models_v3/*/edge/
 
 # ─── Validation (local-only — datasets, notebooks, trained model artifacts) ───
 # Everything under validation/ stays local except the training/evaluation code.

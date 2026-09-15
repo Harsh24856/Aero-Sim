@@ -35,8 +35,10 @@ Over CAN: set-point frames and sensor frames in the SocketCAN format, bridged to
 virtual bus on the laptop; on hardware the same code uses SocketCAN or any python-can adapter.
 
 **Can this run on the aircraft (edge)?**
-The heads are small (about 1.7 MB per engine); see the edge export report for TensorFlow Lite size and
-latency. The physics residual layer is pure Python arithmetic and runs anywhere.
+Yes for fault detection and diagnosis: exported to TensorFlow Lite, the four classification heads are about
+200 KB each in float16 and run in 0.37 ms per sample on one CPU thread, matching the full model to within 0.007.
+The RUL LSTM does not convert faithfully yet, so remaining-life estimation stays at the ground station until the
+RUL branch is rebuilt as an unrolled LSTM or TCN. The physics residual layer is plain arithmetic and runs anywhere.
 
 **Is it indigenous? You use Rotax, TensorFlow and a cloud LLM.**
 Rotax engines are the ones flying Indian MALE-class UAVs today; the framework is engine-agnostic - a new engine

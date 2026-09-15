@@ -19,6 +19,9 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import tensorflow as tf                     # noqa: E402
+# The TFLite converter crashes under tensorflow-metal ("LLVM ERROR: Failed to infer result
+# type(s)"), and an edge target has no Metal GPU anyway: convert and time on the CPU.
+tf.config.set_visible_devices([], "GPU")
 from tensorflow import keras                # noqa: E402
 import train_common as C                    # noqa: E402
 
@@ -26,7 +29,12 @@ ROOT = os.path.join(os.path.dirname(HERE), "backend", "models_v3")
 
 
 def convert(model, fp16, allow_flex):
-    conv = tf.lite.TFLiteConverter.from_keras_model(model)
+    # from_keras_model fails on these Keras 3 models inside the MLIR converter
+    # ("missing attribute 'value'" on ReadVariableOp); a SavedModel export converts cleanly.
+    import tempfile
+    saved = tempfile.mkdtemp(prefix="edge_savedmodel_")
+    model.export(saved, verbose=False)
+    conv = tf.lite.TFLiteConverter.from_saved_model(saved)
     if fp16:
         conv.optimizations = [tf.lite.Optimize.DEFAULT]
         conv.target_spec.supported_types = [tf.float16]
@@ -38,20 +46,28 @@ def convert(model, fp16, allow_flex):
 
 def run_tflite(blob, feeds):
     interp = tf.lite.Interpreter(model_content=blob, num_threads=1)
+    interp.allocate_tensors()
     ins = interp.get_input_details()
     out = interp.get_output_details()[0]
     by_name = {d["name"]: d for d in ins}
     results, times = [], []
+    def detail(name, arr):
+        # A SavedModel export does not keep the Keras input names (x / x_rul_aux), and "x"
+        # is a substring of "x_rul_aux" anyway - match on the per-sample shape instead:
+        # the window is (128, 25), the RUL auxiliary vector (10,).
+        by_shape = [d for d in ins if list(d["shape"][1:]) == list(arr.shape)]
+        return by_shape[0] if by_shape else ins[0]
+
     for sample in feeds:
         for name, arr in sample.items():
-            d = next((v for k, v in by_name.items() if name in k), ins[0] if len(ins) == 1 else None)
+            d = detail(name, arr)
             if d["shape"][0] != 1 or list(d["shape"][1:]) != list(arr.shape):
                 interp.resize_tensor_input(d["index"], [1, *arr.shape]); interp.allocate_tensors()
             interp.set_tensor(d["index"], arr[None].astype(np.float32))
         if not times:
             interp.allocate_tensors()
             for name, arr in sample.items():
-                d = next((v for k, v in by_name.items() if name in k), ins[0])
+                d = detail(name, arr)
                 interp.set_tensor(d["index"], arr[None].astype(np.float32))
         t0 = time.perf_counter(); interp.invoke(); times.append(time.perf_counter() - t0)
         results.append(interp.get_tensor(out["index"])[0])
