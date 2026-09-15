@@ -143,6 +143,32 @@ the twin received set-points and measured sensors through `can_ingest.py` (112,0
   and vibration; the AI raised detection at 100% confidence (health 0%), the advisory went to warning and
   the low-health vignette fired. The fault existed only in the aircraft; the twin found it from the bus.
 
+**Plant mismatch** (`validation/mismatch_eval.py`, 914, cruise at 1,500 m / 0.5 throttle / 45 m/s, 420 s per
+run of which 128 s are AI warm-up; the plant injected no sensor faults or failure modes in any run, so every
+alarm below except the drift case is false):
+
+| Plant differs from the twin by | AI false alarm | Failure-mode false | Health mean / min | RUL error % TBO | Residual layer |
+|---|---|---|---|---|---|
+| nothing | 0% | 0.7% | 95.4 / 82.9 | 4.4 | quiet (0%) |
+| calibration offsets (EGT +15, CHT +4, oil temp +3 C, oil pressure -2 psi) | 0% | 0% | 99.8 / 99.7 | 5.5 | flags every sample |
+| unit-to-unit gain spread (3-5%, vibration +20%) | 0% | 0% | 99.8 / 99.7 | 15.4 | EGT flagged throughout |
+| realistic sensor noise | 0% | 0.3% | 96.3 / 82.9 | 4.4 | vibration and RPM flagged |
+| CHT sensor drifting 1 C/min (a real sensor fault) | 33.5% | 100% | 46.0 / 26.3 | 4.6 | **CHT flagged at 242 s (+4.0 C), only CHT** |
+| a different thermal model (physics v2 plant) | 100% | 100% | 5.9 / 5.8 | 15.1 | EGT and oil temp flagged |
+
+What this shows:
+
+- The AI is robust to calibration offsets, unit spread and sensor noise: no false detections and health
+  within its normal range. Unit spread costs RUL accuracy (15% of TBO), since RUL leans on absolute levels.
+- On a drifting sensor the two layers complement each other: the residuals named the right sensor after
+  4 C of drift, while the AI noticed something wrong but attributed it to engine failure modes and never
+  flagged the CHT channel itself. The advisory should prefer the residual's sensor attribution in this case.
+- The residual layer is too literal for real hardware. Temperature calibration offsets are read as wear
+  (its wear index rose to 0.26 against true 0.02), and that wrong wear then makes the healthy oil-pressure and
+  vibration channels look faulty; its vibration and RPM tolerances are tighter than real sensor noise.
+- An engine whose thermal behaviour differs from the twin's (v2 plant) breaks both layers - as it should:
+  a new engine type needs the physics recalibrated before the twin can judge it.
+
 ## Physics residuals (model-free)
 
 `backend/residual.py`. Expected values reproduce the dataset's clean sensor values to p99 errors of
