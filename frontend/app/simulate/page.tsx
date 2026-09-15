@@ -643,7 +643,7 @@ function SimulatePageInner() {
             whatever the backend telemetry stream happens to contain (which could
             be leftover/unrelated to this frontend session entirely), showing a
             "moving" flight time even while paused or never started. */}
-        <Diagnostics ai={aiResult} advisory={advisory} residuals={residuals} physicsVersion={livePhysicsVersion} link={started && !paused ? link : undefined} engineHours={started ? sessionEngineHours : undefined} simStatus={simStatus} simSeconds={started && !paused ? rawTelemetry?.time : undefined} />
+        <Diagnostics ai={aiResult} advisory={advisory} residuals={residuals} physicsVersion={livePhysicsVersion} link={started && !paused ? link : undefined} engineHours={started ? sessionEngineHours : undefined} simStatus={simStatus} simSeconds={started && !paused ? rawTelemetry?.time : undefined} dataSource={started ? (rawTelemetry as { data_source?: string } | null)?.data_source : undefined} />
       </div>
 
       <HealthVignette

@@ -77,6 +77,7 @@ export type DiagnosticsProps = {
   engineHours?: number | null; // v3: engine hour meter (wear x TBO)
   simStatus?: SimStatus | null;
   simSeconds?: number;   // live elapsed simulated flight time (rawTelemetry.time)
+  dataSource?: string;   // "can" when sensors arrive from the aircraft over CAN (main.py /measured)
 };
 
 // Cockpit palette per severity. Kept local to this file on purpose: the
@@ -104,13 +105,24 @@ const AI_CHANNELS = [
 // were removed since Sensr's "All Sensors" list already shows the real
 // telemetry, and this panel's actual job is the AI's diagnosis, not duplicating
 // raw sensor readouts.
-export default function Diagnostics({ ai = null, advisory = null, residuals = null, physicsVersion, link, engineHours, simStatus = null, simSeconds }: DiagnosticsProps) {
+export default function Diagnostics({ ai = null, advisory = null, residuals = null, physicsVersion, link, engineHours, simStatus = null, simSeconds, dataSource }: DiagnosticsProps) {
   const v3 = ai?.model_version === "v3" || physicsVersion === "v3";
   const labelOf = (c: string) => residuals?.channels?.[c]?.label ?? c;
   return (
     <aside className="panel-shell flex h-full min-h-0 flex-col overflow-hidden p-2.5 md:p-3.5">
       <h2 className="panel-heading flex items-center justify-between">
-        Diagnostics <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#ff722f] shadow-[0_0_7px_#ff5b1d]" />
+        Diagnostics
+        <span className="flex items-center gap-1.5">
+          {dataSource === "can" && (
+            <span
+              title="Sensor readings are arriving from the aircraft over the CAN bus; the twin's physics supplies the expected values."
+              className="border border-[#2f4a30] px-1 text-[7px] tracking-[0.1em] text-[#a8e0a8]"
+            >
+              CAN LIVE
+            </span>
+          )}
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#ff722f] shadow-[0_0_7px_#ff5b1d]" />
+        </span>
       </h2>
 
       {/* Live, continuously moving - real-world equivalent flight time, ticking

@@ -95,6 +95,40 @@ residual_monitor = residual.ResidualMonitor(lag="exp")
 def reset_residuals():
     residual_monitor.reset()
     state["residuals"] = None
+    state["measured"] = {}
+    state["measured_at"] = None
+
+
+# Measured sensors from the aircraft (can_ingest.py -> POST /measured). While fresh they
+# REPLACE the twin's own sensor channels, so the AI and the residuals judge the real engine
+# against the twin's physics; the twin keeps its own values alongside as twin_sensors.
+MEASURED_FRESH_S = 1.0
+MEASURED_KEYS = {"rpm": "rpm_fault", "egt": "egt", "cht": "cht", "oil_pressure": "oil_pressure",
+                 "oil_temp": "oil_temp", "vibx": "vibx", "viby": "viby", "vibz": "vibz",
+                 "fuel_flow": "fuel_flow"}
+MEASURED_LIMITS = {**residual.SENSOR_LIMITS, "fuel_flow": (0.0, 200.0)}
+
+
+def measured_age_s() -> Optional[float]:
+    at = state["measured_at"]
+    return None if at is None else time.monotonic() - at
+
+
+def data_source() -> str:
+    age = measured_age_s()
+    return "can" if age is not None and age <= MEASURED_FRESH_S and state["measured"] else "sim"
+
+
+def apply_measured(out: dict) -> dict:
+    """The twin's step with fresh measured sensor values overlaid (a new dict)."""
+    if data_source() != "can":
+        return {**out, "data_source": "sim"}
+    measured = state["measured"]
+    merged = {**out, "data_source": "can",
+              "twin_sensors": {ch: out[key] for ch, key in MEASURED_KEYS.items() if ch in measured}}
+    for ch, value in measured.items():
+        merged[MEASURED_KEYS[ch]] = value
+    return merged
 
 
 def log_telemetry(simulation_id, time_offset_s, raw, ai):
@@ -165,6 +199,10 @@ state = {
     # Wall-clock ms from a physics sample entering the AI queue to its diagnosis being
     # stored for the next broadcast - the "real-time" figure reported in /health.
     "ai_latency_ms": deque(maxlen=300),
+    "measured": {},            # latest bounded sensor values from POST /measured
+    "measured_at": None,       # monotonic time of the last accepted /measured
+    "measured_posts": 0,
+    "last_data_source": "sim", # a switch sim <-> can restarts the AI window and residuals
     "ai_samples_dropped": 0,
     "db_pending": 0,
     "db_skipped": 0,
@@ -363,6 +401,22 @@ class ParamUpdate(BaseModel):
     # ISA temperature deviation in degrees C (hot/cold day). Clamped in the
     # handler. Deliberately NOT an AI feature - see AI_FEATURE_COLS.
     isa_dev_c: Optional[float] = None
+    # "can" from can_ingest.py. While the aircraft is on the bus it owns the set-points,
+    # and untagged updates (the cockpit sliders/autopilot) are ignored.
+    source: Optional[str] = None
+
+
+class MeasuredUpdate(BaseModel):
+    """Sensor readings from the aircraft's CAN bus (can_ingest.py). Units as physics v3."""
+    rpm: Optional[float] = None
+    egt: Optional[float] = None
+    cht: Optional[float] = None
+    oil_pressure: Optional[float] = None
+    oil_temp: Optional[float] = None
+    vibx: Optional[float] = None
+    viby: Optional[float] = None
+    vibz: Optional[float] = None
+    fuel_flow: Optional[float] = None
 
 
 async def client_sender(ws: WebSocket, queue: asyncio.Queue):
@@ -514,8 +568,11 @@ async def simulation_loop():
                     break
                 await asyncio.sleep(0)
                 continue
-            state["last_telemetry"] = out
+            # Recovery restores the twin from its OWN step; everything downstream sees
+            # the measured sensors when the aircraft is on the bus.
             state["last_good_telemetry"] = out
+            out = apply_measured(out)
+            state["last_telemetry"] = out
             state["steps"] += 1
             step_count += 1
 
@@ -524,6 +581,14 @@ async def simulation_loop():
             if state["ai_step_counter"] >= AI_STEPS_PER_CALL:
                 state["ai_step_counter"] = 0
                 state["sim_time_offset"] += 1.0
+                # A new data stream (the aircraft joined or left the bus): the AI window and
+                # the residual lag states describe the old one, so both start again.
+                if out.get("data_source") != state["last_data_source"]:
+                    state["last_data_source"] = out.get("data_source")
+                    residual_monitor.reset()
+                    state["residuals"] = None
+                    state["ai_resync"] = True
+                    state["ai_warmed_up"] = False
                 try:
                     state["residuals"] = residual_monitor.update(out, dt=1.0)
                 except Exception as e:
@@ -576,9 +641,12 @@ async def simulation_loop():
             # ---- pacing ----
             # Only while the AI is genuinely keeping up: any recent failure (even before
             # the breaker opens) drops to real time, so an outage never speeds physics up.
+            # Never while the aircraft is on the CAN bus: it streams in real time, and a
+            # fast-forwarded twin would fill the AI window with seconds of stale readings.
             fast_forward = (not state["ai_warmed_up"] and state["ai_reachable"]
                             and ai_breaker.state == "closed" and ai_breaker.failures == 0
-                            and ai_status_label() != "unsupported")
+                            and ai_status_label() != "unsupported"
+                            and out.get("data_source") != "can")
             if fast_forward:
                 next_tick = time.monotonic()
                 await asyncio.sleep(0)
@@ -974,6 +1042,10 @@ async def resume_sim(req: ResumeRequest):
 async def update_params(p: ParamUpdate):
     """Every value is bounded to safety.PARAM_LIMITS before it reaches the twin, and a
     non-finite value is refused (and reported) instead of poisoning the physics."""
+    if data_source() == "can" and p.source != "can":
+        return {"status": "ignored", "reason": "the aircraft is on the CAN bus and owns the set-points",
+                "altitude": twin.altitude, "throttle": twin.throttle,
+                "airspeed": twin.airspeed, "aoa": twin.aoa, "rejected": []}
     rejected = []
     for name in ("altitude", "throttle", "airspeed", "aoa", "isa_dev_c"):
         raw = getattr(p, name)
@@ -986,6 +1058,27 @@ async def update_params(p: ParamUpdate):
         setattr(twin, name, v)
     return {"status": "ok", "altitude": twin.altitude, "throttle": twin.throttle,
             "airspeed": twin.airspeed, "aoa": twin.aoa, "rejected": rejected}
+
+
+@app.post("/measured")
+async def update_measured(m: MeasuredUpdate):
+    """Measured sensor values from the aircraft. A non-finite or out-of-range value is
+    refused and reported, never overlaid - a corrupted reading must not reach the AI."""
+    accepted, rejected = {}, []
+    for ch in MEASURED_KEYS:
+        raw = getattr(m, ch)
+        if raw is None:
+            continue
+        lo, hi = MEASURED_LIMITS[ch]
+        if not isinstance(raw, (int, float)) or not (lo <= float(raw) <= hi):
+            rejected.append(ch)
+            continue
+        accepted[ch] = float(raw)
+    if accepted:
+        state["measured"] = {**state["measured"], **accepted}
+        state["measured_at"] = time.monotonic()
+        state["measured_posts"] += 1
+    return {"status": "ok", "accepted": sorted(accepted), "rejected": rejected, "data_source": data_source()}
 
 
 # NOTE: manual fault triggering was removed. Faults are now fully auto-derived from
@@ -1017,6 +1110,7 @@ async def get_state():
         "physics_version": PHYSICS_VERSION,
         "ai_model_version": state["ai_model_version"],
         "ai_valid": CURRENT_ENGINE_MODEL in AI_VALID_ENGINES,
+        "data_source": data_source(),
         "params": {"altitude": twin.altitude, "throttle": twin.throttle,
                     "airspeed": twin.airspeed, "aoa": twin.aoa,
                     "isa_dev_c": twin.isa_dev_c},
@@ -1056,6 +1150,9 @@ async def health():
         "loop_alive": bool(task and not task.done()),
         "physics_version": PHYSICS_VERSION,
         "engine_model": CURRENT_ENGINE_MODEL,
+        "data_source": data_source(),
+        "measured_age_s": None if measured_age_s() is None else round(measured_age_s(), 2),
+        "measured_posts": state["measured_posts"],
         "steps": state["steps"],
         "sim_status": sim_status(),
         "ai_samples_dropped": state["ai_samples_dropped"],
