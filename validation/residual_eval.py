@@ -28,7 +28,8 @@ import numpy as np
 import pyarrow.parquet as pq
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DIRS = {"914": "chunks_v3_rotax_914_ulf", "915": "chunks_v3_rotax_915_is", "916": "chunks_v3_rotax_916_is"}
+DIRS = {"912": "chunks_v3_rotax_912_uls", "914": "chunks_v3_rotax_914_ulf",
+        "915": "chunks_v3_rotax_915_is", "916": "chunks_v3_rotax_916_is"}
 TYPES = {1: "bias", 2: "drift", 3: "spike", 4: "stuck", 5: "noise"}
 SIG = {None: 0, "bias": 1, "drift": 2, "spike": 3, "stuck": 4, "noise": 5}
 SIG_NAMES = ["none", "bias", "drift", "spike", "stuck", "noise"]
