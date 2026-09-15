@@ -60,6 +60,9 @@ Status of the physics-v3 programme against PS 26054, and what remains before v3 
 | Federated learning demo | `validation/federated_demo.py` written; run when the GPU is free |
 | Uncertainty on RUL | not possible with MC-dropout on this architecture; a deep-ensemble or quantile head is the option |
 | Mission-preset durations | Fixed: `/mission` presets show flight time, not v2 "h real" equivalents |
+| Offline post-flight summary | `summary.py` `local_summary`: deterministic report from the run digest when Groq is not configured or unreachable (no venue internet needed for summaries; sign-in and persistence still use Supabase) |
+| One-command startup | `scripts/start_stack.sh`: AI service, physics backend and frontend in order with health checks, logs in `.logs/` |
+| Real-time latency | Measured: sample-to-diagnosis p50 260 ms, p95 378 ms on the M2 laptop (`/health` `sim_status.ai_latency_ms`) |
 
 ## Operational rules
 

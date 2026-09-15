@@ -244,7 +244,17 @@ NEXT_PUBLIC_EMAILJS_PUBLIC_KEY=your_public_key
 
 ## Full Start-Up Order
 
-Open **three terminals**:
+**One command** (after the three environments are set up):
+
+```bash
+scripts/start_stack.sh
+```
+
+It starts the AI service, physics backend and frontend in order, waits for each health check,
+writes logs to `.logs/`, and stops everything on Ctrl-C. Open <http://localhost:3000>.
+`AERO_PHYSICS_VERSION=v2 scripts/start_stack.sh` runs the legacy stack.
+
+Or by hand, in **three terminals**:
 
 **Terminal 1 — Physics API**
 ```bash

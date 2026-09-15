@@ -11,6 +11,7 @@ import json
 import os
 import time
 import traceback
+from collections import deque
 from typing import Optional
 
 import httpx
@@ -161,6 +162,9 @@ state = {
     "ai_resync": False,        # the AI's window has a gap: /reset it before the next sample
     "ai_settle_until": 0.0,    # sim time until which AI alerts are held (see hold_alerts_outside_envelope)
     "ai_last_sample_time": None,
+    # Wall-clock ms from a physics sample entering the AI queue to its diagnosis being
+    # stored for the next broadcast - the "real-time" figure reported in /health.
+    "ai_latency_ms": deque(maxlen=300),
     "ai_samples_dropped": 0,
     "db_pending": 0,
     "db_skipped": 0,
@@ -271,7 +275,7 @@ async def ai_worker(queue: asyncio.Queue):
     sample start with /reset, so the model never sees a window with a hole in it.
     """
     while True:
-        out = await queue.get()
+        enqueued_at, out = await queue.get()
         try:
             if not ai_breaker.allow():
                 state["ai_resync"] = True          # this sample is lost to the AI
@@ -286,6 +290,8 @@ async def ai_worker(queue: asyncio.Queue):
                 await ai_reset_buffer()
             result = await call_ai_service(out)
             status = result.get("status")
+            if status == "ok":   # warm-up samples are fast-forwarded, so they would skew it
+                state["ai_latency_ms"].append((time.monotonic() - enqueued_at) * 1000.0)
             if status == "ai_unsupported_engine":
                 # The service is healthy; it just has no model for this engine. Not a
                 # failure, so no breaker trip and no resync churn.
@@ -413,6 +419,16 @@ def ai_status_label() -> str:
     return "pending"
 
 
+def ai_latency_stats() -> Optional[dict]:
+    """p50/p95/max of the recent sample-to-diagnosis latency, or None before any sample."""
+    samples = sorted(state["ai_latency_ms"])
+    if not samples:
+        return None
+    pick = lambda q: samples[min(len(samples) - 1, int(q * len(samples)))]
+    return {"p50": round(pick(0.50), 1), "p95": round(pick(0.95), 1),
+            "max": round(samples[-1], 1), "n": len(samples)}
+
+
 def sim_status() -> dict:
     """Compact health block attached to every broadcast and to /health."""
     return {
@@ -422,6 +438,7 @@ def sim_status() -> dict:
         "ai": ai_status_label(),
         "ai_breaker": ai_breaker.state,
         "loop_lag_ms": round(state["loop_lag_ms"], 1),
+        "ai_latency_ms": ai_latency_stats(),
     }
 
 
@@ -513,7 +530,7 @@ async def simulation_loop():
                     state["residuals"] = {"enabled": False, "reason": f"residual monitor error: {e}"}
 
                 try:
-                    queue.put_nowait(out)
+                    queue.put_nowait((time.monotonic(), out))
                 except asyncio.QueueFull:
                     # The AI is stalled. Drop the backlog rather than block physics;
                     # the worker resets the AI's window before its next sample.
@@ -522,7 +539,7 @@ async def simulation_loop():
                         queue.get_nowait(); queue.task_done(); dropped += 1
                     state["ai_samples_dropped"] += dropped + 1
                     state["ai_resync"] = True
-                    queue.put_nowait(out)
+                    queue.put_nowait((time.monotonic(), out))
 
                 state["db_log_counter"] += 1
                 if state["db_log_counter"] >= DB_LOG_INTERVAL_S:
