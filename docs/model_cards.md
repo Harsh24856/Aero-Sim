@@ -128,6 +128,22 @@ the next 20 Hz broadcast, **p50 260 ms, p95 378 ms** over 107 samples of a 914 c
 1.18 s outlier on the first sample after warm-up. The AI runs once per simulated second, so every diagnosis
 is on screen before the next sample exists; physics loop lag stayed at 0 ms and no samples were dropped.
 
+**Edge export** (`validation/export_edge.py`, TensorFlow Lite, 1 CPU thread on the M2, 64 real test windows
+per head, all four engines):
+
+| Head | TFLite float32 | TFLite float16 | Latency per sample | Keras `.predict()` | Max difference vs Keras (f32 / f16) |
+|---|---|---|---|---|---|
+| Detection | 361 KB | 196 KB | 0.38 ms | 24 ms | 2e-7 / 0.003 |
+| Diagnosis | 392 KB | 212 KB | 0.37 ms | 24 ms | 6e-6 / 0.002 |
+| Severity | 444 KB | 239 KB | 0.37 ms | 24 ms | 2e-6 / 0.006 |
+| Failure modes | 384 KB | 209 KB | 0.38 ms | 24 ms | 3e-7 / 0.007 |
+| RUL (LSTM) | converts only with Flex ops | - | 2.7 ms | 28 ms | **fails** (458-1,105 h) |
+
+The four classification heads run on an edge CPU in under 1 MB (float16) at ~65x the speed of Keras with no
+meaningful loss. The RUL head's LSTM does not convert faithfully (the Flex-op graph differs from Keras); its
+`.tflite` files were removed and RUL stays on TensorFlow. Converting it needs an unrolled fixed-length LSTM or a
+TCN RUL branch (roadmap).
+
 **Aircraft over CAN** (2026-09-15, plan P3). A separate process (`aircraft_sim.py`) flew its own 914
 through takeoff, climb, cruise and a 0.95-throttle leg, sending only CAN frames over the UDP multicast bus;
 the twin received set-points and measured sensors through `can_ingest.py` (112,000+ frames, 0 lost,

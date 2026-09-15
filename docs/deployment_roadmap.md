@@ -67,7 +67,7 @@ Status of the physics-v3 programme against PS 26054, and what remains before v3 
 
 | Item | State |
 |---|---|
-| Edge deployment (TFLite + latency) | `validation/export_edge.py` written; run when the GPU is free |
+| Edge deployment (TFLite + latency) | Done for detection, diagnosis, severity and failure modes (196-239 KB float16, 0.37 ms/sample, parity 1e-5); the RUL LSTM does not convert faithfully - needs an unrolled LSTM or TCN RUL branch |
 | Federated learning demo | `validation/federated_demo.py` written; run when the GPU is free |
 | Uncertainty on RUL | not possible with MC-dropout on this architecture; a deep-ensemble or quantile head is the option |
 | Mission-preset durations | Fixed: `/mission` presets show flight time, not v2 "h real" equivalents |
