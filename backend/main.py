@@ -37,6 +37,29 @@ import residual
 import safety
 import summary
 
+# Sensor offsets from zeroing (POST /residuals/zero) describe the installed senders, so they
+# survive a backend restart. Kept next to main.py and out of git.
+RESIDUAL_OFFSETS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".residual_offsets.json")
+
+
+def load_residual_offsets() -> dict:
+    try:
+        with open(RESIDUAL_OFFSETS_PATH) as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_residual_offsets(offsets: dict) -> None:
+    try:
+        tmp = RESIDUAL_OFFSETS_PATH + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(offsets, f, indent=2)
+        os.replace(tmp, RESIDUAL_OFFSETS_PATH)
+    except OSError as e:
+        print(f"[residual] could not save sensor offsets: {e}")
+
 # ai.py runs as its OWN process under a different Python environment (see ai.py's
 # module docstring - the models segfault under this backend's TF version). Calls are
 # async/non-blocking so a slow or down AI service never freezes telemetry to other
@@ -209,7 +232,13 @@ state = {
     "measured_posts": 0,
     "last_data_source": "sim", # a switch sim <-> can restarts the AI window and residuals
     "rul_filter": {"ema": None, "shown": None, "t": None, "wear": None},   # see smooth_rul
-    "residual_offsets": {},    # engine -> sensor offsets from zeroing (residual.ResidualMonitor.begin_zeroing)
+    # ---- engine-failure shutdown (see health_failure_seconds) ----
+    "health_zero_since": None,   # sim time health first hit the floor, None while it is above it
+    "health_zero_engine_hours": None,  # hour meter at that instant, for the failure message
+    "shutdown_engine_hours": None,     # engine hours the failure window consumed
+    "shutdown_reason": None,     # "engine_failure" when the flight ended itself; None otherwise
+    "closed_simulation_id": None,  # the row that shutdown closed, so the UI can poll its summary
+    "residual_offsets": load_residual_offsets(),   # engine -> sensor offsets from zeroing (begin_zeroing)
     "ai_samples_dropped": 0,
     "db_pending": 0,
     "db_skipped": 0,
@@ -303,12 +332,67 @@ def hold_alerts_outside_envelope(sample: dict, result: dict) -> dict:
         state["ai_settle_until"] = t + AI_WINDOW_S
     if result.get("status") != "ok" or t >= state["ai_settle_until"]:
         return result
-    held = {**result, "settling": True, "fault_detected": False, "faulty_channels": []}
+    # Severities go too: leaving them at 100% while the status reads nominal put a red number
+    # next to a green "OK" in the cockpit.
+    # Health goes with them: it is computed from the same detection and severity outputs, so
+    # leaving it at 0 while the panel says nominal is the same contradiction in the other
+    # direction. The model's own numbers stay available as *_raw.
+    # Per-channel fault TYPES go too, or the cockpit prints "Bias" next to a 0% severity while
+    # the status line says nominal.
+    # The detector's confidence goes with fault_detected, or the cockpit prints
+    # "100% conf" beside a nominal status - the same contradiction, one field over.
+    diagnosis = result.get("diagnosis") or {}
+    held = {**result, "settling": True, "fault_detected": False, "faulty_channels": [],
+            "detection_confidence": 0.0, "detection_confidence_raw": result.get("detection_confidence"),
+            "severity_percent": {ch: 0.0 for ch in (result.get("severity_percent") or {})},
+            "severity_percent_raw": result.get("severity_percent") or {},
+            "health_percent": 100.0, "health_percent_raw": result.get("health_percent"),
+            "diagnosis": {ch: {**v, "fault_type": "none"} if isinstance(v, dict) else v
+                          for ch, v in diagnosis.items()},
+            "diagnosis_raw": diagnosis}
     modes = result.get("failure_modes")
     if isinstance(modes, dict):
         held["failure_modes"] = {k: ({**v, "present": False} if isinstance(v, dict) else v)
                                  for k, v in modes.items()}
     return held
+
+
+# ---- engine-failure shutdown -------------------------------------------------
+# A real UAV does not keep flying on an engine the health monitor has written off.
+# Health pinned at the floor for this many CONSECUTIVE simulated seconds ends the
+# flight the way a genuine failure would: throttle to idle, session closed with
+# outcome "engine_failure". A transient dip (a hard throttle slam gives one or two
+# seconds of it) resets the clock and changes nothing.
+# AERO_HEALTH_FAILURE_HOLD_S overrides the hold; 0 disables the shutdown entirely,
+# which is the switch to reach for if a demo must never be ended by the monitor.
+HEALTH_FAILURE_PCT = 1.0
+HEALTH_FAILURE_HOLD_S = float(os.environ.get("AERO_HEALTH_FAILURE_HOLD_S", 20.0))
+
+
+def engine_hours_now():
+    """The cockpit's engine hour meter: wear x TBO. None until telemetry carries both."""
+    t = state["last_telemetry"] or {}
+    w, tbo = t.get("wear"), t.get("tbo_hours")
+    return w * tbo if isinstance(w, (int, float)) and isinstance(tbo, (int, float)) else None
+
+
+def health_failure_seconds(sim_time: float, result) -> float:
+    """Seconds of unbroken zero health. Zero whenever health recovers, the AI is not
+    reporting, or alerts are held for the takeoff window - a held result reads
+    nominal by construction and must never end a flight."""
+    ai = result if isinstance(result, dict) else {}
+    health = ai.get("health_percent")
+    if (ai.get("status") != "ok" or ai.get("settling")
+            or not isinstance(health, (int, float)) or health > HEALTH_FAILURE_PCT):
+        state["health_zero_since"] = None
+        return 0.0
+    if state["health_zero_since"] is None or sim_time < state["health_zero_since"]:
+        state["health_zero_since"] = sim_time      # first zero, or a new flight's clock
+        # The hour meter at that instant, so the shutdown can report the window in the
+        # unit the cockpit actually shows wear in - engine hours, not wall seconds.
+        state["health_zero_engine_hours"] = engine_hours_now()
+        return 0.0
+    return sim_time - state["health_zero_since"]
 
 
 # Remaining life can only fall - hours accumulate and nothing repairs the engine in flight -
@@ -539,6 +623,13 @@ def sim_status() -> dict:
         "ai_breaker": ai_breaker.state,
         "loop_lag_ms": round(state["loop_lag_ms"], 1),
         "ai_latency_ms": ai_latency_stats(),
+        # Set once, on the broadcast that ends a flight the engine could not finish.
+        "shutdown_reason": state["shutdown_reason"],
+        "closed_simulation_id": state["closed_simulation_id"],
+        "shutdown_hold_s": HEALTH_FAILURE_HOLD_S,
+        # Engine hours the failure window consumed - the cockpit shows wear in hours,
+        # and 20 s of full-load flight is several of them.
+        "shutdown_engine_hours": state["shutdown_engine_hours"],
     }
 
 
@@ -640,6 +731,7 @@ async def simulation_loop():
                     state["residuals"] = residual_monitor.update(out, dt=1.0)
                     if isinstance(state["residuals"], dict) and state["residuals"].get("zeroed") is not None:
                         state["residual_offsets"][CURRENT_ENGINE_MODEL] = dict(state["residuals"]["zeroed"])
+                        save_residual_offsets(state["residual_offsets"])
                     if isinstance(state["residuals"], dict):
                         state["residuals"]["offsets"] = dict(residual_monitor.offsets)
                 except Exception as e:
@@ -656,6 +748,14 @@ async def simulation_loop():
                     state["ai_samples_dropped"] += dropped + 1
                     state["ai_resync"] = True
                     queue.put_nowait((time.monotonic(), out))
+
+                # ---- engine failure ----
+                # Health written off for HEALTH_FAILURE_HOLD_S straight: the flight ends
+                # itself rather than cruising on with a 0% engine and a red panel.
+                if health_failure_seconds(state["sim_time_offset"],
+                                          state["last_ai_result"]) >= HEALTH_FAILURE_HOLD_S:
+                    await engine_failure_shutdown()
+                    break
 
                 state["db_log_counter"] += 1
                 if state["db_log_counter"] >= DB_LOG_INTERVAL_S:
@@ -756,6 +856,12 @@ async def stop_loop(timeout: float = 1.5):
 async def start_loop():
     await stop_loop()
     state["running"] = True
+    # Last flight's failure card must not reappear over this one.
+    state["shutdown_reason"] = None
+    state["closed_simulation_id"] = None
+    state["health_zero_since"] = None
+    state["health_zero_engine_hours"] = None
+    state["shutdown_engine_hours"] = None
     if state["sim_health"] == "halted":
         state["recovery_times"] = []
         state["sim_health"] = "running"
@@ -833,39 +939,80 @@ class StopRequest(BaseModel):
     final: bool = True
 
 
+async def close_session(outcome: str):
+    """Persist the end of a flight: one last telemetry row at the exact moment of
+    stopping, the simulations row closed with `outcome`, and the narrative summary
+    kicked off. Returns the closed row id (None when nothing was being persisted).
+    Shared by /stop and the engine-failure shutdown, so a flight that ends itself is
+    recorded exactly like one the pilot ended."""
+    if state["simulation_id"] is None:
+        return None
+    ai = state["last_ai_result"] or {}
+    # One last row at the exact moment of stopping, regardless of where the
+    # 10s interval happened to fall. Without this the logged series can end
+    # up to 10 simulated seconds before the state stored in final_telemetry,
+    # so a chart would disagree with the run's own summary numbers.
+    if state["last_telemetry"] is not None:
+        await db_call(log_telemetry, state["simulation_id"],
+                      state["sim_time_offset"], state["last_telemetry"], ai)
+    # state["last_telemetry"] is the full raw physics dict as it stood at the
+    # exact moment of stopping - already proven JSON-serializable, since this
+    # same dict passes through json.dumps() in every WebSocket broadcast.
+    await db_call(db.end_simulation, state["simulation_id"], outcome,
+                  ai.get("health_percent"), final_rul_hours(ai), safety.json_safe(state["last_telemetry"]))
+    # Post-flight narrative summary. Fire-and-forget ON PURPOSE: /stop is also
+    # reached via navigator.sendBeacon on pagehide, which cannot consume a
+    # response at all, and the Stop button awaits res.ok - so a synchronous
+    # LLM call here would add seconds of latency to a working path and make
+    # it depend on a third-party API. The frontend polls Supabase for the
+    # result instead. Captured into a local first because the next line
+    # clears state["simulation_id"] before the task ever runs.
+    _sim_id = state["simulation_id"]
+    spawn_background(summary.generate_summary, _sim_id)
+    state["simulation_id"] = None
+    return _sim_id
+
+
+async def engine_failure_shutdown():
+    """End the flight the way the engine just did: throttle to idle, loop stopped,
+    session closed as "engine_failure", and one final frame broadcast carrying the
+    reason - which is what the cockpit turns into its failure card. Called from
+    inside the loop, so it sets running False and returns rather than awaiting
+    stop_loop() (which would wait for the very task calling it)."""
+    ai = state["last_ai_result"] or {}
+    now_h, then_h = engine_hours_now(), state["health_zero_engine_hours"]
+    state["shutdown_engine_hours"] = (round(now_h - then_h, 2)
+                                      if now_h is not None and then_h is not None else None)
+    state["running"] = False
+    state["session_active"] = False
+    state["shutdown_reason"] = "engine_failure"
+    state["health_zero_since"] = None
+    state["sim_health"] = "halted"
+    try:
+        twin.throttle = 0.0
+    except Exception:
+        pass
+    print(f"[simulation] engine failure: health at {ai.get('health_percent')}% for "
+          f"{HEALTH_FAILURE_HOLD_S:.0f}s ({state['shutdown_engine_hours']} engine hours) - "
+          f"flight ended at t={state['sim_time_offset']:.0f}s")
+    state["closed_simulation_id"] = await close_session("engine_failure")
+    try:
+        await broadcast({**(state["last_telemetry"] or {}), "ai": ai,
+                         "residuals": state["residuals"], "sim_status": sim_status()})
+    except Exception as e:
+        print(f"[simulation] final broadcast failed: {e}")
+
+
 @app.post("/stop")
 async def stop_sim(req: StopRequest = StopRequest()):
     await stop_loop()
     if req.final:
         state["session_active"] = False
-    if req.final and state["simulation_id"] is not None:
-        ai = state["last_ai_result"] or {}
-        # One last row at the exact moment of stopping, regardless of where the
-        # 10s interval happened to fall. Without this the logged series can end
-        # up to 10 simulated seconds before the state stored in final_telemetry,
-        # so a chart would disagree with the run's own summary numbers.
-        if state["last_telemetry"] is not None:
-            await db_call(log_telemetry, state["simulation_id"],
-                          state["sim_time_offset"], state["last_telemetry"], ai)
-        # state["last_telemetry"] is the full raw physics dict as it stood at the
-        # exact moment of stopping - already proven JSON-serializable, since this
-        # same dict passes through json.dumps() in every WebSocket broadcast.
-        await db_call(db.end_simulation, state["simulation_id"], "stopped",
-                      ai.get("health_percent"), final_rul_hours(ai), safety.json_safe(state["last_telemetry"]))
-        # Post-flight narrative summary. Fire-and-forget ON PURPOSE: /stop is also
-        # reached via navigator.sendBeacon on pagehide, which cannot consume a
-        # response at all, and the Stop button awaits res.ok - so a synchronous
-        # LLM call here would add seconds of latency to a working path and make
-        # it depend on a third-party API. The frontend polls Supabase for the
-        # result instead. Captured into a local first because the next line
-        # clears state["simulation_id"] before the task ever runs.
-        _sim_id = state["simulation_id"]
-        spawn_background(summary.generate_summary, _sim_id)
-        state["simulation_id"] = None
-        # Returned so the caller can poll for the summary that the task above is
-        # generating. /stop previously returned no id at all, which left the
-        # frontend with no way to find the row it had just closed.
-        return {"status": "stopped", "final": req.final, "simulation_id": _sim_id}
+    if req.final:
+        # Returned so the caller can poll for the summary close_session started -
+        # /stop previously returned no id at all, which left the frontend with no
+        # way to find the row it had just closed.
+        return {"status": "stopped", "final": True, "simulation_id": await close_session("stopped")}
     return {"status": "stopped", "final": req.final, "simulation_id": None}
 
 

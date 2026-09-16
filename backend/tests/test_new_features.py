@@ -59,7 +59,10 @@ class RulFilterTest(unittest.TestCase):
 
 class TakeoffHoldTest(unittest.TestCase):
     ALARM = {"status": "ok", "fault_detected": True, "faulty_channels": ["cht"], "health_percent": 92.0,
-             "failure_modes": {"misfire": {"present": True, "severity_percent": 6.0}}}
+             "detection_confidence": 0.97,
+             "failure_modes": {"misfire": {"present": True, "severity_percent": 6.0}},
+             "severity_percent": {"cht": 88.0, "egt": 0.0},
+             "diagnosis": {"cht": {"fault_type": "bias", "confidence": 0.9, "reliable": True}}}
 
     def setUp(self):
         main.state["ai_last_sample_time"] = None
@@ -73,10 +76,59 @@ class TakeoffHoldTest(unittest.TestCase):
         self.assertFalse(held["fault_detected"])
         self.assertEqual(held["faulty_channels"], [])
         self.assertFalse(held["failure_modes"]["misfire"]["present"])
-        self.assertEqual(held["health_percent"], 92.0)
+        # Everything the cockpit shows reads nominal while alerts are held - health, severities
+        # and fault types together - and the model's own values stay available as *_raw.
+        self.assertEqual(held["health_percent"], 100.0)
+        self.assertEqual(held["health_percent_raw"], 92.0)
+        self.assertEqual(held["severity_percent"], {"cht": 0.0, "egt": 0.0})
+        self.assertEqual(held["severity_percent_raw"]["cht"], 88.0)
+        self.assertEqual(held["diagnosis"]["cht"]["fault_type"], "none")
+        self.assertEqual(held["diagnosis_raw"]["cht"]["fault_type"], "bias")
+        self.assertEqual(held["detection_confidence"], 0.0)
+        self.assertEqual(held["detection_confidence_raw"], 0.97)
         released = main.hold_alerts_outside_envelope({"time": 229, "airspeed": 40.0}, self.ALARM)
         self.assertNotIn("settling", released)
         self.assertTrue(released["fault_detected"])
+        self.assertEqual(released["health_percent"], 92.0)
+        self.assertEqual(released["severity_percent"]["cht"], 88.0)
+        self.assertEqual(released["diagnosis"]["cht"]["fault_type"], "bias")
+        self.assertEqual(released["detection_confidence"], 0.97)
+
+
+class EngineFailureShutdownTest(unittest.TestCase):
+    """Health at the floor for HEALTH_FAILURE_HOLD_S straight ends the flight."""
+    DEAD = {"status": "ok", "health_percent": 0.0}
+
+    def setUp(self):
+        main.state["health_zero_since"] = None
+
+    def elapsed(self, t, result):
+        return main.health_failure_seconds(t, result)
+
+    def test_sustained_zero_health_trips_at_the_hold_time(self):
+        for t in range(int(main.HEALTH_FAILURE_HOLD_S)):
+            self.assertLess(self.elapsed(t, self.DEAD), main.HEALTH_FAILURE_HOLD_S)
+        self.assertGreaterEqual(self.elapsed(main.HEALTH_FAILURE_HOLD_S, self.DEAD), main.HEALTH_FAILURE_HOLD_S)
+
+    def test_a_dip_that_recovers_never_trips(self):
+        for t in range(200):
+            health = 0.0 if t % 15 else 80.0        # zero for 14 s, then one good second
+            self.assertLess(self.elapsed(t, {"status": "ok", "health_percent": health}),
+                            main.HEALTH_FAILURE_HOLD_S)
+
+    def test_held_takeoff_alerts_and_missing_ai_never_trip(self):
+        for t in range(120):
+            self.assertEqual(self.elapsed(t, {**self.DEAD, "settling": True}), 0.0)
+        for t in range(120):
+            self.assertEqual(self.elapsed(t, {"status": "warming_up"}), 0.0)
+        for t in range(120):
+            self.assertEqual(self.elapsed(t, None), 0.0)
+
+    def test_a_new_flights_clock_restarts_the_count(self):
+        for t in range(19):
+            self.elapsed(100 + t, self.DEAD)
+        self.assertEqual(self.elapsed(0, self.DEAD), 0.0)       # clock restarted: fresh flight
+        self.assertEqual(self.elapsed(5, self.DEAD), 5.0)
 
 
 class MeasuredSensorsTest(unittest.TestCase):

@@ -529,11 +529,22 @@ class UAVEngineTwin:
         # Alternator output rises with RPM above cut-in and saturates; the battery
         # charges on the surplus and discharges below cut-in. A worn engine drives
         # its accessories through worn bearings, so output droops slightly.
+        # v3: an aero alternator reaches rated output a few hundred rpm above cut-in, not at
+        # redline. Ramping to RPM_MAX left cruise (~3000 rpm) at 4.4 A against an 8 A load, so
+        # every flight ran the battery down and the bus sat at the discharge voltage. v2 keeps
+        # the old ramp so its recorded channels stay bit-identical.
+        alt_full_rpm = (self.ALT_CUTIN_RPM + 800.0 if self.physics_version == "v3"
+                        else self.RPM_MAX)
         alt_frac = float(np.clip((engine_rpm - self.ALT_CUTIN_RPM) /
-                                 max(self.RPM_MAX - self.ALT_CUTIN_RPM, 1.0), 0.0, 1.0))
+                                 max(alt_full_rpm - self.ALT_CUTIN_RPM, 1.0), 0.0, 1.0))
         self.alternator_output = 20.0*alt_frac*(1.0 - 0.15*self.WEAR_VIB_FRAC*self.wear)
         electrical_load = 8.0                      # avionics + payload, amps
-        self.battery_current = self.alternator_output - electrical_load
+        surplus = self.alternator_output - electrical_load
+        if self.physics_version == "v3" and surplus > 0.0:
+            # A regulator tapers the charge as the battery fills, so the ammeter settles near a
+            # small float current instead of sitting at the full surplus for the whole flight.
+            surplus *= float(np.clip((14.4 - self.battery_voltage) / 0.8, 0.05, 1.0))
+        self.battery_current = surplus
         # Charging pulls the bus up toward regulator voltage; discharging sags it.
         target_v = 14.2 if self.battery_current > 0 else 11.9
         self.battery_voltage += dt*(target_v - self.battery_voltage)/5.0

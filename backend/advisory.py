@@ -125,6 +125,15 @@ DEGRADATION_WARNING = 0.8
 OIL_PRESSURE_MIN_PSI = 12.0
 OIL_TEMP_MAX_C = 130.0
 
+# Electrical system (PS section B: battery / alternator health). physics.py: the alternator cuts
+# in at 2200 rpm and saturates near 20 A, the bus sits at ~14.2 V while charging and ~11.9 V on
+# the battery alone. An unnoticed charging failure ends a long ISR sortie as surely as an engine
+# fault, and it is invisible to the AI heads - none of these channels is a model input.
+BATTERY_MIN_V = 11.5
+BATTERY_MAX_V = 15.0
+ALT_CUTIN_RPM = 2200.0
+ALT_MIN_OUTPUT_A = 5.0
+
 SIGNATURE_WORDS = {
     "bias": "a steady offset", "drift": "a growing drift", "spike": "a transient spike",
     "stuck": "a frozen reading", "noise": "excess noise",
@@ -403,6 +412,41 @@ def _limit_items(telemetry: Optional[dict]) -> list[dict[str, Any]]:
             "severity": "warning",
             "message": f"Oil pressure {oil_p:.1f} psi below {OIL_PRESSURE_MIN_PSI:.0f} psi minimum.",
             "action": "Reduce power and land as soon as practicable; check oil level and pump before next flight.",
+        })
+
+    volts, amps = _f(telemetry, "battery_voltage"), _f(telemetry, "battery_current")
+    alt_a, rpm = _f(telemetry, "alternator_output"), _f(telemetry, "engine_rpm")
+    charging_rpm = rpm is not None and rpm >= ALT_CUTIN_RPM
+    if volts is not None and volts < BATTERY_MIN_V:
+        items.append({
+            "code": "ELEC_BATT_LOW", "channel": "battery_voltage", "subsystem": "Electrical",
+            "severity": "warning",
+            "message": f"Bus voltage {volts:.1f} V below the {BATTERY_MIN_V:.1f} V minimum - the battery is carrying the load.",
+            "action": "Shed non-essential electrical load and plan recovery while the battery lasts; "
+                      "check alternator drive, regulator and wiring before the next flight.",
+        })
+    elif volts is not None and volts > BATTERY_MAX_V:
+        items.append({
+            "code": "ELEC_BATT_HIGH", "channel": "battery_voltage", "subsystem": "Electrical",
+            "severity": "caution",
+            "message": f"Bus voltage {volts:.1f} V above the {BATTERY_MAX_V:.1f} V limit - overcharging.",
+            "action": "Suspect the voltage regulator; inspect it before the next flight to avoid battery damage.",
+        })
+    if charging_rpm and alt_a is not None and alt_a < ALT_MIN_OUTPUT_A:
+        items.append({
+            "code": "ELEC_ALT_LOW", "channel": "alternator_output", "subsystem": "Electrical",
+            "severity": "warning",
+            "message": f"Alternator delivering {alt_a:.1f} A at {rpm:.0f} rpm, below the {ALT_MIN_OUTPUT_A:.0f} A "
+                       f"expected above its {ALT_CUTIN_RPM:.0f} rpm cut-in - the engine is not charging.",
+            "action": "Treat remaining endurance as battery-limited; inspect alternator drive, brushes and regulator after landing.",
+        })
+    elif charging_rpm and amps is not None and amps < 0.0:
+        items.append({
+            "code": "ELEC_BATT_DISCHARGE", "channel": "battery_current", "subsystem": "Electrical",
+            "severity": "caution",
+            "message": f"Battery discharging at {abs(amps):.1f} A with the engine above charging rpm - "
+                       f"electrical load exceeds alternator output.",
+            "action": "Shed non-essential load; check for a failing alternator or an unexpected load before the next sortie.",
         })
 
     oil_t = _f(telemetry, "oil_temp")

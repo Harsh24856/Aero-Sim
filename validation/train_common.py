@@ -371,7 +371,7 @@ def callbacks(path, monitor="val_loss", mode="min", patience=5, lr_patience=2, m
     ]
 
 
-def split_labels(keep, needs_aux=False):
+def split_labels(keep, needs_aux=False, tbo_hours=None, near_new_weight=1.0, near_new_from=0.90):
     """tf.data yields ALL inputs and ALL labels; each phase uses a subset.
 
     Two things this has to get right, both of which bit during the dry run:
@@ -387,12 +387,22 @@ def split_labels(keep, needs_aux=False):
 
     Also emits sample_weight for the RUL output so an unlabelled window
     contributes zero RUL loss while still training the other heads.
+
+    With tbo_hours and near_new_weight > 1, RUL windows on nearly-new engines are
+    up-weighted: a linear ramp from 1x at near_new_from*TBO to near_new_weight x at a
+    new engine. Only every fifth scenario starts new and wear moves out of that band
+    within minutes, so those windows are ~1% of the data - and live flights all start
+    there. Unweighted, the head under-predicted them by 37-109 h.
     """
     def fn(x, y):
         xx = {"x": x["x"], "x_rul_aux": x["x_rul_aux"]} if needs_aux else x["x"]
         out = {k: y[k] for k in keep}
         if "y_rul_hours" in keep:
-            return xx, out, {"y_rul_hours": y["rul_valid"]}
+            w = y["rul_valid"]
+            if tbo_hours and near_new_weight > 1.0:
+                frac = tf.clip_by_value((y["y_rul_hours"] / tbo_hours - near_new_from) / (1.0 - near_new_from), 0.0, 1.0)
+                w = w * (1.0 + (near_new_weight - 1.0) * frac)
+            return xx, out, {"y_rul_hours": w}
         return xx, out
     return fn
 

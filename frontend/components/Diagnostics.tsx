@@ -68,7 +68,23 @@ export type SimStatus = {
   ai: "ok" | "warming_up" | "unavailable" | "unsupported" | "pending";
   ai_breaker: "closed" | "open" | "half_open";
   loop_lag_ms: number;
+  // Set by the backend when the flight ended itself (health at 0% for 20 s straight).
+  shutdown_reason?: "engine_failure" | null;
+  closed_simulation_id?: number | null;
+  shutdown_hold_s?: number;            // how long health had to stay at 0 (simulated seconds)
+  shutdown_engine_hours?: number | null;  // engine hours that window consumed - the cockpit's own wear unit
 };
+
+// The failure window in BOTH units the cockpit uses: the simulated clock it flies on,
+// and the hour meter it measures wear with. 20 s at full load is several engine hours,
+// so quoting only the seconds makes the shutdown look far more trigger-happy than it is.
+export function failureWindow(s: Pick<SimStatus, "shutdown_hold_s" | "shutdown_engine_hours">): string {
+  const secs = s.shutdown_hold_s ?? 20;
+  const hours = s.shutdown_engine_hours;
+  return hours != null && hours >= 0.05
+    ? `${secs} s of flight - ${hours.toFixed(1)} engine hours`
+    : `${secs} s of flight`;
+}
 
 export type DiagnosticsProps = {
   ai?: AiResult | null;
@@ -164,7 +180,14 @@ export default function Diagnostics({ ai = null, advisory = null, residuals = nu
           </div>
         )}
 
-        {simStatus?.health === "halted" && (
+        {simStatus?.shutdown_reason === "engine_failure" && (
+          <div role="alert" className="border border-[#84432c] bg-[#21130f] p-2 text-[8px] text-[#ff9a72] md:text-[9px]">
+            ENGINE FAILURE - health held at 0% for {failureWindow(simStatus)}, so the flight was ended
+            and the run closed as a failure.
+          </div>
+        )}
+
+        {simStatus?.health === "halted" && !simStatus.shutdown_reason && (
           <div role="alert" className="border border-[#84432c] bg-[#21130f] p-2 text-[8px] text-[#ff9a72] md:text-[9px]">
             Simulation halted safely after repeated physics faults. Press Start to continue from the last good state.
             {simStatus.last_error && <div className="mt-1 text-[#aa8f7f]">{simStatus.last_error}</div>}
@@ -223,12 +246,35 @@ export default function Diagnostics({ ai = null, advisory = null, residuals = nu
                 Zeroing sensors - hold steady{residuals.samples_left != null ? ` (${residuals.samples_left} s)` : ""}
               </div>
             ) : (
-              <div className={`mt-1 text-[8px] md:text-[9px] ${(residuals.deviations?.length ?? 0) > 0 ? "text-[#ff9a72]" : "text-[#7fc87f]"}`}>
-                {(residuals.deviations?.length ?? 0) > 0
-                  ? `Disagrees with physics: ${(residuals.deviations ?? []).map(labelOf).join(", ")}`
-                  : "All sensors agree with physics"}
-                {(residuals.saturated?.length ?? 0) > 0 && ` · at range limit: ${(residuals.saturated ?? []).map(labelOf).join(", ")}`}
-              </div>
+              <>
+                <div
+                  title="Each sensor is compared with what the physics model expects at this power, airspeed, altitude and wear. A channel is listed when the gap is too large to be noise - the reading and the physics disagree, so either the engine or that sender is off."
+                  className={`mt-1 text-[8px] md:text-[9px] ${(residuals.deviations?.length ?? 0) > 0 ? "text-[#ff9a72]" : "text-[#7fc87f]"}`}
+                >
+                  {(residuals.deviations?.length ?? 0) > 0
+                    ? `Reading differs from physics expectation: ${(residuals.deviations ?? []).map(labelOf).join(", ")}`
+                    : "Every sensor matches its physics expectation"}
+                  {(residuals.saturated?.length ?? 0) > 0 && ` · at range limit: ${(residuals.saturated ?? []).map(labelOf).join(", ")}`}
+                </div>
+                {/* How far off, and why: a bare channel list says nothing about size or cause. */}
+                {(residuals.deviations ?? []).map((c) => {
+                  const ch = residuals.channels?.[c];
+                  if (!ch) return null;
+                  const gap = ch.residual > 0 ? `+${ch.residual}` : `${ch.residual}`;
+                  const pct = ch.expected !== 0 ? (100 * ch.residual) / Math.abs(ch.expected) : null;
+                  return (
+                    <div key={c} className="mt-0.5 flex items-baseline justify-between gap-2 font-mono text-[7px] text-[#e0c2ae] md:text-[8px]">
+                      <span>
+                        {ch.label} {ch.measured}{ch.unit} vs {ch.expected}{ch.unit} expected
+                      </span>
+                      <span className="shrink-0 text-[#ff9a72]">
+                        {gap}{ch.unit}{pct != null && Math.abs(pct) >= 0.1 ? ` (${pct > 0 ? "+" : ""}${pct.toFixed(0)}%)` : ""}
+                        {ch.signature ? ` · ${ch.signature}` : ""}
+                      </span>
+                    </div>
+                  );
+                })}
+              </>
             )}
             <div className="mt-1 flex items-center justify-between gap-2 text-[7px] text-[#aa8f7f] md:text-[8px]">
               <span title="Sender offsets measured on a known-healthy run and subtracted from every reading">
@@ -350,15 +396,34 @@ export default function Diagnostics({ ai = null, advisory = null, residuals = nu
                 // v3: a call below the 70% confidence floor (the same one the health cap and the
                 // advisory use) is not a fault. v2 display is left exactly as it was.
                 const confident = !v3 || (ai.diagnosis?.[ch.key]?.confidence ?? 0) >= 0.7;
-                const active = faultType !== "none" && !uncalibrated && confident;
+                const classified = faultType !== "none" && !uncalibrated && confident;
+                // Severity counts even when the diagnosis head names no type: a green "OK" beside
+                // a 100% severity was the single most confusing thing on this panel. Thresholds
+                // match advisory.py SEV_WARNING / SEV_CAUTION.
+                const severe = !uncalibrated && pct >= 50;
+                const elevated = !uncalibrated && pct >= 25;
+                const active = classified || severe;
+                const label = uncalibrated ? "Uncalibrated"
+                  : classified ? faultType
+                  : severe ? "Degrading"
+                  : elevated ? "Elevated"
+                  : "OK";
+                const tone = uncalibrated ? "text-[#aa8f7f]"
+                  : active ? "text-[#ff9a72]"
+                  : elevated ? "text-[#ffd27a]"
+                  : "text-[#7fc87f]";
                 return (
-                  <article key={ch.key} className={`border p-1.5 ${active ? "border-[#84432c] bg-[#21130f]" : "border-[#352722] bg-[#0d0e0d]"}`}>
+                  <article key={ch.key} className={`border p-1.5 ${active ? "border-[#84432c] bg-[#21130f]" : elevated ? "border-[#4c3025] bg-[#14100d]" : "border-[#352722] bg-[#0d0e0d]"}`}>
                     <div className="flex items-center justify-between text-[7px] uppercase tracking-[0.1em] text-[#bca18e] md:text-[8px]">
                       <span>{ch.label}</span>
                       <span>{pct}%</span>
                     </div>
-                    <div className={`mt-0.5 text-[9px] font-normal md:text-[10px] ${active ? "text-[#ff9a72]" : "text-[#7fc87f]"}`}>
-                      {uncalibrated ? <span className="text-[#aa8f7f]" title="This engine's model is not reliable on this channel">Uncalibrated</span> : active ? faultType : "OK"}
+                    <div className={`mt-0.5 text-[9px] font-normal md:text-[10px] ${tone}`}>
+                      {uncalibrated
+                        ? <span title="This engine's model is not reliable on this channel">Uncalibrated</span>
+                        : severe && !classified
+                          ? <span title="Severity head reports heavy degradation; the diagnosis head names no fault type">{label}</span>
+                          : label}
                     </div>
                   </article>
                 );
