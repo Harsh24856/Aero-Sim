@@ -13,6 +13,8 @@
 .playwright-mcp/
 .serena/
 .logs/
+/backend/.residual_offsets.json
+/backend/.residual_offsets.json.tmp
 # TFLite edge exports: build output of validation/export_edge.py (report in validation/models/)
 /backend/models_v3/*/edge/
 

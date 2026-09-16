@@ -62,6 +62,11 @@ def unroll_lstms(model):
     keras.config.enable_unsafe_deserialization()        # the encoder contains a Lambda
     clone = keras.Model.from_config(cfg)
     clone.set_weights(model.get_weights())
+    # A Normalization layer computes its mean/variance tensors from the adapted state when it
+    # is adapted or loaded; set_weights alone leaves them at the initial 0/1.
+    for layer in clone.layers:
+        if isinstance(layer, keras.layers.Normalization):
+            layer.finalize_state()
     try:
         raw = clone.get_layer("rul_dense_out").output
     except ValueError:

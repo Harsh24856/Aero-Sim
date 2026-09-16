@@ -11,6 +11,10 @@ export type RawTelemetry = {
   drag?: number; thrust_margin?: number; lift_weight_margin?: number; egt?: number; cht?: number;
   oil_pressure?: number; oil_temp?: number; vibx?: number; viby?: number; vibz?: number;
   rpm_fault?: number;
+  // Electrical and injection channels (PS section B). Monitored by advisory.py limit checks;
+  // deliberately not AI inputs, so they are shown and alarmed, never diagnosed by a model.
+  battery_voltage?: number; battery_current?: number; alternator_output?: number;
+  injection_timing?: number;
 };
 
 export function mpsToKmh(mps: number): number { return mps * 3.6; }
@@ -46,6 +50,10 @@ export const SENSOR_FIELDS: { key: keyof RawTelemetry; label: string; unit: stri
   { key: "viby", label: "Vib Y", unit: "", decimals: 3 },
   { key: "vibz", label: "Vib Z", unit: "", decimals: 3 },
   { key: "rpm_fault", label: "RPM Fault", unit: "", decimals: 0 },
+  { key: "battery_voltage", label: "Battery", unit: "V", decimals: 1 },
+  { key: "battery_current", label: "Batt Current", unit: "A", decimals: 1 },
+  { key: "alternator_output", label: "Alternator", unit: "A", decimals: 1 },
+  { key: "injection_timing", label: "Injection", unit: "deg", decimals: 2 },
 ];
 
 export type MetersProps = {

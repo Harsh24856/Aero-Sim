@@ -78,6 +78,7 @@ NOMINAL_BSFC = 0.300
 DETECTION_THRESHOLD = 0.05          # fallback "present" threshold for a failure mode
 RUL_OUT_OF_RANGE_FRAC = 1.05        # RUL above 105% of TBO is extrapolation
 NEAR_NEW_BAND_FRAC = 0.90           # predictions at/above this share of TBO use the nearly-new error band
+DETECTION_HEALTH_WEIGHT = 0.60      # health lost at full detection confidence with nothing else flagged
 RPM_FAULT_CONFIDENCE_FLOOR = 0.70   # same rule as ai.py
 
 BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -334,7 +335,12 @@ def run_inference(engine=None):
     graded = [severity_percent[c] / 100.0 for c in CHANNELS if c != "rpm"]
     fm_damage = max((float(fm[i]) for i, mode in enumerate(FAILURE_MODES)
                      if failure_modes[mode]["present"]), default=0.0)
-    health_percent = 100.0 * (1.0 - max(max(graded), fm_damage))
+    # The detection head also counts: it fires on evidence no single channel severity or failure
+    # mode may carry, and "FAULT DETECTED at 100% confidence" beside "health 100%" is nonsense.
+    # Confidence above the 0.5 decision point scales to DETECTION_HEALTH_WEIGHT, so a fully
+    # confident detection alone caps health at 40% while a channel or mode can still push lower.
+    det_damage = max(0.0, (det_prob - 0.5) / 0.5) * DETECTION_HEALTH_WEIGHT
+    health_percent = 100.0 * (1.0 - max(max(graded), fm_damage, det_damage))
     # The 70% cap on a confident rpm fault applies only where that call is measured to be
     # informative. On an unreliable channel it capped a healthy 915 at 70% on every sample.
     if (diagnosis["rpm"]["reliable"] and diagnosis["rpm"]["fault_type"] != "none"

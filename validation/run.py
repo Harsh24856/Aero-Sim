@@ -47,7 +47,7 @@ import train_common as C
 ALL_PHASES = [2]
 
 # Epoch caps - the same values the notebooks use.
-EPOCHS = {1: 30, 2: 20, 3: 20, 4: 20, 5: 50}
+EPOCHS = {1: 30, 2: 20, 3: 20, 4: 20, 5: 80}   # hybrid RUL head was still improving at epoch 49 of 50
 # Phase 2 macro-F1 swings +/-0.05 epoch to epoch (912: 0.41 -> 0.35 -> 0.36),
 # so patience 3 stopped it at epoch 6 on noise.
 PATIENCE = {1: 5, 2: 5, 3: 3, 4: 3, 5: 10}
@@ -62,6 +62,18 @@ PHASE_NAME = {
     5: "phase5_rul",
 }
 WARM_FROM = {1: None, 2: "phase1_detection", 3: "phase2_diagnosis", 4: "phase3_severity", 5: None}
+
+# RUL near-new weighting (train_common.split_labels): windows with true RUL above
+# RUL_NEAR_NEW_FROM of TBO ramp up to RUL_NEAR_NEW_WEIGHT x in the loss.
+RUL_NEAR_NEW_WEIGHT = 10.0
+RUL_NEAR_NEW_FROM = 0.90
+RUL_NEAR_NEW_BIAS_GATE_PCT = 2.0     # |mean error| on true RUL >= 97% TBO, % of TBO
+# Training-time feature dropout on x_rul_aux bsfc_ratio. Under physics v3 it is nearly a direct
+# read of wear; with normalised aux the hybrid head leaned on it (MAE 1% -> 9.9% when it was
+# mean-imputed). Replacing it with its train mean on this share of windows forces a fallback path.
+RUL_BSFC_DROPOUT = 0.30
+# --rul-finetune: continue from the existing phase-5 checkpoint instead of from scratch.
+RUL_FINETUNE = {"lr": 3e-5, "epochs": 15, "patience": 4, "lr_patience": 2, "min_lr": 1e-6}
 
 
 # ---------------------------------------------------------------------------
@@ -102,15 +114,18 @@ def check_gate(phase, res):
         mono = bool(res.get("monotonic", False))
         imp = res.get("mae_pct_tbo_bsfc_imputed", 99.0)
         base = res.get("baseline_bsfc_only_pct_tbo", 0.0)
-        ok = pct <= 5.0 and corr >= 0.85 and mono and imp <= 5.0 and pct < base
+        nn = res.get("near_new_bias_pct_tbo")
+        nn_ok = nn is None or abs(nn) <= RUL_NEAR_NEW_BIAS_GATE_PCT
+        ok = pct <= 5.0 and corr >= 0.85 and mono and imp <= 5.0 and pct < base and nn_ok
         return ok, (f"mae {pct:.2f}% of TBO (<=5), corr {corr:.4f} (>=0.85), monotonic {mono}, "
-                    f"without bsfc_ratio {imp:.2f}% (<=5), bsfc-only baseline {base:.2f}% (model must beat)")
+                    f"without bsfc_ratio {imp:.2f}% (<=5), bsfc-only baseline {base:.2f}% (model must beat), "
+                    f"near-new bias {'n/a' if nn is None else f'{nn:+.2f}%'} (|x|<={RUL_NEAR_NEW_BIAS_GATE_PCT})")
     return True, ""
 
 
 # ---------------------------------------------------------------------------
-def build(phase, engine, cw):
-    """Returns (model, keep, needs_aux, monitor, mode)."""
+def build(phase, engine, cw, lr=None):
+    """Returns (model, keep, needs_aux, monitor, mode). `lr` overrides phase 5's rate."""
     if phase == 1:
         # Same as phase1_detection_<key>.ipynb.
         xi = A.build_encoder_input(); enc = A.build_encoder(xi)
@@ -161,13 +176,32 @@ def build(phase, engine, cw):
     if phase == 5:
         xi = A.build_encoder_input(); aux = A.build_aux_input()
         h = A.build_rul_lstm_encoder(xi, units=32, num_layers=2, dropout=0.1)
+        # Hybrid RUL branch. The LSTM alone was best overall (MAE 22.9 h on 914) but under-predicted
+        # nearly-new engines by 80 h: x_rul_aux arrives raw (bsfc_ratio moves ~0.5% near a new
+        # engine while cht_excess sits near 19) and early wear sits in small per-sensor level
+        # shifts. A standardised ridge on window mean/std + aux cut that bias to -22 h. So the
+        # head also gets each sensor's window mean and std, concatenated with the aux features and
+        # normalised together (adapted on the train split in run_one). Inputs are unchanged, so
+        # aiv3.py still sends the raw window and raw aux.
+        # Window variance from standard layers, E[x^2] - E[x]^2 (ReLU clips float round-off below
+        # zero). A Lambda would not survive reloading: its closure loses run.py's globals, and
+        # aiv3.py / export_edge.py load these checkpoints outside this module.
+        win_mean = keras.layers.GlobalAveragePooling1D(name="rul_win_mean")(xi)
+        win_sq_mean = keras.layers.GlobalAveragePooling1D(name="rul_win_sq_mean")(
+            keras.layers.Multiply(name="rul_win_sq")([xi, xi]))
+        win_var = keras.layers.ReLU(name="rul_win_var")(keras.layers.Subtract(name="rul_win_var_raw")(
+            [win_sq_mean, keras.layers.Multiply(name="rul_win_mean_sq")([win_mean, win_mean])]))
+        feats = keras.layers.Concatenate(name="rul_feats")([win_mean, win_var, aux])
+        feats_n = keras.layers.Normalization(name="rul_feat_norm")(feats)
         m = keras.Model({"x": xi, "x_rul_aux": aux},
-                        {"y_rul_hours": A.build_rul_head(h, aux, init_hours=0.3 * C.tbo_of(engine))})
-        m.compile(optimizer=keras.optimizers.Adam(1e-4, clipnorm=1.0),
+                        {"y_rul_hours": A.build_rul_head(h, feats_n, init_hours=0.3 * C.tbo_of(engine))})
+        m.compile(optimizer=keras.optimizers.Adam(lr or 1e-4, clipnorm=1.0),
                   loss={"y_rul_hours": C.rul_loss(C.tbo_of(engine))},
                   metrics={"y_rul_hours": [keras.metrics.MeanAbsoluteError(name="mae"),
                                            C.mae_pct_tbo(C.tbo_of(engine))]})
-        return m, ["y_rul_hours"], True, "val_mae", "min"           # single output: no y_ prefix
+        # val_loss, not val_mae: the loss carries the near-new sample weights, the unweighted
+        # MAE metric would stop training on exactly the windows the weighting improves.
+        return m, ["y_rul_hours"], True, "val_loss", "min"
 
     raise ValueError(phase)
 
@@ -218,8 +252,14 @@ def rul_checks(model, engine, test_ds, steps):
     coef = np.linalg.lstsq(A_, yt2, rcond=None)[0]
     mae_base = float(np.mean(np.abs(A_ @ coef - yt2)))
 
+    new = yt >= 0.97 * tbo           # nearly-new engines: where every live flight starts
+    nn_bias = float(np.mean(yp[new] - yt[new])) if new.any() else None
+    nn_mae = float(np.mean(np.abs(yp[new] - yt[new]))) if new.any() else None
+
     return {"mae_hours": mae, "mae_pct_tbo": 100.0 * mae / tbo, "corr": corr,
             "monotonic": mono, "bin_means": means,
+            "near_new_windows": int(new.sum()), "near_new_bias_hours": nn_bias, "near_new_mae_hours": nn_mae,
+            "near_new_bias_pct_tbo": None if nn_bias is None else 100.0 * nn_bias / tbo,
             "mae_hours_bsfc_imputed": mae_imp,
             "mae_pct_tbo_bsfc_imputed": 100.0 * mae_imp / tbo,
             "baseline_bsfc_only_pct_tbo": 100.0 * mae_base / tbo}
@@ -251,7 +291,7 @@ def fit_scaler(engine, force=False):
     return ok
 
 
-def run_one(phase, engine, force=False):
+def run_one(phase, engine, force=False, rul_finetune=False):
     if phase == 0:
         return fit_scaler(engine, force=force)
     key = C.ENGINE_KEY[engine]
@@ -282,26 +322,64 @@ def run_one(phase, engine, force=False):
             np.save(cwp, cw)
         print(f"  class weights: {np.round(cw, 3)}")
 
-    model, keep, aux, monitor, mode = build(phase, engine, cw)
+    finetune = phase == 5 and rul_finetune
+    model, keep, aux, monitor, mode = build(phase, engine, cw, lr=RUL_FINETUNE["lr"] if finetune else None)
 
-    prev = WARM_FROM[phase]
+    if phase == 5:
+        if finetune:
+            prev_model = keras.models.load_model(ckpt, safe_mode=False, compile=False)
+            if "rul_feat_norm" not in [l.name for l in prev_model.layers]:
+                raise SystemExit(f"{ckpt} predates the hybrid RUL branch (window stats + normalised aux); "
+                                 "retrain phase 5 without --rul-finetune")
+        else:
+            print("  adapting rul_feat_norm on train-split window stats + x_rul_aux (400 batches)...")
+            feat_model = keras.Model(model.inputs, model.get_layer("rul_feats").output)
+            batches = []
+            for i, (x, _) in enumerate(train_ds):
+                batches.append(np.asarray(feat_model.predict({"x": x["x"], "x_rul_aux": x["x_rul_aux"]}, verbose=0)))
+                if i + 1 >= 400:
+                    break
+            feats_all = np.concatenate(batches)
+            model.get_layer("rul_feat_norm").adapt(feats_all)
+            # rul_feats = [window mean (N_FEATURES), window variance (N_FEATURES), x_rul_aux]
+            bsfc_idx = P.RUL_AUX_ORDER.index("bsfc_ratio")
+            bsfc_mean = float(feats_all[:, 2 * P.N_FEATURES + bsfc_idx].mean())
+            col = tf.one_hot(bsfc_idx, P.N_RUL_AUX)
+
+            def drop_bsfc(x, y):
+                a = x["x_rul_aux"]
+                drop = tf.cast(tf.random.uniform([tf.shape(a)[0], 1]) < RUL_BSFC_DROPOUT, tf.float32) * col
+                return {**x, "x_rul_aux": a * (1.0 - drop) + drop * bsfc_mean}, y
+
+            print(f"  bsfc_ratio dropout {RUL_BSFC_DROPOUT:.0%} of train windows (mean {bsfc_mean:.4f})")
+            train_ds = train_ds.map(drop_bsfc)
+
+    prev = name if finetune else WARM_FROM[phase]
     if prev:
         C.warm_start(model, C.ckpt_path(engine, prev))
 
+    epochs = RUL_FINETUNE["epochs"] if finetune else EPOCHS[phase]
+    patience = RUL_FINETUNE["patience"] if finetune else PATIENCE[phase]
+    lr_patience = RUL_FINETUNE["lr_patience"] if finetune else LR_PATIENCE[phase]
+    min_lr = RUL_FINETUNE["min_lr"] if finetune else MIN_LR[phase]
+    labels = (C.split_labels(keep, needs_aux=aux, tbo_hours=C.tbo_of(engine),
+                             near_new_weight=RUL_NEAR_NEW_WEIGHT, near_new_from=RUL_NEAR_NEW_FROM)
+              if phase == 5 else C.split_labels(keep, needs_aux=aux))
+
     print(f"  steps/epoch {steps['train']:,}  val {steps['val']:,}  "
-          f"epochs<={EPOCHS[phase]}  monitor {monitor} ({mode})")
+          f"epochs<={epochs}  monitor {monitor} ({mode})" + ("  [fine-tune from existing checkpoint]" if finetune else ""))
 
     model.fit(
-        train_ds.map(C.split_labels(keep, needs_aux=aux)),
-        validation_data=val_ds.map(C.split_labels(keep, needs_aux=aux)),
+        train_ds.map(labels),
+        validation_data=val_ds.map(labels),
         steps_per_epoch=steps["train"], validation_steps=steps["val"],
-        epochs=EPOCHS[phase],
-        callbacks=C.callbacks(ckpt, monitor=monitor, mode=mode, patience=PATIENCE[phase],
-                            lr_patience=LR_PATIENCE[phase], min_lr=MIN_LR[phase]),
+        epochs=epochs,
+        callbacks=C.callbacks(ckpt, monitor=monitor, mode=mode, patience=patience,
+                            lr_patience=lr_patience, min_lr=min_lr),
         verbose=2,
     )
 
-    res = model.evaluate(test_ds.map(C.split_labels(keep, needs_aux=aux)),
+    res = model.evaluate(test_ds.map(labels),
                          steps=steps["test"], verbose=0, return_dict=True)
     res = {k: float(v) for k, v in res.items()}
     if phase == 5:
@@ -322,6 +400,9 @@ def main():
     ap.add_argument("--engines", default=",".join(C.ENGINE_KEY.values()))
     ap.add_argument("--order", choices=["phase", "engine"], default="phase")
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--rul-finetune", action="store_true",
+                    help="phase 5: continue from the existing checkpoint with near-new weighting "
+                         "(lr 3e-5, <=15 epochs) instead of training from scratch")
     ap.add_argument("--continue-on-fail", action="store_true",
                     help="keep going past a failed gate (phases 2-4 warm-start, so a "
                          "broken encoder propagates - off by default for a reason)")
@@ -354,7 +435,7 @@ def main():
             print(f"  SKIP  phase{p} {C.ENGINE_KEY[e]} - earlier phase failed for this engine")
             continue
         try:
-            if not run_one(p, e, force=a.force):
+            if not run_one(p, e, force=a.force, rul_finetune=a.rul_finetune):
                 failed.append((p, e))
                 if not a.continue_on_fail and p != 5:
                     skipped_engines.add(e)

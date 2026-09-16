@@ -49,10 +49,8 @@ Status of the physics-v3 programme against PS 26054, and what remains before v3 
 
 **Open, found by the plant-mismatch evaluation (see model cards):**
 
-- **Residual wear voting.** Temperature calibration offsets read as wear and push healthy oil-pressure and
-  vibration channels into deviation. Three mechanical-anchored voting designs fixed that but raised false
-  alarms on real flight data to 24-45% (model cards); the fix needs per-installation sensor calibration at
-  engine fit (zero the residuals on a known-healthy ground run), not a voting rule.
+- ~~**Residual wear voting.**~~ Solved by sensor zeroing on a known-healthy ground run (`POST /residuals/zero`),
+  not by a voting rule - three voting designs raised false alarms on real flight data to 24-45% (model cards).
 - **Residual tolerances for real sensors.** Vibration (0.0005 g) and RPM (5 rpm) scales are sized to simulator
   noise; calibrate them on real bench data or widen them for hardware.
 - ~~**Sensor vs engine attribution.**~~ Done: `RES_<CH>_SENSOR_SUSPECT` advisory item.
@@ -67,7 +65,7 @@ Status of the physics-v3 programme against PS 26054, and what remains before v3 
 
 | Item | State |
 |---|---|
-| Edge deployment (TFLite + latency) | Done for detection, diagnosis, severity and failure modes (196-239 KB float16, 0.37 ms/sample, parity 1e-5); the RUL LSTM does not convert faithfully - needs an unrolled LSTM or TCN RUL branch |
+| Edge deployment (TFLite + latency) | Done for all five heads: classification heads 196-239 KB float16 at 0.37 ms/sample; RUL 759-798 KB at 0.53 ms (unrolled LSTM + stable softplus), float32 within 2e-4 h of Keras |
 | Federated learning demo | `validation/federated_demo.py` written; run when the GPU is free |
 | Uncertainty on RUL | not possible with MC-dropout on this architecture; a deep-ensemble or quantile head is the option |
 | Mission-preset durations | Fixed: `/mission` presets show flight time, not v2 "h real" equivalents |

@@ -137,12 +137,13 @@ per head, all four engines):
 | Diagnosis | 392 KB | 212 KB | 0.37 ms | 24 ms | 6e-6 / 0.002 |
 | Severity | 444 KB | 239 KB | 0.37 ms | 24 ms | 2e-6 / 0.006 |
 | Failure modes | 384 KB | 209 KB | 0.38 ms | 24 ms | 3e-7 / 0.007 |
-| RUL (LSTM) | converts only with Flex ops | - | 2.7 ms | 28 ms | **fails** (458-1,105 h) |
+| RUL (LSTM) | 798 KB | 759 KB | 0.53 ms | 28 ms | 2e-4 h / 0.06-1.3 h |
 
-The four classification heads run on an edge CPU in under 1 MB (float16) at ~65x the speed of Keras with no
-meaningful loss. The RUL head's LSTM does not convert faithfully (the Flex-op graph differs from Keras); its
-`.tflite` files were removed and RUL stays on TensorFlow. Converting it needs an unrolled fixed-length LSTM or a
-TCN RUL branch (roadmap).
+All five heads run on an edge CPU at ~50-65x the speed of Keras with no meaningful loss. The RUL head needed two
+changes in `export_edge.py`, both with identical weights: the LSTMs are unrolled over the fixed 128-step window
+(builtin ops instead of a Flex TensorList graph), and the final softplus is rebuilt as relu(x) + log(1 + exp(-|x|)).
+TFLite evaluates softplus as log(1 + exp(x)); the head's 600 h output bias overflowed float32 above ~88.7, so the
+first conversion returned ln(FLT_MAX) = 88.72 h for every window.
 
 **Aircraft over CAN** (2026-09-15, plan P3). A separate process (`aircraft_sim.py`) flew its own 914
 through takeoff, climb, cruise and a 0.95-throttle leg, sending only CAN frames over the UDP multicast bus;
@@ -200,7 +201,17 @@ What this shows:
   mismatch test (wear index 0.012 vs true 0.020, only the offset channels flagged) but broke wear tracking on
   real flight data, where oil-pressure and vibration faults are common: false alarms rose from 0-0.05% to
   24-45% and the index correlation fell from 0.999 to 0.73-0.80. The original voting stays; calibration offsets
-  on temperature senders remain a known limitation, mitigated by the sensor-suspect attribution above.
+  on temperature senders were then solved at the source instead:
+- *Sensor zeroing (shipped).* `ResidualMonitor.begin_zeroing()` calibrates sender offsets on a known-healthy run
+  held at a steady operating point: wear is fixed at the engine's known value, temperatures are compared with the
+  steady physics value, and after 60 samples the median residual becomes each sender's offset (EGT, CHT, oil
+  temperature, oil pressure). On the calibration mismatch it recovered EGT +15.05 / CHT +3.98 / oil temp +2.66 C /
+  oil pressure -1.98 psi against true +15 / +4 / +3 / -2; afterwards only the known RPM glitches flagged (8 of 412
+  samples, was every sample) and the wear index read 0.032 against true 0.042 (was 0.302). Zeroing a healthy engine
+  gave offsets under 0.4, and a real CHT drift introduced after zeroing was still caught as the only deviation.
+  Exposed as `POST /residuals/zero` and a "Zero sensors" button; offsets persist per engine across restarts.
+- *Health drift (fixed).* Health used to subtract failure-mode probabilities the head did not flag as present
+  (3-8%), drifting healthy engines to ~92% at cruise. Only present modes count now; live cruise holds 100%.
 
 ## Physics residuals (model-free)
 
@@ -217,13 +228,14 @@ One simulated hour per engine on live physics (100 Hz, random flight legs includ
 
 Full scoring on the regenerated v3 data (`validation/residual_eval.py`, ~125k rows / 14-15 scenarios per
 engine, 2026-09-15). "Detect" is the share of injected-fault rows the residual flags; "signature" is the share
-where it also names the right fault type. The 912 has not been scored yet.
+where it also names the right fault type.
 
 | Engine | Max false-alarm rate | Wear index MAE / corr | Bias detect / signature | Drift | Noise | Spike | Stuck-At |
 |---|---|---|---|---|---|---|---|
 | 914 | 0.05% | 0.005 / 0.999 | 100% / 78% | 99% / 26% | 99% / 27% | 98% / 0% | 77% / 94% |
 | 915 | 0.05% | 0.003 / 1.000 | 100% / 84% | 98% / 32% | 99% / 16% | 98% / 0% | 93% / 94% |
 | 916 | 0.00% | 0.003 / 1.000 | 100% / 83% | 99% / 26% | 99% / 17% | 98% / 0% | 91% / 92% |
+| 912 | 0.00% | 0.002 / 1.000 | 100% / 87% | 99% / 22% | 99% / 17% | 98% / 0% | 93% / 96% |
 
 Detection is strong for every fault type; naming the type is not. Drift reads as bias, and noise and spike
 read as drift or noise, because a one-second residual cannot separate a short spike from noise. Use the
