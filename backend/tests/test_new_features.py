@@ -51,6 +51,33 @@ class RulFilterTest(unittest.TestCase):
         self.assertEqual(r["rul_hours_raw"], TBO - 150.0)
         self.assertAlmostEqual(r["rul_percent_remaining"], 100.0 * r["rul_hours"] / TBO, places=3)
 
+    def test_held_takeoff_window_does_not_set_the_floor(self):
+        """The shown RUL never rises within a flight, so the value that seeds the
+        filter is a floor. A held (settling) window contains ground roll, which the
+        RUL head was not trained on - seeding from it cost 10 h of permanent error on
+        a measured 916 flight."""
+        for t in range(60):                       # takeoff hold: a pessimistic estimate
+            r = main.smooth_rul({"time": t, "wear": 0.0},
+                                {**OK, "rul_hours": 1900.0, "settling": True})
+            self.assertEqual(r["rul_hours"], 1900.0)          # passed straight through
+        first = main.smooth_rul({"time": 61, "wear": 0.0}, {**OK, "rul_hours": 1990.0})
+        self.assertAlmostEqual(first["rul_hours"], 1990.0, places=3)   # floor is the
+        # first IN-ENVELOPE prediction, not the held one
+        later = main.smooth_rul({"time": 62, "wear": 0.0}, {**OK, "rul_hours": 1995.0})
+        self.assertLessEqual(later["rul_hours"], first["rul_hours"] + 1e-9)  # still never rises
+
+    def test_shown_rul_never_exceeds_tbo(self):
+        """TBO * relu(z) is unbounded above: a live 916 read 2101 h against a 2000 h
+        TBO during the takeoff window, which the gauge would show as 105% remaining."""
+        held = main.smooth_rul({"time": 5, "wear": 0.0},
+                               {**OK, "rul_hours": 2101.1, "settling": True})
+        self.assertEqual(held["rul_hours"], TBO)
+        self.assertEqual(held["rul_hours_raw"], 2101.1)
+        self.assertEqual(held["rul_percent_remaining"], 100.0)
+        flying = main.smooth_rul({"time": 6, "wear": 0.0}, {**OK, "rul_hours": 2101.1})
+        self.assertEqual(flying["rul_hours"], TBO)
+        self.assertLessEqual(flying["rul_percent_remaining"], 100.0)
+
     def test_new_flight_resets_and_non_ok_passes_through(self):
         main.smooth_rul({"time": 500, "wear": 0.0}, {**OK, "rul_hours": 1500.0})
         self.assertEqual(main.smooth_rul({"time": 3, "wear": 0.0}, {**OK, "rul_hours": 1900.0})["rul_hours"], 1900.0)

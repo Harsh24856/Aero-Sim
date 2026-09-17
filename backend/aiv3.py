@@ -80,6 +80,15 @@ RUL_OUT_OF_RANGE_FRAC = 1.05        # RUL above 105% of TBO is extrapolation
 NEAR_NEW_BAND_FRAC = 0.90           # predictions at/above this share of TBO use the nearly-new error band
 DETECTION_HEALTH_WEIGHT = 0.60      # health lost at full detection confidence with nothing else flagged
 RPM_FAULT_CONFIDENCE_FLOOR = 0.70   # same rule as ai.py
+# A stuck sensor means the READING froze while the quantity itself moved. At steady
+# cruise the engine's own rpm barely changes, so a constant reading is exactly what a
+# healthy sensor produces - residual.py has carried this guard since it was written
+# ("identical readings alone are NOT a stuck sensor"), the diagnosis head does not.
+# Without it a healthy 916 at cruise was diagnosed rpm "Stuck-At" and the cap below
+# pinned health at 70% for the whole flight, with every severity at 0, no failure mode
+# and detection confidence 1e-05. Measured live, 2026-09-17.
+STUCK_SAMPLES = 5        # consecutive samples, matching residual.STUCK_SAMPLES
+STUCK_RPM_MOVED = 5.0    # rpm of movement in the true signal that a frozen reading missed
 
 BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
 MODELS_ROOT = os.path.join(BACKEND_DIR, "models_v3")
@@ -156,6 +165,20 @@ class RollingWindowV3:
                               dtype=np.float32)
         raw_df = pd.DataFrame(raw_matrix, columns=FEATURE_COLS)
         return self.scaler.transform(raw_df).astype(np.float32)[np.newaxis, ...]
+
+    def rpm_reading_frozen(self) -> bool:
+        """True only when the rpm READING has not moved while the engine's rpm has.
+
+        Both are in the window: engine_rpm is the machine's own speed, rpm_fault is
+        what the sensor reports. A frozen sensor holds one value while the first moves;
+        at steady cruise both sit still, which is a healthy sensor, not a stuck one.
+        """
+        if len(self.buffer) < STUCK_SAMPLES:
+            return False
+        recent = list(self.buffer)[-STUCK_SAMPLES:]
+        sensed = [float(r["rpm_fault"]) for r in recent]
+        actual = [float(r["engine_rpm"]) for r in recent]
+        return max(sensed) == min(sensed) and (max(actual) - min(actual)) >= STUCK_RPM_MOVED
 
     def get_rul_aux(self) -> np.ndarray:
         """(1, 10) in RUL_AUX_ORDER."""
@@ -343,8 +366,12 @@ def run_inference(engine=None):
     health_percent = 100.0 * (1.0 - max(max(graded), fm_damage, det_damage))
     # The 70% cap on a confident rpm fault applies only where that call is measured to be
     # informative. On an unreliable channel it capped a healthy 915 at 70% on every sample.
-    if (diagnosis["rpm"]["reliable"] and diagnosis["rpm"]["fault_type"] != "none"
-            and diagnosis["rpm"]["confidence"] >= RPM_FAULT_CONFIDENCE_FLOOR):
+    # A "Stuck-At" call additionally has to survive the physics check: the reading must
+    # have frozen while the engine's rpm actually moved.
+    rpm_call = diagnosis["rpm"]
+    if (rpm_call["reliable"] and rpm_call["fault_type"] != "none"
+            and rpm_call["confidence"] >= RPM_FAULT_CONFIDENCE_FLOOR
+            and (rpm_call["fault_type"] != "Stuck-At" or window.rpm_reading_frozen())):
         health_percent = min(health_percent, 70.0)
 
     tbo = engine["tbo_hours"]
