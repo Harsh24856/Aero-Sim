@@ -14,7 +14,11 @@ export type AiResult = {
   rul_hours_internal?: number;
   // physics v3 (backend/aiv3.py): RUL in real engine hours, plus engine failure modes
   model_version?: string;
-  rul_hours?: number;
+  rul_hours?: number | null;
+  // False while the AI window still holds pre-takeoff samples: the head is
+  // extrapolating there and its output wanders (a 914 read 99.1 -> 99.0 -> 100%),
+  // so the backend sends no RUL at all and this card says so.
+  rul_ready?: boolean;
   rul_mae_hours?: number | null;   // test-split mean absolute error, the RUL uncertainty band
   tbo_hours?: number;
   failure_modes?: Record<string, { severity_percent: number; present: boolean; threshold?: number }>;
@@ -22,6 +26,8 @@ export type AiResult = {
   steps_needed?: number;
   // main.py: fault alerts held while the AI window still contains ground-roll samples
   settling?: boolean;
+  settle_seconds_left?: number;   // countdown to a usable window - a moving target: any
+  settle_window_s?: number;       // below-envelope sample pushes the release out again
 };
 
 // Mirrors backend/advisory.py build_advisory(). Deterministic, computed
@@ -327,12 +333,39 @@ export default function Diagnostics({ ai = null, advisory = null, residuals = nu
               <article className="border border-[#352722] bg-[#0d0e0d] p-2">
                 <div className="text-[7px] uppercase tracking-[0.11em] text-[#bca18e] md:text-[9px]">RUL</div>
                 <strong className="text-[11px] font-normal text-[#efe0d5] md:text-[14px]">
-                  {(ai.rul_percent_remaining ?? 0).toFixed(1)}%
+                  {ai.rul_ready === false || ai.rul_percent_remaining == null
+                    ? <span className="text-[#aa8f7f]">--</span>
+                    : `${ai.rul_percent_remaining.toFixed(1)}%`}
                 </strong>
-                {v3 && ai.rul_hours != null && (
+                {(ai.rul_ready === false || ai.rul_percent_remaining == null) && (() => {
+                  // Progress through the hold. The window is the denominator and the
+                  // countdown the numerator, so a dip below the envelope visibly sets
+                  // the bar back rather than quietly extending a full-looking one.
+                  const left = ai.settle_seconds_left;
+                  const total = ai.settle_window_s ?? 128;
+                  const pct = left != null ? Math.max(0, Math.min(100, 100 * (1 - left / total))) : null;
+                  return (
+                    <div
+                      className="mt-0.5"
+                      title="The remaining-life head needs a full window of in-envelope flight (above 32 m/s) before its estimate means anything. Until then it would be extrapolating, and the reading could rise - which remaining life never does."
+                    >
+                      <div className="flex items-baseline justify-between text-[7px] uppercase tracking-[0.1em] text-[#aa8f7f] md:text-[8px]">
+                        <span>Stabilising</span>
+                        {left != null && <span className="font-mono">{Math.ceil(left)}s</span>}
+                      </div>
+                      <div className="mt-0.5 h-1 w-full overflow-hidden bg-[#241a16]">
+                        <div
+                          className="h-full bg-[#ff8050] transition-[width] duration-500"
+                          style={{ width: `${pct ?? 0}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })()}
+                {v3 && ai.rul_ready !== false && ai.rul_hours != null && (
                   <div
                     className="mt-0.5 text-[7px] uppercase tracking-[0.1em] text-[#aa8f7f] md:text-[8px]"
-                    title={ai.rul_mae_hours != null ? `Uncertainty band: the model's measured error on held-out data for an engine at this life stage (±${Math.round(ai.rul_mae_hours)} h). Nearly-new engines are under-predicted - by 37-109 h depending on the engine - so the band widens there.` : undefined}
+                    title={ai.rul_mae_hours != null ? `Uncertainty band: the model's measured error on held-out data for an engine at this life stage (±${Math.round(ai.rul_mae_hours)} h).` : undefined}
                   >
                     {Math.round(ai.rul_hours).toLocaleString()}
                     {ai.rul_mae_hours != null ? ` ±${Math.round(ai.rul_mae_hours)}` : ""} engine h{ai.tbo_hours ? ` of ${ai.tbo_hours.toLocaleString()} TBO` : ""}
