@@ -35,6 +35,9 @@ HEADS = {
     "failure_modes": ("phase4_failure_modes", "y_failure_mode", False),
     "rul":           ("phase5_rul",           "y_rul_hours",    True),
 }
+# The RUL head has a second training route (validation/phase5_rul_v3_<key>.ipynb, on
+# the probe dataset). --rul-phase points this at it without touching the other heads.
+RUL_PHASE_DEFAULT = "phase5_rul"
 PARITY_TOL = 1e-5
 
 
@@ -54,7 +57,7 @@ def as_dict(out, names):
     return dict(zip(names, out))
 
 
-def export_engine(engine):
+def export_engine(engine, rul_phase=RUL_PHASE_DEFAULT):
     key = C.ENGINE_KEY[engine]
     out_dir = os.path.join(OUT_ROOT, key)
     os.makedirs(out_dir, exist_ok=True)
@@ -81,6 +84,8 @@ def export_engine(engine):
     }
 
     for head, (phase, out_name, needs_aux) in HEADS.items():
+        if head == "rul":
+            phase = rul_phase          # --rul-phase, e.g. the probe-trained phase5_rul_v3
         src_path = C.ckpt_path(engine, phase)
         src = keras.models.load_model(src_path, safe_mode=False, compile=False)
         src_out = src.output if isinstance(src.output, dict) else dict(zip(src.output_names, src.outputs))
@@ -122,7 +127,10 @@ def export_engine(engine):
         manifest["rul_test"] = {"mae_hours": round(rul_metrics["mae_hours"], 2),
                                 "mae_pct_tbo": round(rul_metrics.get("mae_pct_tbo", float("nan")), 3),
                                 "corr": round(rul_metrics.get("corr", float("nan")), 4),
-                                "source": f"validation/models/phase5_rul_{key}_test.json"}
+                                "near_new_mae_hours": rul_metrics.get("near_new_mae_hours"),
+                                "near_new_bias_hours": rul_metrics.get("near_new_bias_hours"),
+                                "near_new_definition": rul_metrics.get("near_new_definition"),
+                                "source": f"validation/models/{rul_phase}_{key}_test.json"}
     with open(os.path.join(out_dir, "manifest.json"), "w") as f:
         json.dump(manifest, f, indent=2)
     print(f"  {key}: wrote {out_dir}")
@@ -131,11 +139,13 @@ def export_engine(engine):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--engines", default="914,915,916")
+    ap.add_argument("--rul-phase", default=RUL_PHASE_DEFAULT,
+                    help="checkpoint phase for the RUL head, e.g. phase5_rul_v3")
     args = ap.parse_args()
     by_key = {v: k for k, v in C.ENGINE_KEY.items()}
     for key in [k.strip() for k in args.engines.split(",") if k.strip()]:
         print(f"\n=== {by_key[key]} ({key})")
-        export_engine(by_key[key])
+        export_engine(by_key[key], rul_phase=args.rul_phase)
     print("\nall exports passed parity")
 
 

@@ -104,7 +104,7 @@ def build_failure_mode_head(enc_out, hidden=64, dropout=0.1):
     return layers.Dense(N_FAILURE_MODES, activation="sigmoid", name="y_failure_mode")(h)
 
 
-def build_rul_head(enc_out, aux_input, hidden=64, dropout=0.1, init_hours=None):
+def build_rul_head(enc_out, aux_input, hidden=64, dropout=0.1, init_hours=None, skip=None):
     """Predicts RUL in HOURS. Takes enc_out PLUS x_rul_aux. Softplus keeps RUL >= 0.
 
     Output stays in raw hours - this is the head that reached 33 h MAE on 914.
@@ -122,6 +122,15 @@ def build_rul_head(enc_out, aux_input, hidden=64, dropout=0.1, init_hours=None):
     h = layers.Dense(hidden // 2, activation="relu", name="rul_dense2")(h)
     bias = "zeros" if init_hours is None else keras.initializers.Constant(float(init_hours))
     raw = layers.Dense(1, name="rul_dense_out", bias_initializer=bias)(h)
+    if skip is not None:
+        # Linear path straight from the window statistics to the output, in parallel
+        # with the MLP. A ridge on those same statistics scores 0.69% of TBO, so the
+        # linear solution is most of the answer - without this path the net has to
+        # rediscover it through two ReLU layers, which it does at about 8 h of MAE per
+        # epoch (measured: val MAE 73.7 -> 57.7 over three epochs, still 4x the ridge).
+        # With it, epoch 1 starts near the ridge and the MLP only has to improve on it.
+        raw = layers.Add(name="rul_out_add")(
+            [raw, layers.Dense(1, name="rul_skip_dense", use_bias=False)(skip)])
     return layers.Activation("softplus", name="y_rul_hours")(raw)
 
 def build_rul_lstm_encoder(x_input, units=32, num_layers=2, dropout=0.1):
@@ -229,7 +238,8 @@ def build_rul_window_stats(x_input):
 
 
 def build_rul_hybrid(x_input, aux_input, init_hours=None, lstm_units=32, lstm_layers=2,
-                     hidden=96, dropout=0.1, aux_norm=None, use_lstm=True, use_stats=True):
+                     hidden=96, dropout=0.1, aux_norm=None, use_lstm=True, use_stats=True,
+                     linear_skip=True):
     """The deployable RUL model's body: LSTM branch + window statistics + aux.
 
     aux_norm is a keras Normalization layer already adapted on the training aux
@@ -239,14 +249,18 @@ def build_rul_hybrid(x_input, aux_input, init_hours=None, lstm_units=32, lstm_la
     use_lstm / use_stats exist for the notebook's branch ablation: rebuild with one
     of them off, retrain briefly, and the MAE delta says what each branch was worth.
     """
-    parts = []
+    parts, stats = [], None
     if use_lstm:
         parts.append(build_rul_lstm_encoder(x_input, units=lstm_units,
                                             num_layers=lstm_layers, dropout=dropout))
     if use_stats:
-        parts.append(build_rul_window_stats(x_input))
+        stats = build_rul_window_stats(x_input)
+        parts.append(stats)
     if not parts:
         raise ValueError("build_rul_hybrid needs at least one of use_lstm/use_stats")
     body = parts[0] if len(parts) == 1 else layers.Concatenate(name="rul_merge")(parts)
     aux = aux_norm(aux_input) if aux_norm is not None else aux_input
-    return build_rul_head(body, aux, hidden=hidden, dropout=dropout, init_hours=init_hours)
+    skip = (layers.Concatenate(name="rul_skip_in")([stats, aux])
+            if (linear_skip and stats is not None) else None)
+    return build_rul_head(body, aux, hidden=hidden, dropout=dropout, init_hours=init_hours,
+                          skip=skip)
