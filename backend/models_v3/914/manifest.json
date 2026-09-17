@@ -3,7 +3,7 @@
   "key": "914",
   "physics_version": "v3",
   "tbo_hours": 2000.0,
-  "exported_at": "2026-09-15 09:07:17",
+  "exported_at": "2026-09-17 09:55:46",
   "contract": {
     "window_size": 128,
     "stride": 64,
@@ -87,7 +87,7 @@
       "output_shape": [
         1
       ],
-      "sha256": "024279f7cac71231e7b76d433d85f5c0e1d36674bfd0d417acbd7e7bf62eb36a",
+      "sha256": "5cf7a223eba52e8ae6a70c1dc013d43aa199b81177b299ce99cb87498cb55fa0",
       "test_metrics": {
         "acc": 0.953464686870575,
         "auc": 0.983903169631958,
@@ -110,7 +110,7 @@
         8,
         6
       ],
-      "sha256": "e990f350c7f747712057de42227038a65677011bc8ebc32f66d1dc5ebe25e8ae",
+      "sha256": "0c37200d3a4d46f9332be44c122ada47543f81a74bc48da76a63582cffb7f911",
       "test_metrics": {
         "loss": 15.868038177490234,
         "y_detection_loss": 0.12945565581321716,
@@ -134,7 +134,7 @@
       "output_shape": [
         8
       ],
-      "sha256": "30e809a3c5e68511d9285c6b41bd7ab39784bab28e23f4098fdb11f31dbdd0fd",
+      "sha256": "ef8e0a0af680215fc4cc42cd0e458deb1dd73fdb983fb97217a5967416b213e6",
       "test_metrics": {
         "loss": 22.076566696166992,
         "y_detection_loss": 0.20988257229328156,
@@ -159,7 +159,7 @@
       "output_shape": [
         4
       ],
-      "sha256": "5bdb1ccdde7a6210f8cd36ecbac6e6e964c1478da9c1e97ecc29854e2de928d2",
+      "sha256": "375a9858330a4e3e3409d527265f87ac07056b60de67909eece2ef85efac24ae",
       "test_metrics": {
         "auc_all": 0.8760397434234619,
         "auc_all_det": 0.9358255863189697,
@@ -182,7 +182,7 @@
     },
     "rul": {
       "file": "914_rul.keras",
-      "source_checkpoint": "phase5_rul_914.keras",
+      "source_checkpoint": "phase5_rul_v3_914.keras",
       "output": "y_rul_hours",
       "inputs": [
         "x",
@@ -191,30 +191,16 @@
       "output_shape": [
         1
       ],
-      "sha256": "d38ff83f43258fa56332c2089c7fb88652270f05ec11a5323c1917d076b7ff1a",
+      "sha256": "b31d88a1238899fa59a7bb6e7ce14f699acde7138160021187f279512490ffd7",
       "test_metrics": {
-        "loss": 0.7624922394752502,
-        "mae": 22.939197540283203,
-        "mae_pct_tbo": 1.1457571983337402,
-        "mae_hours": 22.915143966674805,
-        "corr": 0.998049732009704,
-        "monotonic": true,
-        "bin_means": [
-          60.90155029296875,
-          199.43283081054688,
-          338.5869445800781,
-          499.92987060546875,
-          638.982666015625,
-          773.1107788085938,
-          951.3521728515625,
-          1144.5252685546875,
-          1383.1300048828125,
-          1728.6954345703125
-        ],
-        "mae_hours_bsfc_imputed": 22.97698402404785,
-        "mae_pct_tbo_bsfc_imputed": 1.1488492012023925,
-        "baseline_bsfc_only_pct_tbo": 4.132563781738281,
-        "minutes": 52.6
+        "mae_hours": 11.356244938135147,
+        "mae_pct_tbo": 0.5678122469067574,
+        "corr": 0.9995603684579034,
+        "near_new_mae_hours": 11.474621401186342,
+        "near_new_bias_hours": -1.475123607494213,
+        "near_new_definition": "true RUL >= 90% of TBO, test split",
+        "dataset": "rul_v4_probes",
+        "phase": "phase5_rul_v3"
       },
       "parity_max_abs": {
         "extract": 0.0,
@@ -227,109 +213,13 @@
     "sha256": "a08c4974bf8de68477852ba9deaacd7ba23b592ae3a850207af74fb786069a8d",
     "fit_on": "train split only, over contract.feature_cols"
   },
-  "diagnosis_channel_reliability": {
-    "method": "test split; confident call = non-none class at >= 0.7; reliable if precision >= 0.5 and >= 2x base rate",
-    "channels": {
-      "egt": {
-        "reliable": true,
-        "precision": 0.96,
-        "recall": 0.896,
-        "base_rate": 0.027,
-        "confident_call_rate": 0.025
-      },
-      "cht": {
-        "reliable": true,
-        "precision": 0.862,
-        "recall": 0.412,
-        "base_rate": 0.113,
-        "confident_call_rate": 0.054
-      },
-      "oil_pressure": {
-        "reliable": true,
-        "precision": 0.991,
-        "recall": 0.033,
-        "base_rate": 0.213,
-        "confident_call_rate": 0.007
-      },
-      "oil_temp": {
-        "reliable": true,
-        "precision": 0.979,
-        "recall": 0.34,
-        "base_rate": 0.027,
-        "confident_call_rate": 0.009
-      },
-      "vibx": {
-        "reliable": true,
-        "precision": 0.999,
-        "recall": 0.988,
-        "base_rate": 0.218,
-        "confident_call_rate": 0.215
-      },
-      "viby": {
-        "reliable": true,
-        "precision": 0.999,
-        "recall": 0.993,
-        "base_rate": 0.218,
-        "confident_call_rate": 0.216
-      },
-      "vibz": {
-        "reliable": true,
-        "precision": 0.999,
-        "recall": 0.99,
-        "base_rate": 0.218,
-        "confident_call_rate": 0.216
-      },
-      "rpm": {
-        "reliable": true,
-        "precision": null,
-        "recall": 0.0,
-        "base_rate": 0.025,
-        "confident_call_rate": 0.0
-      }
-    }
-  },
-  "failure_mode_thresholds": {
-    "misfire": 0.07856,
-    "injector_fouling": 0.07035,
-    "cooling_degradation": 0.16306,
-    "combustion_instability": 0.15151
-  },
-  "failure_mode_threshold_stats": {
-    "method": "max F1 on the test split; positives severity >= DETECTION_THRESHOLD, negatives severity == 0",
-    "per_mode": {
-      "misfire": {
-        "f1": 0.689,
-        "precision": 0.7086,
-        "recall": 0.6705,
-        "positive_rate": 0.0769
-      },
-      "injector_fouling": {
-        "f1": 0.875,
-        "precision": 0.9644,
-        "recall": 0.8008,
-        "positive_rate": 0.0897
-      },
-      "cooling_degradation": {
-        "f1": 0.6368,
-        "precision": 0.8543,
-        "recall": 0.5076,
-        "positive_rate": 0.1001
-      },
-      "combustion_instability": {
-        "f1": 0.5684,
-        "precision": 0.4916,
-        "recall": 0.6735,
-        "positive_rate": 0.0592
-      }
-    }
-  },
   "rul_test": {
-    "mae_hours": 22.92,
-    "mae_pct_tbo": 1.151,
-    "corr": 0.998,
-    "source": "validation/models/phase5_rul_914_test.json",
-    "near_new_mae_hours": 79.7,
-    "near_new_bias_hours": -79.7,
-    "near_new_definition": "true RUL >= 97% of TBO, test split"
+    "mae_hours": 11.36,
+    "mae_pct_tbo": 0.568,
+    "corr": 0.9996,
+    "near_new_mae_hours": 11.474621401186342,
+    "near_new_bias_hours": -1.475123607494213,
+    "near_new_definition": "true RUL >= 90% of TBO, test split",
+    "source": "validation/models/phase5_rul_v3_914_test.json"
   }
 }

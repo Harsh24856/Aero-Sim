@@ -267,6 +267,42 @@ export default function AboutUsPage() {
           </div>
         </section>
 
+        {/* System diagram */}
+        <section className="relative z-10 mx-auto max-w-7xl px-4 md:px-6 py-12 md:py-16">
+          <div className="mb-8 flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+            <div>
+              <span className="font-mono text-[10px] font-bold tracking-[0.2em] text-tertiary uppercase">INSIDE THE MODEL</span>
+              <h2 className="mt-1.5 font-headline-display text-2xl md:text-3xl font-bold uppercase text-white tracking-tight">
+                Full system diagram
+              </h2>
+              <p className="mt-3 max-w-2xl text-sm leading-relaxed text-on-surface-variant">
+                The complete signal flow of <span className="font-mono text-tertiary">UAV_Piston_Engine.slx</span> — the
+                top-level architecture plus every one of the nine subsystems, redrawn from roughly 500 Simulink blocks.
+              </p>
+            </div>
+            <a
+              href="/uav-piston-engine-diagram.html"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex shrink-0 items-center gap-2 border border-outline-variant/50 bg-surface-container-highest/60 px-5 py-3 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-white rounded hover:border-tertiary hover:text-tertiary transition-colors"
+            >
+              Open full diagram <ArrowRight size={14} />
+            </a>
+          </div>
+
+          <div className="bg-surface/80 border border-outline-variant/30 rounded-lg p-2 shadow-[2px_2px_0px_#000000]">
+            <iframe
+              src="/uav-piston-engine-diagram.html"
+              title="UAV Piston Engine — Full System Diagram"
+              loading="lazy"
+              className="w-full h-[600px] md:h-[760px] rounded bg-background"
+            />
+          </div>
+          <p className="mt-3 font-mono text-[10px] uppercase tracking-wider text-on-surface-variant/60">
+            Scroll inside the frame to move through sections 01 &ndash; 09.
+          </p>
+        </section>
+
         {/* Contact CTA + Direct */}
         <section className="relative z-10 mx-auto max-w-7xl px-4 md:px-6 py-12 md:py-16 grid grid-cols-1 md:grid-cols-[1fr_1.2fr] gap-8">
           <div>
