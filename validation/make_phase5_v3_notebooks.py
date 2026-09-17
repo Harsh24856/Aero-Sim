@@ -110,6 +110,12 @@ BASELINE_MAE_PCT = base["mae_pct"]
 last sample, half-to-half slope, all with standard layers so it serialises and
 converts to TFLite) + the normalised aux vector, into the existing `build_rul_head`.
 
+A **linear skip** runs from the statistics straight to the output, in parallel with
+the MLP. The ridge above shows the linear solution is most of the answer; without the
+skip the net spends its first epochs rediscovering it (measured: val MAE 73.7 -> 57.7
+over three epochs, still four times the ridge), and with it training starts near the
+ridge and improves from there.
+
 The aux `Normalization` is adapted on train only: `elapsed_hours` is in hours,
 `cht_excess` in degrees and the ratios sit near 1, so raw inputs would let the
 degree-scaled feature dominate initialisation.
@@ -120,9 +126,9 @@ aux_norm.adapt(train.aux)
 
 xi, ax = A.build_encoder_input(), A.build_aux_input()
 out = A.build_rul_hybrid(xi, ax, init_hours=0.5*TBO, lstm_units=32, lstm_layers=2,
-                         hidden=96, dropout=0.1, aux_norm=aux_norm)
+                         hidden=96, dropout=0.1, aux_norm=aux_norm, linear_skip=True)
 model = keras.Model({"x": xi, "x_rul_aux": ax}, {"y_rul_hours": out}, name="rul")
-model.compile(optimizer=keras.optimizers.Adam(1e-3, clipnorm=1.0),
+model.compile(optimizer=keras.optimizers.Adam(2e-3, clipnorm=1.0),
               loss={"y_rul_hours": C.rul_loss(TBO)},          # Huber in % of TBO
               metrics={"y_rul_hours": [keras.metrics.MeanAbsoluteError(name="mae"),
                                        C.mae_pct_tbo(TBO)]})
@@ -131,7 +137,8 @@ print(f"{model.count_params():,} parameters")
         code("""
 BATCH = 256
 ckpt = C.ckpt_path(ENGINE, PHASE)
-cand = ckpt + ".candidate"          # promoted only if it beats what is already there
+# ModelCheckpoint insists on a .keras suffix, so the candidate keeps one.
+cand = ckpt.replace(".keras", ".candidate.keras")   # promoted only if it beats what is there
 
 hist = model.fit(
     R.tf_dataset(train, batch_size=BATCH, shuffle=True),
@@ -223,10 +230,22 @@ report = {
     "trained_at": time.strftime("%Y-%m-%d %H:%M:%S"),
 }
 
+# What split_deployable_heads.py folds into the manifest, and aiv3.py serves as the
+# RUL uncertainty band - including the near-new band, which widens the band on a
+# fresh engine instead of pretending the overall MAE applies there.
+test_json = {
+    "mae_hours": m["mae_h"], "mae_pct_tbo": m["mae_pct"], "corr": m["corr"],
+    "near_new_mae_hours": m["near_new_mae_h"],
+    "near_new_bias_hours": m["near_new_bias_h"],
+    "near_new_definition": f"true RUL >= {100*R.NEAR_NEW_FROM:.0f}% of TBO, test split",
+    "dataset": meta["dataset"], "phase": PHASE,
+}
+
 better = prev is None or m["mae_pct"] <= prev["test"]["mae_pct"]
 if passed and better:
     model.save(ckpt)
     json.dump(report, open(report_path, "w"), indent=2)
+    json.dump(test_json, open(os.path.join(C.MODELS_DIR, f"{PHASE}_{KEY}_test.json"), "w"), indent=2)
     print(f"promoted -> {ckpt}")
     if prev:
         print(f"  (previous test MAE {prev['test']['mae_pct']:.2f}% of TBO)")
@@ -243,8 +262,8 @@ exactly as before - the input and output names are unchanged, so `aiv3.py` and
 `validation/export_edge.py` need no edit:
 
 ```bash
-validation/venv/bin/python3 validation/split_deployable_heads.py --engine ENGINE --phase phase5_rul_v3
-validation/venv/bin/python3 validation/export_edge.py --engine ENGINE
+validation/venv/bin/python3 validation/split_deployable_heads.py --engines KEY --rul-phase phase5_rul_v3
+validation/venv/bin/python3 validation/export_edge.py --engines KEY
 ```
 
 Then re-run the live check (`validation/parity_ai_v3.py`) before flying it.
