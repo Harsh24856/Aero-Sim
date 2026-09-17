@@ -149,10 +149,10 @@ const SECTIONS = [
 ];
 
 const STAGES = [
-  { label: "912 ULS Baseline", desc: "4-head model trained and deployed: fault detection, per-channel diagnosis, severity, and RUL — verified against real training data." },
-  { label: "914 F/UL Primary Twin", desc: "The reference model this simulator was built around. Parity-verified: 0.31 h RUL MAE, 98.4% detection accuracy." },
-  { label: "915 iS Digital Twin", desc: "Trained and deployed with the same 4-head architecture, verified against this engine's own validation data." },
-  { label: "916 iS Flagship Twin", desc: "Fully deployed with real-time telemetry and Supabase-backed run history — all four engines share the identical verified inference pipeline." },
+  { label: "912 ULS", desc: "Five heads deployed. RUL 11.6 h MAE (0.58% of a 2,000 h TBO), near-new bias −0.04% — the band a fresh engine is actually read against." },
+  { label: "914 F/UL — reference twin", desc: "The engine this simulator was built around. RUL 11.4 h (0.57% of TBO), detection AUC 0.984, and the head reproduces its own ridge floor before training begins." },
+  { label: "915 iS", desc: "Shorter 1,200 h TBO, so errors are judged against a tighter budget: 7.1 h MAE (0.59% of TBO), near-new bias +0.01%." },
+  { label: "916 iS", desc: "12.5 h MAE (0.63% of TBO). All four engines share one inference pipeline, one feature contract, and one set of acceptance gates." },
 ];
 
 const PHYSICS_FORMULAS = [
@@ -164,7 +164,7 @@ const PHYSICS_FORMULAS = [
   { label: "TURBO TORQUE (MAP)", formula: "T = f(RPM, throttle, MAP, T_iat, Alt)", note: "Decoupled from ambient pressure until wastegate critical altitude." },
 ];
 
-const PIPELINE_STAGES = ["Engine", "Mechanical", "Performance", "Induction", "Fuel", "Thermal", "AI Twin", "Telemetry"];
+const PIPELINE_STAGES = ["Engine", "Mechanical", "Performance", "Induction", "Fuel", "Thermal", "Electrical", "Wear", "AI Twin", "Residuals", "Telemetry"];
 
 const UAV_CASES = [
   { engine: "912 ULS", title: "Lightweight Endurance", desc: "Ideal for low-altitude, long-endurance surveillance UAVs where minimal empty weight maximizes fuel capacity and structural simplicity avoids turbo failure points." },
@@ -178,7 +178,9 @@ const VALIDATION_LEVELS = [
   { lvl: "L2", title: "Physics Validation", desc: "Verify P = T·ω conservation, ideal gas density lapse, and thermal dissipation rates in steady-state operation." },
   { lvl: "L3", title: "Map Validation", desc: "Compare predicted torque and brake specific fuel consumption (BSFC) against trusted dynamometer operating points." },
   { lvl: "L4", title: "Dynamic Validation", desc: "Test throttle transients, turbocharger spool-up lag, and cylinder thermal inertia where time-series test records exist." },
-  { lvl: "L5", title: "AI Validation", desc: "Continuously evaluate MAE, RMSE, worst-case error, and confidence intervals across operating envelopes." },
+  { lvl: "L5", title: "AI Validation", desc: "Every head ships only through its gates: MAE as a percentage of TBO, near-new bias within ±2%, correlation across life stages, no decile inversions, and a beat over the linear baseline." },
+  { lvl: "L6", title: "Ablation", desc: "A head that leans on one convenient feature has not learned the window. RUL is re-scored with the fuel-flow ratio zeroed, and must still hold its error." },
+  { lvl: "L7", title: "Cross-implementation", desc: "The Simulink plant model is compared step for step with the Python twin: four engines, 47 channels, 600 steps, worst relative error 4e-10." },
 ];
 
 /* ─── Section divider ───────────────────────────────────────────────────────── */
@@ -607,7 +609,9 @@ export default function EngineInfoPage() {
           <section id="ai-twin" className="scroll-mt-28">
             <SectionHeader code="08 // ML PIPELINE">AI Digital-Twin Architecture</SectionHeader>
             <p className="text-sm text-on-surface-variant mb-5">
-              For AI-ready engines, prediction targets are separated between fast mechanical states and thermal inertia responses.
+              One TCN encoder over the window feeds four classification heads; RUL gets its own branch
+              and its own dataset, because in the shared one the label moved by 15.8 h inside a single
+              128-sample window — the same size as the head&apos;s own error.
             </p>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -618,9 +622,9 @@ export default function EngineInfoPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="border-r border-outline-variant/25 pr-4">
-                    <span className="text-[9px] text-on-surface-variant/50 uppercase block mb-2 font-bold">INPUT WINDOW — 24 CH × 128 STEPS</span>
+                    <span className="text-[9px] text-on-surface-variant/50 uppercase block mb-2 font-bold">INPUT WINDOW — 25 CH × 128 STEPS</span>
                     <ul className="space-y-1.5 text-on-surface-variant/90">
-                      {["Flight state — altitude, throttle, airspeed, AoA", "Powerplant — RPM, torque, power, fuel flow", "Aero — thrust, lift, drag, thrust/lift margins", "Thermal — EGT, CHT, oil pressure, oil temp", "Vibration — X / Y / Z axis accelerometers", "24 features, 128-second rolling window"].map((item) => (
+                      {["Flight state — altitude, throttle, airspeed, AoA", "Powerplant — RPM, torque, power, fuel flow", "Aero — thrust, lift, drag, thrust/lift margins", "Thermal — EGT, CHT, oil pressure, oil temp", "Vibration — X / Y / Z axis accelerometers", "Injection timing — carries misfire and injector signatures", "25 features, 128-second rolling window, plus 10 aux"].map((item) => (
                         <li key={item} className="flex items-start gap-1.5 text-[11px]">
                           <span className="h-1 w-1 bg-tertiary rounded-full shrink-0 mt-1.5" />{item}
                         </li>
@@ -628,17 +632,18 @@ export default function EngineInfoPage() {
                     </ul>
                   </div>
                   <div>
-                    <span className="text-[9px] text-tertiary uppercase block mb-2 font-bold">OUTPUTS — 4 HEADS</span>
+                    <span className="text-[9px] text-tertiary uppercase block mb-2 font-bold">OUTPUTS — 5 HEADS</span>
                     <ul className="space-y-1.5">
                       {[
                         "Fault Detection (binary, sigmoid)",
                         "Per-Channel Diagnosis (8 ch × 6 fault types)",
                         "Severity Score (0–100% per channel)",
-                        "Remaining Useful Life (hours, softplus)",
+                        "Engine Failure Modes (4 modes, independent sigmoids)",
+                        "Remaining Useful Life (engine hours against TBO)",
                         "Fault types: Bias, Drift, Spike, Stuck-At, Noise",
-                        "RUL head uses independent LSTM branch",
+                        "RUL: LSTM + window statistics, started at a ridge fit",
                       ].map((item, i) => (
-                        <li key={item} className={`flex items-start gap-1.5 font-bold text-[11px] ${i < 4 ? "text-tertiary" : i === 4 ? "text-on-surface-variant/70" : "text-amber-300/80"}`}>
+                        <li key={item} className={`flex items-start gap-1.5 font-bold text-[11px] ${i < 5 ? "text-tertiary" : i === 5 ? "text-on-surface-variant/70" : "text-amber-300/80"}`}>
                           <CheckCircle2 size={11} className="shrink-0 mt-0.5" />{item}
                         </li>
                       ))}

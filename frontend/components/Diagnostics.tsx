@@ -10,6 +10,9 @@ export type AiResult = {
   diagnosis?: Record<string, AiDiagnosisChannel>;
   severity_percent?: Record<string, number>;
   health_percent?: number;
+  // The model's own value when the cockpit overrides what is shown (takeoff hold,
+  // crashed airframe) - kept so the override never hides the real number.
+  health_percent_raw?: number;
   rul_percent_remaining?: number;
   rul_hours_internal?: number;
   // physics v3 (backend/aiv3.py): RUL in real engine hours, plus engine failure modes
@@ -26,6 +29,9 @@ export type AiResult = {
   steps_needed?: number;
   // main.py: fault alerts held while the AI window still contains ground-roll samples
   settling?: boolean;
+  // Set by the cockpit, not the model: the airframe crashed, so health reads 0
+  // regardless of what the engine window last said (see simulate/page.tsx).
+  airframe_crashed?: boolean;
   settle_seconds_left?: number;   // countdown to a usable window - a moving target: any
   settle_window_s?: number;       // below-envelope sample pushes the release out again
 };
@@ -324,11 +330,21 @@ export default function Diagnostics({ ai = null, advisory = null, residuals = nu
             </article>
 
             <div className="grid grid-cols-2 gap-2">
-              <article className="border border-[#352722] bg-[#0d0e0d] p-2">
+              <article className={`border p-2 ${ai.airframe_crashed ? "border-[#84432c] bg-[#21130f]" : "border-[#352722] bg-[#0d0e0d]"}`}>
                 <div className="text-[7px] uppercase tracking-[0.11em] text-[#bca18e] md:text-[9px]">Health</div>
-                <strong className="text-[11px] font-normal text-[#efe0d5] md:text-[14px]">
+                <strong className={`text-[11px] font-normal md:text-[14px] ${ai.airframe_crashed ? "text-[#ff9a72]" : "text-[#efe0d5]"}`}>
                   {(ai.health_percent ?? 0).toFixed(1)}%
                 </strong>
+                {ai.airframe_crashed && (
+                  <div
+                    className="mt-0.5 text-[7px] uppercase tracking-[0.1em] text-[#ff9a72] md:text-[8px]"
+                    title={ai.health_percent_raw != null
+                      ? `Airframe destroyed. The engine model's own last reading was ${ai.health_percent_raw.toFixed(1)}% - it describes the seconds before impact, not the wreck.`
+                      : 'Airframe destroyed.'}
+                  >
+                    Airframe lost
+                  </div>
+                )}
               </article>
               <article className="border border-[#352722] bg-[#0d0e0d] p-2">
                 <div className="text-[7px] uppercase tracking-[0.11em] text-[#bca18e] md:text-[9px]">RUL</div>

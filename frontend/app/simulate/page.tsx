@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import Sensr from "@/components/Sensr";
@@ -316,6 +316,22 @@ function SimulatePageInner() {
   }, []);
 
   const onTelemetryChange = useCallback((t: SimTelemetry) => setLiveTelemetry(t), []);
+
+  // A crashed airframe is not a healthy engine, whatever the model last inferred from
+  // its 128-sample window: that window describes the seconds BEFORE impact, so it keeps
+  // reporting a nominal engine while the aircraft is wreckage. Health is forced to 0 for
+  // as long as the crashed state stands, with the model's own number kept as
+  // health_percent_raw - the same convention the takeoff hold uses, so nothing is hidden.
+  const crashed = liveTelemetry?.status === "crashed";
+  const aiForPanel = useMemo(() => {
+    if (!crashed || !aiResult || aiResult.status !== "ok") return aiResult;
+    return {
+      ...aiResult,
+      health_percent: 0,
+      health_percent_raw: aiResult.health_percent,
+      airframe_crashed: true,
+    };
+  }, [crashed, aiResult]);
 
   // Engine sound follows the physics stream while flying; pause/stop fade it out.
   useEffect(() => {
@@ -680,7 +696,7 @@ function SimulatePageInner() {
             whatever the backend telemetry stream happens to contain (which could
             be leftover/unrelated to this frontend session entirely), showing a
             "moving" flight time even while paused or never started. */}
-        <Diagnostics ai={aiResult} advisory={advisory} residuals={residuals} physicsVersion={livePhysicsVersion} link={started && !paused ? link : undefined} engineHours={started ? sessionEngineHours : undefined} simStatus={simStatus} simSeconds={started && !paused ? rawTelemetry?.time : undefined} dataSource={started ? (rawTelemetry as { data_source?: string } | null)?.data_source : undefined} onZeroSensors={started && !paused ? () => { fetch(`${API}/residuals/zero`, { method: "POST" }).catch(() => {}); } : undefined} />
+        <Diagnostics ai={aiForPanel} advisory={advisory} residuals={residuals} physicsVersion={livePhysicsVersion} link={started && !paused ? link : undefined} engineHours={started ? sessionEngineHours : undefined} simStatus={simStatus} simSeconds={started && !paused ? rawTelemetry?.time : undefined} dataSource={started ? (rawTelemetry as { data_source?: string } | null)?.data_source : undefined} onZeroSensors={started && !paused ? () => { fetch(`${API}/residuals/zero`, { method: "POST" }).catch(() => {}); } : undefined} />
       </div>
 
       <HealthVignette
