@@ -411,21 +411,45 @@ def reset_rul_filter():
 def smooth_rul(sample: dict, result: dict) -> dict:
     if result.get("status") != "ok" or not isinstance(result.get("rul_hours"), (int, float)):
         return result
-    f = state["rul_filter"]
+    # NOT WHILE ALERTS ARE HELD. The shown value never rises within a flight, so
+    # whatever seeds the filter becomes a floor for the rest of it - and during the
+    # takeoff hold the AI's 128-sample window still contains ground roll, which is
+    # outside the envelope its RUL head was trained on. Measured on a 916 flight: the
+    # head's raw prediction was 9.5 h low (inside its own 12.5 h band) while the
+    # display sat 19.6 h low, the difference being an early held-window estimate the
+    # filter could never climb back from. Passing raw through until the hold releases
+    # lets the first in-envelope prediction set the floor instead.
     t, wear, tbo = sample.get("time"), sample.get("wear"), result.get("tbo_hours")
     raw = float(result["rul_hours"])
+    # No engine has more life left than its overhaul interval. The head's output is
+    # TBO * relu(z), which is unbounded above - measured live at 2101 h on a 2000 h
+    # TBO during the takeoff window, i.e. "105% remaining" on the gauge.
+    ceiling = float(tbo) if isinstance(tbo, (int, float)) and tbo else None
+
+    def presented(value):
+        value = max(0.0, value)
+        return min(value, ceiling) if ceiling else value
+
+    if result.get("settling"):
+        reset_rul_filter()
+        shown = presented(raw)
+        out = {**result, "rul_hours_raw": raw, "rul_hours": round(shown, 3)}
+        if ceiling:
+            out["rul_percent_remaining"] = round(100.0 * shown / ceiling, 4)
+        return out
+    f = state["rul_filter"]
     if f["t"] is not None and isinstance(t, (int, float)) and t < f["t"]:
         reset_rul_filter()                       # clock restarted: a new flight
         f = state["rul_filter"]
     if f["ema"] is None:
-        f["ema"] = f["shown"] = raw
+        f["ema"] = f["shown"] = presented(raw)
     else:
         dt = max(0.0, float(t) - f["t"]) if isinstance(t, (int, float)) and f["t"] is not None else 1.0
         f["ema"] += (1.0 - math.exp(-dt / RUL_SMOOTH_S)) * (raw - f["ema"])
         consumed = (max(0.0, float(wear) - f["wear"]) * float(tbo)
                     if isinstance(wear, (int, float)) and f["wear"] is not None and tbo else 0.0)
         f["shown"] = min(f["shown"] - consumed, f["ema"])
-    f["shown"] = max(0.0, f["shown"])
+    f["shown"] = presented(f["shown"])
     f["t"] = t if isinstance(t, (int, float)) else f["t"]
     f["wear"] = float(wear) if isinstance(wear, (int, float)) else f["wear"]
     out = {**result, "rul_hours_raw": raw, "rul_hours": round(f["shown"], 3)}
