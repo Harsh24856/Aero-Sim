@@ -155,15 +155,19 @@ def steps_for(split_obj, batch_size=256):
 # deployed LSTM sat at -80 h).
 # ---------------------------------------------------------------------------
 def window_features(split_obj, chunk=2048, with_aux=True):
-    """(N, F) float32: per-feature mean, std, last and half-to-half slope of the
+    """(N, F) float32: per-feature mean, VARIANCE, last and half-to-half slope of the
     scaled window, optionally with the aux vector appended. Streams the memmap in
-    chunks so peak memory is one chunk."""
+    chunks so peak memory is one chunk.
+
+    Variance rather than standard deviation so these are exactly what
+    model_architectures.build_rul_window_stats computes in-graph - a sqrt there would
+    need a Lambda, and a Lambda in this head fails on reload (see that function)."""
     n, win, nf = split_obj.x.shape
     half = win // 2
     out = []
     for s in range(0, n, chunk):
         xb = split_obj.scaled(slice(s, min(s + chunk, n)))
-        feats = [xb.mean(axis=1), xb.std(axis=1), xb[:, -1, :],
+        feats = [xb.mean(axis=1), xb.var(axis=1), xb[:, -1, :],
                  xb[:, half:, :].mean(axis=1) - xb[:, :half, :].mean(axis=1)]
         out.append(np.concatenate(feats, axis=1).astype(np.float32))
     F = np.concatenate(out, axis=0)
@@ -173,7 +177,7 @@ def window_features(split_obj, chunk=2048, with_aux=True):
 
 
 def feature_names(split_obj, cols, with_aux=True, aux_order=None):
-    names = ([f"{c}_mean" for c in cols] + [f"{c}_std" for c in cols]
+    names = ([f"{c}_mean" for c in cols] + [f"{c}_var" for c in cols]
              + [f"{c}_last" for c in cols] + [f"{c}_slope" for c in cols])
     if with_aux:
         names += list(aux_order or [])
