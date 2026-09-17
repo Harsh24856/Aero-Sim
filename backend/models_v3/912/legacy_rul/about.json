@@ -1,0 +1,32 @@
+{
+  "what": "the RUL head trained on the v3 SCENARIO dataset, replaced 2026-09-17",
+  "why_kept": "the previous deployed head, for comparison and rollback",
+  "source_checkpoint": "phase5_rul_912.keras",
+  "replaced_by": "phase5_rul_v3_912.keras (probe dataset, backend/generate_rul_dataset.py)",
+  "live_flight_comparison": {
+    "profile": "same flight, both heads, scored against the twin's wear*tbo_hours",
+    "old": {
+      "n": 100,
+      "tbo": 2000.0,
+      "mae_h": 124.707,
+      "mae_pct": 6.235,
+      "bias_h": -124.707,
+      "bias_pct": -6.235,
+      "near_new_n": 100,
+      "near_new_bias_h": -124.707,
+      "near_new_bias_pct": -6.235
+    },
+    "new": {
+      "n": 100,
+      "tbo": 2000.0,
+      "mae_h": 5.552,
+      "mae_pct": 0.278,
+      "bias_h": -5.552,
+      "bias_pct": -0.278,
+      "near_new_n": 100,
+      "near_new_bias_h": -5.552,
+      "near_new_bias_pct": -0.278
+    }
+  },
+  "rollback": "cp legacy_rul/912_rul_scenario_v3.keras 912_rul.keras   then restore rul_test in manifest.json from this file"
+}

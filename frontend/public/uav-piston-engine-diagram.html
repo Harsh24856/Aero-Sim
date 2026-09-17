@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UAV Piston Engine — Full System Diagram</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"></link>
+<style>
+body{margin:0;background:#0a0a0a;background-image:linear-gradient(to right,rgba(255,255,255,0.03) 1px,transparent 1px),linear-gradient(to bottom,rgba(255,255,255,0.03) 1px,transparent 1px);background-size:32px 32px;color-scheme:dark;}
+a{color:#2fbcab;}
+a:hover{color:#6fe0d2;}
+</style>
+</head>
+<body>
+<div style="font-family:'Space Grotesk','Source Sans 3',sans-serif;max-width:1360px;margin:0 auto;padding:48px 32px 96px;color:#e7e7e7">
+
+<div style="margin-bottom:44px">
+  <div style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#2fbcab;margin-bottom:8px">Simulink Model — UAV_Piston_Engine.slx</div>
+  <h1 style="font-size:34px;font-weight:700;margin:0 0 10px;line-height:1.15">UAV Piston Engine — Full System Diagram</h1>
+  <p style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:13.5px;color:#9ca3af;line-height:1.6;max-width:820px;margin:0">Redrawn from the model's 9 subsystems and ~500 blocks. Section 1 is the top-level signal-flow architecture; sections 2–9 drill into each subsystem's internal logic.</p>
+</div>
+
+<!-- ============ SECTION 1: OVERVIEW ============ -->
+<div style="margin-bottom:64px">
+  <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:20px;border-bottom:1px solid #2e2e2e;padding-bottom:10px">
+    <span style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:13px;color:#34d0bd;font-weight:600">01</span>
+    <h2 style="font-size:20px;font-weight:700;margin:0">System Architecture — Top-Level Signal Flow</h2>
+  </div>
+
+  <div style="display:flex;flex-direction:column;align-items:center;gap:0">
+
+    <!-- inputs -->
+    <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:10px;margin-bottom:10px">
+      <div style="background:#141414;border:1px dashed #3d3d3d;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px;color:#a5aeab">altitude_ts / Live Altitude slider</div>
+      <div style="background:#141414;border:1px dashed #3d3d3d;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px;color:#a5aeab">airspeed_ts</div>
+      <div style="background:#141414;border:1px dashed #3d3d3d;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px;color:#a5aeab">aoa_ts</div>
+      <div style="background:#141414;border:1px dashed #3d3d3d;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px;color:#a5aeab">throttle_ts</div>
+    </div>
+    <div style="font-size:22px;color:#34d0bd;line-height:1">↓</div>
+
+    <!-- atmosphere -->
+    <div style="width:280px;background:#141414;border:1px solid #1c4a44;border-radius:6px;overflow:hidden;margin-bottom:4px">
+      <div style="background:#1c4a44;color:white;font-size:14px;font-weight:600;padding:7px 14px">Atmosphere</div>
+      <div style="padding:10px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px;color:#a5aeab;line-height:1.6">Standard-atmosphere model → Temp(K), Pressure(Pa), AirDensity</div>
+    </div>
+    <div style="font-size:22px;color:#34d0bd;line-height:1">↓</div>
+
+    <!-- two column branch -->
+    <div style="display:grid;grid-template-columns:minmax(240px,1fr) minmax(300px,2fr);gap:28px;align-items:start;width:100%;margin-bottom:6px">
+
+      <div style="display:flex;flex-direction:column;align-items:center;min-width:0">
+        <div style="width:100%;max-width:280px;background:#141414;border:1px solid #2e2e2e;border-radius:6px;overflow:hidden">
+          <div style="background:#1c4a44;color:white;font-size:14px;font-weight:600;padding:7px 14px">AeroDynamic</div>
+          <div style="padding:10px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px;color:#a5aeab;line-height:1.6">Lift &amp; Drag from AirDensity, Airspeed, WingArea(S), AoA</div>
+        </div>
+        <div style="font-size:22px;color:#34d0bd;line-height:1;margin-top:8px">↓</div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;align-items:center;min-width:0">
+        <div style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:11px;color:#a5aeab;margin-bottom:6px">Throttle ↓</div>
+        <div style="display:flex;align-items:center;gap:10px;width:100%;justify-content:center;flex-wrap:wrap">
+          <div style="width:150px;background:#141414;border:1px solid #2e2e2e;border-radius:6px;overflow:hidden">
+            <div style="background:#1c4a44;color:white;font-size:12.5px;font-weight:600;padding:6px 10px">TorqueMap</div>
+            <div style="padding:8px 10px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:11px;color:#a5aeab;line-height:1.5">Throttle, RPM → Torque avail.</div>
+          </div>
+          <div style="font-size:18px;color:#34d0bd">⇄</div>
+          <div style="width:170px;background:#141414;border:1.5px solid #1c4a44;border-radius:6px;overflow:hidden">
+            <div style="background:#1c4a44;color:white;font-size:12.5px;font-weight:600;padding:6px 10px">Piston Engine</div>
+            <div style="padding:8px 10px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:11px;color:#a5aeab;line-height:1.5">Crankshaft dynamics (core)</div>
+          </div>
+          <div style="font-size:18px;color:#34d0bd">⇄</div>
+          <div style="width:150px;background:#141414;border:1px solid #2e2e2e;border-radius:6px;overflow:hidden">
+            <div style="background:#1c4a44;color:white;font-size:12.5px;font-weight:600;padding:6px 10px">Propeller System</div>
+            <div style="padding:8px 10px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:11px;color:#a5aeab;line-height:1.5">Thrust &amp; PropTorque</div>
+          </div>
+        </div>
+        <div style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:10.5px;color:#2fbcab;margin-top:6px;text-align:center">↺ EngineRPM → TorqueMap · PropTorque (÷2.43) → Piston Engine — two closed feedback loops</div>
+        <div style="font-size:22px;color:#34d0bd;line-height:1;margin-top:8px">↓</div>
+      </div>
+
+    </div>
+
+    <div style="display:grid;grid-template-columns:minmax(240px,1fr) minmax(300px,2fr);gap:28px;align-items:start;width:100%;margin-bottom:6px">
+      <div style="display:flex;justify-content:center;min-width:0">
+        <div style="width:100%;max-width:280px;background:#141414;border:1px solid #2e2e2e;border-radius:6px;overflow:hidden">
+          <div style="background:#1c4a44;color:white;font-size:14px;font-weight:600;padding:7px 14px">Flight Margins</div>
+          <div style="padding:10px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px;color:#a5aeab;line-height:1.6">Thrust−Drag &amp; Lift−Weight (+ Thrust from Propeller System)</div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:center;min-width:0">
+        <div style="width:100%;max-width:400px;background:#141414;border:1px solid #2e2e2e;border-radius:6px;overflow:hidden">
+          <div style="background:#1c4a44;color:white;font-size:14px;font-weight:600;padding:7px 14px">Engine Sensor Suite</div>
+          <div style="padding:10px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px;color:#a5aeab;line-height:1.6">EGT, CHT, Oil Pressure/Temp, Vib X/Y/Z ← Throttle, RPM, FuelFlow, Power, Airspeed</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="font-size:22px;color:#34d0bd;line-height:1">↓</div>
+    <div style="width:520px;background:#141414;border:1.5px solid #c2502e;border-radius:6px;overflow:hidden;margin-bottom:4px">
+      <div style="background:#c2502e;color:white;font-size:14px;font-weight:600;padding:7px 14px">Fault Injection &amp; Health Monitoring</div>
+      <div style="padding:10px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px;color:#a5aeab;line-height:1.6">10 sensor/state inputs → 8 faulted signals + 8 fault flags</div>
+    </div>
+    <div style="font-size:22px;color:#34d0bd;line-height:1">↓</div>
+
+    <div style="width:100%;background:#141414;border:1px dashed #3d3d3d;border-radius:6px;padding:14px 20px">
+      <div style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:#2fbcab;margin-bottom:8px">Logged to MATLAB Workspace (To Workspace sinks)</div>
+      <div style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:11.5px;color:#9ca3af;line-height:1.7">Torque_Data, EngineRPM(RPM_data), FuelFlow_data, Prop_RPM, Power_kW, Torque_available, Air_density, Thrust, Lift, Drag, Thrust_margin, ListWeight_margin — EGT/CHT/OilPressure/OilTemp/Vibx/Viby/Vibz(_data + _flag_data), RPM_flag_data</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SECTION 2: ATMOSPHERE ============ -->
+<div style="margin-bottom:64px">
+  <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:8px;border-bottom:1px solid #2e2e2e;padding-bottom:10px">
+    <span style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:13px;color:#34d0bd;font-weight:600">02</span>
+    <h2 style="font-size:20px;font-weight:700;margin:0">Atmosphere — Standard Atmosphere Model</h2>
+  </div>
+  <p style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12.5px;color:#9ca3af;margin:8px 0 20px">Troposphere temperature/pressure/density from altitude (ISA lapse-rate equations).</p>
+
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <div style="background:#141414;border:1px dashed #3d3d3d;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px">Altitude(m)</div>
+    <div style="font-size:18px;color:#34d0bd">→</div>
+    <div style="background:#141414;border:1px solid #2e2e2e;border-radius:6px;padding:8px 14px;min-width:150px">
+      <div style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:10px;text-transform:uppercase;color:#2fbcab">Gain</div>
+      <div style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px;color:#a5aeab">× −0.0065</div>
+    </div>
+    <div style="font-size:18px;color:#34d0bd">→</div>
+    <div style="background:#141414;border:1px solid #1c4a44;border-radius:6px;padding:8px 14px;min-width:170px">
+      <div style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:10px;text-transform:uppercase;color:#2fbcab">Sum</div>
+      <div style="font-family:'Space Grotesk','Source Sans 3',sans-serif;font-size:13.5px;font-weight:600">TempK = 288.15 + ΔT</div>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:24px;margin-top:14px;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:10px">
+      <div style="background:#141414;border:1px solid #2e2e2e;border-radius:6px;padding:8px 14px;min-width:150px">
+        <div style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:10px;text-transform:uppercase;color:#2fbcab">Gain</div>
+        <div style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px;color:#a5aeab">R·T = 287.05 × TempK</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div style="background:#141414;border:1px solid #2e2e2e;border-radius:6px;padding:8px 14px;min-width:130px">
+        <div style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px;color:#a5aeab">÷288.15</div>
+      </div>
+      <div style="font-size:16px;color:#34d0bd">→</div>
+      <div style="background:#141414;border:1px solid #2e2e2e;border-radius:6px;padding:8px 14px;min-width:110px">
+        <div style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px;color:#a5aeab">^5.256</div>
+      </div>
+      <div style="font-size:16px;color:#34d0bd">→</div>
+      <div style="background:#141414;border:1px solid #1c4a44;border-radius:6px;padding:8px 14px;min-width:160px">
+        <div style="font-family:'Space Grotesk','Source Sans 3',sans-serif;font-size:13.5px;font-weight:600">Pressure = 101325 × (·)</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="font-size:20px;color:#34d0bd;text-align:center;margin:10px 0">↓ ↓</div>
+  <div style="display:flex;justify-content:center">
+    <div style="background:#141414;border:1.5px solid #1c4a44;border-radius:6px;padding:10px 18px">
+      <div style="font-family:'Space Grotesk','Source Sans 3',sans-serif;font-size:14px;font-weight:600">AirDensity = Pressure ÷ (R·T)   —  kg/m³</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SECTION 3: AERODYNAMICS ============ -->
+<div style="margin-bottom:64px">
+  <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:8px;border-bottom:1px solid #2e2e2e;padding-bottom:10px">
+    <span style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:13px;color:#34d0bd;font-weight:600">03</span>
+    <h2 style="font-size:20px;font-weight:700;margin:0">AeroDynamic — Lift &amp; Drag</h2>
+  </div>
+  <p style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12.5px;color:#9ca3af;margin:8px 0 20px">Classic lift/drag equations: L = q·S·C<sub>L</sub>(α), D = q·S·C<sub>D</sub>(α).</p>
+
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+    <div style="background:#141414;border:1px dashed #3d3d3d;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px">AirSpeed(V)</div>
+    <div style="font-size:18px;color:#34d0bd">→</div>
+    <div style="background:#141414;border:1px solid #2e2e2e;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px">V² (Math pow)</div>
+    <div style="font-size:18px;color:#34d0bd">→</div>
+    <div style="background:#141414;border:1px solid #2e2e2e;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px">× Air_Density</div>
+    <div style="font-size:18px;color:#34d0bd">→</div>
+    <div style="background:#141414;border:1px solid #2e2e2e;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px">× 0.5</div>
+    <div style="font-size:18px;color:#34d0bd">→</div>
+    <div style="background:#141414;border:1px solid #2e2e2e;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px">× WingArea(S)</div>
+    <div style="font-size:18px;color:#34d0bd">→</div>
+    <div style="background:#141414;border:1px solid #1c4a44;border-radius:6px;padding:8px 14px;font-family:'Space Grotesk','Source Sans 3',sans-serif;font-size:13.5px;font-weight:600">qS</div>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+    <div style="background:#141414;border:1px dashed #3d3d3d;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px">AOA(deg)</div>
+    <div style="font-size:18px;color:#34d0bd">→</div>
+    <div style="background:#141414;border:1px solid #2e2e2e;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px">CL Model (lookup) → C<sub>L</sub></div>
+    <div style="font-size:18px;color:#34d0bd">→</div>
+    <div style="background:#141414;border:1px solid #2e2e2e;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px">Subsystem1 (lookup) → C<sub>D</sub></div>
+  </div>
+
+  <div style="display:flex;gap:16px;flex-wrap:wrap">
+    <div style="background:#141414;border:1.5px solid #1c4a44;border-radius:6px;padding:10px 18px">
+      <div style="font-family:'Space Grotesk','Source Sans 3',sans-serif;font-size:14px;font-weight:600">Lift(L) = qS × C<sub>L</sub></div>
+    </div>
+    <div style="background:#141414;border:1.5px solid #1c4a44;border-radius:6px;padding:10px 18px">
+      <div style="font-family:'Space Grotesk','Source Sans 3',sans-serif;font-size:14px;font-weight:600">Drag(D) = qS × C<sub>D</sub></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SECTION 4: PROPELLER ============ -->
+<div style="margin-bottom:64px">
+  <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:8px;border-bottom:1px solid #2e2e2e;padding-bottom:10px">
+    <span style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:13px;color:#34d0bd;font-weight:600">04</span>
+    <h2 style="font-size:20px;font-weight:700;margin:0">Propeller System — Thrust &amp; Torque Coefficients</h2>
+  </div>
+  <p style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12.5px;color:#9ca3af;margin:8px 0 20px">Two MATLAB Function blocks share the same inputs: AirDensity, PropRPM, diameter(D), and a coefficient (C<sub>t</sub>' or C<sub>q</sub>).</p>
+
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:11.5px;color:#9ca3af;min-width:230px">AirDensity, PropRPM, D, C<sub>t</sub>'</div>
+      <div style="font-size:18px;color:#34d0bd">→</div>
+      <div style="background:#141414;border:1px solid #2e2e2e;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px">MATLAB Fn — Thrust model</div>
+      <div style="font-size:18px;color:#34d0bd">→</div>
+      <div style="background:#141414;border:1px solid #2e2e2e;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px">Saturate [0, 2000 N]</div>
+      <div style="font-size:18px;color:#34d0bd">→</div>
+      <div style="background:#141414;border:1.5px solid #1c4a44;border-radius:6px;padding:8px 14px;font-family:'Space Grotesk','Source Sans 3',sans-serif;font-size:13.5px;font-weight:600">Thrust</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:11.5px;color:#9ca3af;min-width:230px">AirDensity, PropRPM, D, C<sub>q</sub></div>
+      <div style="font-size:18px;color:#34d0bd">→</div>
+      <div style="background:#141414;border:1px solid #2e2e2e;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px">MATLAB Fn — Torque model</div>
+      <div style="font-size:18px;color:#34d0bd">→</div>
+      <div style="background:#141414;border:1px solid #2e2e2e;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px">Saturate [0, 400 N·m]</div>
+      <div style="font-size:18px;color:#34d0bd">→</div>
+      <div style="background:#141414;border:1.5px solid #1c4a44;border-radius:6px;padding:8px 14px;font-family:'Space Grotesk','Source Sans 3',sans-serif;font-size:13.5px;font-weight:600">PropTorque</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SECTION 5: PISTON ENGINE CORE ============ -->
+<div style="margin-bottom:64px">
+  <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:8px;border-bottom:1px solid #2e2e2e;padding-bottom:10px">
+    <span style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:13px;color:#34d0bd;font-weight:600">05</span>
+    <h2 style="font-size:20px;font-weight:700;margin:0">Piston Engine — Crankshaft Dynamics (core subsystem)</h2>
+  </div>
+  <p style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12.5px;color:#9ca3af;margin:8px 0 20px">J·dω/dt = Torque_available − PropTorque/gear_ratio, integrated and saturated to an engine speed band (1400–5800 RPM).</p>
+
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+    <div style="background:#141414;border:1px dashed #3d3d3d;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px">PropTorque</div>
+    <div style="font-size:18px;color:#34d0bd">→</div>
+    <div style="background:#141414;border:1px solid #2e2e2e;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px">Gain ÷2.43 (gear ratio)</div>
+    <div style="font-size:18px;color:#34d0bd">→</div>
+    <div style="background:#141414;border:1px solid #2e2e2e;border-radius:6px;padding:8px 14px;font-family:'Space Grotesk','Source Sans 3',sans-serif;font-size:13px;font-weight:600">Sum: Torque_avail − load</div>
+    <div style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:11px;color:#2fbcab">← Torque_available_Nm (TorqueMap)</div>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+    <div style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:11.5px;color:#9ca3af">Net torque →</div>
+    <div style="background:#141414;border:1px solid #2e2e2e;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px">Gain × 2 (1/J)</div>
+    <div style="font-size:18px;color:#34d0bd">→</div>
+    <div style="background:#141414;border:1.5px solid #1c4a44;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px">Integrator ω, IC=314.16, limit [146.6, 607.4] rad/s</div>
+    <div style="font-size:18px;color:#34d0bd">→</div>
+    <div style="background:#141414;border:1px solid #2e2e2e;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px">Gain × 60/2π</div>
+    <div style="font-size:18px;color:#34d0bd">→</div>
+    <div style="background:#141414;border:1.5px solid #1c4a44;border-radius:6px;padding:8px 14px;font-family:'Space Grotesk','Source Sans 3',sans-serif;font-size:13.5px;font-weight:600">EngineRPM</div>
+  </div>
+
+  <div style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:11px;color:#2fbcab;margin-bottom:10px">EngineRPM branches three ways:</div>
+  <div style="display:flex;gap:12px;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:8px">
+      <div style="background:#141414;border:1px solid #2e2e2e;border-radius:6px;padding:7px 12px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:11.5px">↺ → TorqueMap (feedback)</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <div style="background:#141414;border:1px solid #2e2e2e;border-radius:6px;padding:7px 12px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:11.5px">MATLAB Fn (gear) → PropRPM</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <div style="background:#141414;border:1px solid #2e2e2e;border-radius:6px;padding:7px 12px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:11.5px">+ Throttle → MATLAB Fn → Power_kW</div>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px;margin-top:12px">
+    <div style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:11.5px;color:#9ca3af">Power_kW →</div>
+    <div style="font-size:18px;color:#34d0bd">→</div>
+    <div style="background:#141414;border:1px solid #2e2e2e;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px">MATLAB Fn — fuel model</div>
+    <div style="font-size:18px;color:#34d0bd">→</div>
+    <div style="background:#141414;border:1.5px solid #1c4a44;border-radius:6px;padding:8px 14px;font-family:'Space Grotesk','Source Sans 3',sans-serif;font-size:13.5px;font-weight:600">FuelFlow</div>
+  </div>
+</div>
+
+<!-- ============ SECTION 6: TORQUE MAP ============ -->
+<div style="margin-bottom:64px">
+  <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:8px;border-bottom:1px solid #2e2e2e;padding-bottom:10px">
+    <span style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:13px;color:#34d0bd;font-weight:600">06</span>
+    <h2 style="font-size:20px;font-weight:700;margin:0">TorqueMap — Available Torque Lookup</h2>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px">
+    <div style="background:#141414;border:1px dashed #3d3d3d;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px">Throttle</div>
+    <div style="background:#141414;border:1px dashed #3d3d3d;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px">EngineRPM (feedback)</div>
+    <div style="font-size:18px;color:#34d0bd">→</div>
+    <div style="background:#141414;border:1px solid #2e2e2e;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px">TorqueMap (MATLAB Fn — engine torque curve)</div>
+    <div style="font-size:18px;color:#34d0bd">→</div>
+    <div style="background:#141414;border:1.5px solid #1c4a44;border-radius:6px;padding:8px 14px;font-family:'Space Grotesk','Source Sans 3',sans-serif;font-size:13.5px;font-weight:600">Torque_available_Nm</div>
+  </div>
+</div>
+
+<!-- ============ SECTION 7: ENGINE SENSOR SUITE ============ -->
+<div style="margin-bottom:64px">
+  <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:8px;border-bottom:1px solid #2e2e2e;padding-bottom:10px">
+    <span style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:13px;color:#34d0bd;font-weight:600">07</span>
+    <h2 style="font-size:20px;font-weight:700;margin:0">Engine Sensor — Thermal, Pressure &amp; Vibration Models</h2>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-top:14px">
+    <div style="background:#141414;border:1px solid #2e2e2e;border-radius:6px;padding:10px 14px">
+      <div style="font-family:'Space Grotesk','Source Sans 3',sans-serif;font-size:13.5px;font-weight:600;margin-bottom:4px">EGT</div>
+      <div style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:11.5px;color:#9ca3af">f(Throttle, EngineRPM, Power_kW)</div>
+    </div>
+    <div style="background:#141414;border:1px solid #2e2e2e;border-radius:6px;padding:10px 14px">
+      <div style="font-family:'Space Grotesk','Source Sans 3',sans-serif;font-size:13.5px;font-weight:600;margin-bottom:4px">CHT</div>
+      <div style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:11.5px;color:#9ca3af">f(Throttle, EngineRPM, Power_kW, Airspeed)</div>
+    </div>
+    <div style="background:#141414;border:1px solid #2e2e2e;border-radius:6px;padding:10px 14px">
+      <div style="font-family:'Space Grotesk','Source Sans 3',sans-serif;font-size:13.5px;font-weight:600;margin-bottom:4px">Oil Temp</div>
+      <div style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:11.5px;color:#9ca3af">f(Throttle, EngineRPM, Airspeed)</div>
+    </div>
+    <div style="background:#141414;border:1px solid #2e2e2e;border-radius:6px;padding:10px 14px">
+      <div style="font-family:'Space Grotesk','Source Sans 3',sans-serif;font-size:13.5px;font-weight:600;margin-bottom:4px">Oil Pressure</div>
+      <div style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:11.5px;color:#9ca3af">f(EngineRPM, Throttle, Oil Temp ↺)</div>
+    </div>
+  </div>
+
+  <div style="margin-top:20px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:#2fbcab">Vibration model (per axis, identical structure)</div>
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px">
+    <div style="background:#141414;border:1px dashed #3d3d3d;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px">EngineRPM</div>
+    <div style="font-size:18px;color:#34d0bd">→</div>
+    <div style="background:#141414;border:1px solid #2e2e2e;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px">× 0.001</div>
+    <div style="font-size:18px;color:#34d0bd">→</div>
+    <div style="background:#141414;border:1px solid #2e2e2e;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px">square</div>
+    <div style="font-size:18px;color:#34d0bd">→</div>
+    <div style="background:#141414;border:1px solid #2e2e2e;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px">× gain<sub>axis</sub></div>
+    <div style="font-size:18px;color:#34d0bd">→</div>
+    <div style="background:#141414;border:1px solid #2e2e2e;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px">+ baseline<sub>axis</sub></div>
+    <div style="font-size:18px;color:#34d0bd">→</div>
+    <div style="background:#141414;border:1.5px solid #1c4a44;border-radius:6px;padding:8px 14px;font-family:'Space Grotesk','Source Sans 3',sans-serif;font-size:13px;font-weight:600">Vib X/Y/Z</div>
+  </div>
+  <div style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:11px;color:#9ca3af;margin-top:8px">X: gain 0.00345, baseline 0.02 · Y: gain 0.0031, baseline 0.025 · Z: gain 0.00379, baseline 0.03</div>
+</div>
+
+<!-- ============ SECTION 8: FAULT INJECTION ============ -->
+<div style="margin-bottom:64px">
+  <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:8px;border-bottom:1px solid #2e2e2e;padding-bottom:10px">
+    <span style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:13px;color:#c2502e;font-weight:600">08</span>
+    <h2 style="font-size:20px;font-weight:700;margin:0">Fault Injection &amp; Health Monitoring</h2>
+  </div>
+  <p style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12.5px;color:#9ca3af;margin:8px 0 20px">Each of the 8 monitored channels gets an independently-triggerable fault, producing a faulted signal and a boolean flag.</p>
+
+  <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+    <div style="background:#141414;border:1px solid #2e2e2e;border-radius:6px;padding:12px 16px;min-width:190px">
+      <div style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:10px;text-transform:uppercase;color:#c2502e;margin-bottom:6px">Inputs (10)</div>
+      <div style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:11.5px;color:#9ca3af;line-height:1.7">EGT, CHT, Oil Pressure, Oil Temp, VibX, VibY, VibZ, RPM, Power_kW, Airspeed</div>
+    </div>
+    <div style="font-size:20px;color:#c2502e;align-self:center">→</div>
+    <div style="background:#141414;border:1.5px solid #c2502e;border-radius:6px;padding:12px 16px;min-width:220px">
+      <div style="font-family:'Space Grotesk','Source Sans 3',sans-serif;font-size:13.5px;font-weight:600;margin-bottom:4px">AutoFaultTrigger + MATLAB Fn</div>
+      <div style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:11.5px;color:#9ca3af">Trigger logic, fault magnitude/type, per-channel Saturate limits</div>
+    </div>
+    <div style="font-size:20px;color:#c2502e;align-self:center">→</div>
+    <div style="background:#141414;border:1px solid #2e2e2e;border-radius:6px;padding:12px 16px;min-width:190px">
+      <div style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:10px;text-transform:uppercase;color:#c2502e;margin-bottom:6px">Outputs (16)</div>
+      <div style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:11.5px;color:#9ca3af;line-height:1.7">8 × _fault (faulted value) + 8 × _flag (boolean)</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SECTION 9: FLIGHT MARGINS ============ -->
+<div>
+  <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:8px;border-bottom:1px solid #2e2e2e;padding-bottom:10px">
+    <span style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:13px;color:#34d0bd;font-weight:600">09</span>
+    <h2 style="font-size:20px;font-weight:700;margin:0">Flight Margins — Thrust &amp; Lift vs. Weight</h2>
+  </div>
+  <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:14px">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div style="background:#141414;border:1px dashed #3d3d3d;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px">Thrust</div>
+      <div style="background:#141414;border:1px dashed #3d3d3d;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px">Drag</div>
+      <div style="font-size:18px;color:#34d0bd">→</div>
+      <div style="background:#141414;border:1.5px solid #1c4a44;border-radius:6px;padding:8px 14px;font-family:'Space Grotesk','Source Sans 3',sans-serif;font-size:13.5px;font-weight:600">Thrust_margin = Thrust − Drag</div>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px">
+    <div style="background:#141414;border:1px dashed #3d3d3d;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:12px">Lift</div>
+    <div style="font-family:'JetBrains Mono','Source Code Pro',monospace;font-size:11.5px;color:#9ca3af">AircraftMass 450 kg × 9.81 = Weight</div>
+    <div style="font-size:18px;color:#34d0bd">→</div>
+    <div style="background:#141414;border:1.5px solid #1c4a44;border-radius:6px;padding:8px 14px;font-family:'Space Grotesk','Source Sans 3',sans-serif;font-size:13.5px;font-weight:600">LiftWeight_margin = Lift − Weight</div>
+  </div>
+</div>
+
+</div>
+
+</body>
+</html>

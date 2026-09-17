@@ -26,6 +26,9 @@
 !/validation/*.ipynb
 
 # ─── Large binary transfer files ──────────────────────────────────────────────
+/validation/logs/
+*.candidate.keras
+*.candidate.prev.keras
 model_b64_transfer.txt
 *.b64
 

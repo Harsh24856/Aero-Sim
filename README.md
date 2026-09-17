@@ -29,12 +29,22 @@ Browser  ─── Next.js (port 3000)
 | `frontend/` | Next.js 14 App Router cockpit dashboard |
 | `backend/main.py` | FastAPI physics API — simulation loop, REST endpoints, WebSocket stream |
 | `backend/physics.py` | Engine, propeller, aerodynamics, thermal, oil, vibration, wear, and fault models |
-| `backend/ai.py` | Standalone FastAPI AI inference service (port 8100) |
-| `backend/models/` | Per-engine Keras 4-head checkpoints and scikit-learn scalers |
+| `backend/aiv3.py` | FastAPI AI inference service for physics v3 (port 8100) — five heads |
+| `backend/ai.py` | The legacy v2 inference service. Same port; run one or the other |
+| `backend/failure_modes.py` | Engine failure modes (misfire, injector fouling, cooling, combustion) |
+| `backend/residual.py` | Model-free physics residuals: measured − expected, with sensor zeroing |
+| `backend/advisory.py` | Deterministic maintenance advisory rules over the AI + residual outputs |
+| `backend/can_bus.py`, `aircraft_sim.py`, `can_ingest.py` | SocketCAN plant → bridge → `/measured` |
+| `backend/models_v3/<key>/` | Deployed per-engine heads + scaler + `manifest.json` (physics v3) |
+| `backend/models_v3/<key>/legacy_rul/` | The superseded RUL head, kept for comparison and rollback |
+| `backend/models/` | Deployed per-engine heads for the legacy v2 stack |
+| `backend/generate_dataset_v3.py` | Scenario dataset generator (detection/diagnosis/severity/failure modes) |
+| `backend/generate_rul_dataset.py` | RUL probe dataset — one engine, one frozen life stage, one window |
 | `backend/db.py` | Optional Supabase persistence layer |
 | `backend/requirements.txt` | Physics API runtime dependencies |
 | `backend/requirements_ai.txt` | AI inference runtime — **must match validation environment** |
-| `validation/` | Training datasets, notebooks, and model validation tools (local-only) |
+| `scripts/` | `start_stack.sh`, `demo_can.sh`, `train_rul_v3.sh`, `rul_live_ab.py` |
+| `validation/` | Training datasets, notebooks and validation tools (local-only, gitignored) |
 
 ---
 
@@ -379,6 +389,37 @@ segfault or fail on a missing TensorFlow in a way that looks unrelated to your
 actual change.
 
 Some scripts contain machine-specific paths — update those before running.
+
+### Training the RUL head (physics v3)
+
+The RUL head trains on its own dataset, for a measured reason: in the scenario data the
+label moves by a median of 15.8 h *inside a single 128-sample window*, which is the same
+size as the head's own error, and only 1.6% of rows sit above 95% of TBO while every live
+flight starts at ~99%. `backend/generate_rul_dataset.py` builds probes instead — one engine
+held at one frozen life stage for one window, life stages drawn uniformly with a near-new
+over-sample, and session age drawn independently of wear so the head cannot read the clock
+instead of the sensors.
+
+```bash
+# ~36 min for all four engines, 40k probes each (5.1M rows of telemetry per engine)
+validation/venv/bin/python3 backend/generate_rul_dataset.py --all --parallel --probes 32000
+
+# train one engine at a time - 8 GB of RAM, and two TensorFlow jobs swap
+scripts/train_rul_v3.sh 914
+
+# ship it: --rul-phase swaps only the RUL head, the other four are untouched
+validation/venv/bin/python3 validation/split_deployable_heads.py --engines 914 --rul-phase phase5_rul_v3
+```
+
+The notebooks (`validation/phase5_rul_v3_<key>.ipynb`) are generated from one template by
+`validation/make_phase5_v3_notebooks.py`, so all four engines are scored by identical code.
+Each starts its head at a ridge fit on the window statistics and keeps that fit if training
+cannot beat it; the gates are MAE ≤ 2% of TBO, near-new bias within ±2%, correlation ≥ 0.95,
+no decile inversions, beating the ridge, and still working with `bsfc_ratio` zeroed.
+
+`scripts/rul_live_ab.py` scores two heads on live flights against the twin's own
+`wear × tbo_hours`, which is how the deployed heads were compared with the ones they
+replaced (7-29x lower error, and the near-new under-prediction of 3.7-6.2% of TBO gone).
 
 ---
 
