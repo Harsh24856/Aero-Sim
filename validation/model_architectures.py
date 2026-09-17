@@ -186,3 +186,67 @@ def build_rul_tcn_encoder(x_input, channels=32, num_layers=6, kernel_size=3, dro
         x = layers.ReLU(name=f"rul_tcn{i}_relu")(x)
     pooled = layers.Lambda(lambda t: t[:, -1, :], name="rul_tcn_last")(x)
     return pooled
+
+
+# ---------------------------------------------------------------------------
+# RUL v4: window statistics + LSTM hybrid
+#
+# Evidence for the shape of this, all measured on this project:
+#   - A ridge regression on nothing but window mean/variance reached -1.1 h bias on
+#     near-new engines where the deployed 2-layer LSTM sat at -80 h. The information
+#     is in the window's LEVEL, and a recurrent net spends its capacity elsewhere.
+#   - The LSTM still earns its place on the dynamics (settling, ripple, transient
+#     response) that a pooled statistic cannot see.
+# So: both, side by side, concatenated with the aux vector. Neither branch can hide
+# the other's failure - the notebook ablates each one and reports the delta.
+# ---------------------------------------------------------------------------
+def build_rul_window_stats(x_input):
+    """Per-feature mean, variance, last sample and half-to-half slope of the window.
+
+    Standard layers only. A Lambda here cost a day of debugging twice: it needs an
+    explicit output_shape, and on reload its closure had lost the `keras` global.
+    Cropping1D/GlobalAveragePooling1D/Multiply/Subtract all serialise and convert to
+    TFLite without special handling.
+    """
+    win = int(x_input.shape[1])
+    half = win // 2
+    mean = layers.GlobalAveragePooling1D(name="rul_win_mean")(x_input)
+    sq = layers.Multiply(name="rul_win_sq")([x_input, x_input])
+    sq_mean = layers.GlobalAveragePooling1D(name="rul_win_sq_mean")(sq)
+    mean_sq = layers.Multiply(name="rul_win_mean_sq")([mean, mean])
+    # E[x^2] - E[x]^2, floored at 0: the subtraction can go slightly negative on
+    # float32 for a constant channel.
+    var = layers.ReLU(name="rul_win_var")(
+        layers.Subtract(name="rul_win_var_raw")([sq_mean, mean_sq]))
+    last = layers.Flatten(name="rul_win_last")(
+        layers.Cropping1D(cropping=(win - 1, 0), name="rul_win_last_crop")(x_input))
+    h1 = layers.GlobalAveragePooling1D(name="rul_win_h1")(
+        layers.Cropping1D(cropping=(0, win - half), name="rul_win_h1_crop")(x_input))
+    h2 = layers.GlobalAveragePooling1D(name="rul_win_h2")(
+        layers.Cropping1D(cropping=(half, 0), name="rul_win_h2_crop")(x_input))
+    slope = layers.Subtract(name="rul_win_slope")([h2, h1])
+    return layers.Concatenate(name="rul_win_stats")([mean, var, last, slope])
+
+
+def build_rul_hybrid(x_input, aux_input, init_hours=None, lstm_units=32, lstm_layers=2,
+                     hidden=96, dropout=0.1, aux_norm=None, use_lstm=True, use_stats=True):
+    """The deployable RUL model's body: LSTM branch + window statistics + aux.
+
+    aux_norm is a keras Normalization layer already adapted on the training aux
+    (elapsed_hours is in hours, cht_excess in degrees, the ratios near 1 - feeding
+    those raw into a Dense makes the degree-scaled feature dominate initialisation).
+
+    use_lstm / use_stats exist for the notebook's branch ablation: rebuild with one
+    of them off, retrain briefly, and the MAE delta says what each branch was worth.
+    """
+    parts = []
+    if use_lstm:
+        parts.append(build_rul_lstm_encoder(x_input, units=lstm_units,
+                                            num_layers=lstm_layers, dropout=dropout))
+    if use_stats:
+        parts.append(build_rul_window_stats(x_input))
+    if not parts:
+        raise ValueError("build_rul_hybrid needs at least one of use_lstm/use_stats")
+    body = parts[0] if len(parts) == 1 else layers.Concatenate(name="rul_merge")(parts)
+    aux = aux_norm(aux_input) if aux_norm is not None else aux_input
+    return build_rul_head(body, aux, hidden=hidden, dropout=dropout, init_hours=init_hours)
