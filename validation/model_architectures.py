@@ -104,7 +104,8 @@ def build_failure_mode_head(enc_out, hidden=64, dropout=0.1):
     return layers.Dense(N_FAILURE_MODES, activation="sigmoid", name="y_failure_mode")(h)
 
 
-def build_rul_head(enc_out, aux_input, hidden=64, dropout=0.1, init_hours=None, skip=None):
+def build_rul_head(enc_out, aux_input, hidden=64, dropout=0.1, init_hours=None, skip=None,
+                   tbo_hours=None, ridge_init=None):
     """Predicts RUL in HOURS. Takes enc_out PLUS x_rul_aux. Softplus keeps RUL >= 0.
 
     Output stays in raw hours - this is the head that reached 33 h MAE on 914.
@@ -120,17 +121,54 @@ def build_rul_head(enc_out, aux_input, hidden=64, dropout=0.1, init_hours=None, 
     h = layers.Dense(hidden, activation="relu", name="rul_dense1")(combined)
     h = layers.Dropout(dropout, name="rul_drop1")(h)
     h = layers.Dense(hidden // 2, activation="relu", name="rul_dense2")(h)
-    bias = "zeros" if init_hours is None else keras.initializers.Constant(float(init_hours))
-    raw = layers.Dense(1, name="rul_dense_out", bias_initializer=bias)(h)
+    # OUTPUT PARAMETERISATION - three modes, in increasing order of how much they
+    # help Adam find the answer on this problem:
+    #
+    #   default          softplus(raw hours).  What the v3-scenario head uses; kept so
+    #                    the old notebooks are untouched. One Adam step moves the output
+    #                    by about `lr` HOURS against a 2000 h range, so training crawls
+    #                    (measured: val MAE 129 -> 96 -> 79 -> 70 over four epochs).
+    #   tbo_hours        TBO*sigmoid(z).  Bounded like the quantity itself, but the
+    #                    gradient through the sigmoid made lr 2e-3 oscillate
+    #                    (167 -> 140 -> 118 -> 146 -> 201).
+    #   ridge_init       TBO*relu(z), with the linear path INITIALISED AT THE RIDGE
+    #                    SOLUTION and the MLP's output kernel zeroed. Training then
+    #                    starts exactly at the linear fit - 0.68% of TBO on the probe
+    #                    dataset - and the network can only earn its way down from
+    #                    there. This is the mode the phase-5 v3 notebooks use.
+    #
+    # ridge_init is (coef, intercept) in FRACTION-of-TBO units, fitted on the same
+    # normalised [window stats, aux] vector that `skip` carries (rul_data.fit_baseline
+    # returns exactly this).
+    if ridge_init is not None:
+        if skip is None:
+            raise ValueError("ridge_init needs the linear skip")
+        coef, intercept = ridge_init
+        out_kernel = keras.initializers.Zeros()          # MLP starts contributing nothing
+        bias = keras.initializers.Constant(float(intercept))
+    elif tbo_hours:
+        frac = 0.5 if init_hours is None else float(np.clip(init_hours/float(tbo_hours), 1e-3, 1-1e-3))
+        out_kernel, bias = "glorot_uniform", keras.initializers.Constant(float(np.log(frac/(1.0 - frac))))
+    else:
+        out_kernel = "glorot_uniform"
+        bias = "zeros" if init_hours is None else keras.initializers.Constant(float(init_hours))
+    raw = layers.Dense(1, name="rul_dense_out", kernel_initializer=out_kernel,
+                       bias_initializer=bias)(h)
     if skip is not None:
-        # Linear path straight from the window statistics to the output, in parallel
-        # with the MLP. A ridge on those same statistics scores 0.69% of TBO, so the
-        # linear solution is most of the answer - without this path the net has to
-        # rediscover it through two ReLU layers, which it does at about 8 h of MAE per
-        # epoch (measured: val MAE 73.7 -> 57.7 over three epochs, still 4x the ridge).
-        # With it, epoch 1 starts near the ridge and the MLP only has to improve on it.
+        skip_kernel = (keras.initializers.Constant(np.asarray(ridge_init[0], dtype="float32").reshape(-1, 1))
+                       if ridge_init is not None else "glorot_uniform")
         raw = layers.Add(name="rul_out_add")(
-            [raw, layers.Dense(1, name="rul_skip_dense", use_bias=False)(skip)])
+            [raw, layers.Dense(1, name="rul_skip_dense", use_bias=False,
+                               kernel_initializer=skip_kernel)(skip)])
+    if ridge_init is not None:
+        # relu, not sigmoid: identity over the whole 0..1 band the labels live in, so
+        # the ridge initialisation is reproduced exactly, while still forbidding a
+        # negative remaining life.
+        return layers.Rescaling(float(tbo_hours), name="y_rul_hours")(
+            layers.ReLU(name="rul_frac")(raw))
+    if tbo_hours:
+        return layers.Rescaling(float(tbo_hours), name="y_rul_hours")(
+            layers.Activation("sigmoid", name="rul_frac")(raw))
     return layers.Activation("softplus", name="y_rul_hours")(raw)
 
 def build_rul_lstm_encoder(x_input, units=32, num_layers=2, dropout=0.1):
@@ -227,6 +265,10 @@ def build_rul_window_stats(x_input):
     # float32 for a constant channel.
     var = layers.ReLU(name="rul_win_var")(
         layers.Subtract(name="rul_win_var_raw")([sq_mean, mean_sq]))
+    # std rather than variance, so these are exactly rul_data.window_features and a
+    # Normalization layer adapted on those numpy features fits this graph.
+    std = layers.Lambda(lambda t: tf.sqrt(t + 1e-8), output_shape=lambda s: s,
+                        name="rul_win_std")(var)
     last = layers.Flatten(name="rul_win_last")(
         layers.Cropping1D(cropping=(win - 1, 0), name="rul_win_last_crop")(x_input))
     h1 = layers.GlobalAveragePooling1D(name="rul_win_h1")(
@@ -234,12 +276,12 @@ def build_rul_window_stats(x_input):
     h2 = layers.GlobalAveragePooling1D(name="rul_win_h2")(
         layers.Cropping1D(cropping=(half, 0), name="rul_win_h2_crop")(x_input))
     slope = layers.Subtract(name="rul_win_slope")([h2, h1])
-    return layers.Concatenate(name="rul_win_stats")([mean, var, last, slope])
+    return layers.Concatenate(name="rul_win_stats")([mean, std, last, slope])
 
 
 def build_rul_hybrid(x_input, aux_input, init_hours=None, lstm_units=32, lstm_layers=2,
                      hidden=96, dropout=0.1, aux_norm=None, use_lstm=True, use_stats=True,
-                     linear_skip=True):
+                     linear_skip=True, tbo_hours=None, stats_norm=None, ridge_init=None):
     """The deployable RUL model's body: LSTM branch + window statistics + aux.
 
     aux_norm is a keras Normalization layer already adapted on the training aux
@@ -255,6 +297,8 @@ def build_rul_hybrid(x_input, aux_input, init_hours=None, lstm_units=32, lstm_la
                                             num_layers=lstm_layers, dropout=dropout))
     if use_stats:
         stats = build_rul_window_stats(x_input)
+        if stats_norm is not None:
+            stats = stats_norm(stats)      # adapted on rul_data.window_features(train)
         parts.append(stats)
     if not parts:
         raise ValueError("build_rul_hybrid needs at least one of use_lstm/use_stats")
@@ -263,4 +307,4 @@ def build_rul_hybrid(x_input, aux_input, init_hours=None, lstm_units=32, lstm_la
     skip = (layers.Concatenate(name="rul_skip_in")([stats, aux])
             if (linear_skip and stats is not None) else None)
     return build_rul_head(body, aux, hidden=hidden, dropout=dropout, init_hours=init_hours,
-                          skip=skip)
+                          skip=skip, tbo_hours=tbo_hours, ridge_init=ridge_init)

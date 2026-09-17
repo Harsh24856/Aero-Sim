@@ -110,32 +110,56 @@ BASELINE_MAE_PCT = base["mae_pct"]
 last sample, half-to-half slope, all with standard layers so it serialises and
 converts to TFLite) + the normalised aux vector, into the existing `build_rul_head`.
 
-A **linear skip** runs from the statistics straight to the output, in parallel with
-the MLP. The ridge above shows the linear solution is most of the answer; without the
-skip the net spends its first epochs rediscovering it (measured: val MAE 73.7 -> 57.7
-over three epochs, still four times the ridge), and with it training starts near the
-ridge and improves from there.
+**The head starts at the ridge solution.** Its linear skip is initialised with the
+ridge coefficients and the MLP's output kernel is zeroed, so before a single gradient
+step the model reproduces the ridge to within 0.01 h - and training can only earn its
+way down from 0.69% of TBO. Two parameterisations were tried first and are recorded in
+`build_rul_head`: raw hours through a softplus crawls (val MAE 129 -> 96 -> 79 -> 70
+over four epochs, because one Adam step moves the output by milli-hours against a
+2000 h range), and TBO*sigmoid oscillated at lr 2e-3 (167 -> 140 -> 118 -> 146 -> 201).
+
+The LSTM and the MLP therefore have one job: beat a linear fit by reading what a
+linear fit cannot - transients, ripple, settling.
 
 The aux `Normalization` is adapted on train only: `elapsed_hours` is in hours,
 `cht_excess` in degrees and the ratios sit near 1, so raw inputs would let the
 degree-scaled feature dominate initialisation.
 """),
         code("""
-aux_norm = keras.layers.Normalization(axis=-1, name="rul_aux_norm")
-aux_norm.adapt(train.aux)
+# The normalisers are built FROM THE RIDGE FIT, not adapted separately, so the
+# model's linear skip sees exactly the space the ridge coefficients were fitted in.
+N_AUX = train.aux.shape[1]
+n_stats = info["n_features"] - N_AUX
+stats_norm = keras.layers.Normalization(axis=-1, name="rul_stats_norm",
+                                        mean=info["feat_mean"][:n_stats],
+                                        variance=info["feat_std"][:n_stats]**2)
+aux_norm = keras.layers.Normalization(axis=-1, name="rul_aux_norm",
+                                      mean=info["feat_mean"][n_stats:],
+                                      variance=info["feat_std"][n_stats:]**2)
 
 xi, ax = A.build_encoder_input(), A.build_aux_input()
-out = A.build_rul_hybrid(xi, ax, init_hours=0.5*TBO, lstm_units=32, lstm_layers=2,
-                         hidden=96, dropout=0.1, aux_norm=aux_norm, linear_skip=True)
+out = A.build_rul_hybrid(xi, ax, lstm_units=32, lstm_layers=2, hidden=96, dropout=0.05,
+                         aux_norm=aux_norm, stats_norm=stats_norm, linear_skip=True,
+                         tbo_hours=TBO, ridge_init=(info["coef"], info["intercept"]))
 model = keras.Model({"x": xi, "x_rul_aux": ax}, {"y_rul_hours": out}, name="rul")
-model.compile(optimizer=keras.optimizers.Adam(2e-3, clipnorm=1.0),
+model.compile(optimizer=keras.optimizers.Adam(3e-4, clipnorm=1.0),
               loss={"y_rul_hours": C.rul_loss(TBO)},          # Huber in % of TBO
               metrics={"y_rul_hours": [keras.metrics.MeanAbsoluteError(name="mae"),
                                        C.mae_pct_tbo(TBO)]})
 print(f"{model.count_params():,} parameters")
+
+# The initialisation must REPRODUCE the ridge, or the claim below is not true.
+init_pred = R.predict_model(model, val)
+print(f"at init, before any training: max |model - ridge| = "
+      f"{np.max(np.abs(init_pred - val_pred_base)):.3f} h  "
+      f"(MAE {R.evaluate(val.y, init_pred, TBO)['mae_pct']:.2f}% of TBO)")
 """),
         code("""
 BATCH = 256
+# The initialisation IS the ridge, so it is a legitimate candidate: if the branches
+# cannot beat it, the honest thing is to ship the linear solution rather than a worse
+# network. Keras restores the best EPOCH, not the starting point, so keep it here.
+init_weights = model.get_weights()
 ckpt = C.ckpt_path(ENGINE, PHASE)
 # ModelCheckpoint insists on a .keras suffix, so the candidate keeps one.
 cand = ckpt.replace(".keras", ".candidate.keras")   # promoted only if it beats what is there
@@ -145,12 +169,25 @@ hist = model.fit(
     validation_data=R.tf_dataset(val, batch_size=BATCH, shuffle=False),
     steps_per_epoch=R.steps_for(train, BATCH),
     validation_steps=R.steps_for(val, BATCH),
-    epochs=40,     # ~0.25 s/step on this machine; EarlyStopping usually ends it sooner
+    epochs=25,     # starts at the ridge; EarlyStopping ends it when it stops improving
     callbacks=C.callbacks(cand, monitor="val_mae", mode="min", patience=6,
                           lr_patience=3, min_lr=1e-5),
     verbose=1,
 )
 model.load_weights(cand)            # best epoch, not the last one
+
+trained_mae = R.evaluate(val.y, R.predict_model(model, val), TBO)["mae_pct"]
+init_mae = R.evaluate(val.y, init_pred, TBO)["mae_pct"]
+if init_mae < trained_mae:
+    model.set_weights(init_weights)
+    WON = "ridge initialisation"
+    print(f"training did not beat its starting point ({trained_mae:.2f}% vs {init_mae:.2f}% of "
+          f"TBO on val) - keeping the linear solution. The LSTM and MLP found nothing "
+          f"the window statistics had not already given away on this engine.")
+else:
+    WON = "trained hybrid"
+    print(f"trained hybrid improves on the ridge start: {trained_mae:.2f}% vs "
+          f"{init_mae:.2f}% of TBO on val")
 print("candidate:", cand)
 """),
         md("""
@@ -187,8 +224,14 @@ if RUN_BRANCH_ABLATION:
     for name, kw in (("stats only", dict(use_lstm=False, use_stats=True)),
                      ("lstm only",  dict(use_lstm=True,  use_stats=False))):
         xi_b, ax_b = A.build_encoder_input(), A.build_aux_input()
-        nrm = keras.layers.Normalization(axis=-1, name="rul_aux_norm"); nrm.adapt(train.aux)
-        o = A.build_rul_hybrid(xi_b, ax_b, init_hours=0.5*TBO, aux_norm=nrm, **kw)
+        nrm = keras.layers.Normalization(axis=-1, name="rul_aux_norm",
+                                         mean=info["feat_mean"][n_stats:],
+                                         variance=info["feat_std"][n_stats:]**2)
+        o = A.build_rul_hybrid(xi_b, ax_b, aux_norm=nrm, tbo_hours=TBO,
+                               stats_norm=(stats_norm if kw["use_stats"] else None),
+                               ridge_init=((info["coef"], info["intercept"])
+                                           if kw["use_stats"] else None),
+                               init_hours=(None if kw["use_stats"] else 0.5*TBO), **kw)
         mb = keras.Model({"x": xi_b, "x_rul_aux": ax_b}, {"y_rul_hours": o})
         mb.compile(optimizer=keras.optimizers.Adam(1e-3, clipnorm=1.0),
                    loss={"y_rul_hours": C.rul_loss(TBO)})
@@ -225,6 +268,7 @@ report = {
     "baseline_mae_pct": BASELINE_MAE_PCT,
     "ablated_bsfc_mae_pct": ABLATED_MAE_PCT,
     "branch_ablation_mae_pct": branch,
+    "won": WON,
     "gates": {k: {"passed": bool(ok), "detail": t} for k, (ok, t) in g.items()},
     "all_gates_passed": bool(passed),
     "trained_at": time.strftime("%Y-%m-%d %H:%M:%S"),

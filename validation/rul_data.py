@@ -184,19 +184,33 @@ def fit_baseline(train, val, alpha=1.0):
     """Ridge on the window features. This is the FLOOR: any model that cannot beat a
     linear fit on four summary statistics per channel has not earned its parameters.
 
-    Returns (predict_fn, val_pred, info) - predict_fn takes a Split.
+    It is also the phase-5 v3 head's INITIALISATION. `info` carries the fit in the
+    exact space the model's linear skip sees - features standardised by `feat_mean`
+    and `feat_std`, target in fractions of TBO - so build_rul_hybrid(ridge_init=...)
+    starts training at this solution rather than hunting for it.
+
+    Returns (predict_fn, val_pred, info).
     """
     from sklearn.linear_model import Ridge
-    from sklearn.preprocessing import StandardScaler
 
     Xtr, Xva = window_features(train), window_features(val)
-    fs = StandardScaler().fit(Xtr)
-    model = Ridge(alpha=alpha).fit(fs.transform(Xtr), train.y)
+    mean = Xtr.mean(axis=0).astype(np.float32)
+    std = Xtr.std(axis=0).astype(np.float32)
+    std[std < 1e-6] = 1.0                       # a constant feature contributes nothing
+    Ztr = (Xtr - mean) / std
+    model = Ridge(alpha=alpha).fit(Ztr, train.y / train.tbo)     # target in TBO fractions
 
     def predict(split_obj):
-        return model.predict(fs.transform(window_features(split_obj))).astype(np.float32)
+        Z = (window_features(split_obj) - mean) / std
+        return (model.predict(Z) * split_obj.tbo).astype(np.float32)
 
-    return predict, predict(val), {"n_features": Xtr.shape[1], "alpha": alpha}
+    info = {
+        "n_features": Xtr.shape[1], "alpha": alpha,
+        "coef": model.coef_.astype(np.float32),          # fraction of TBO per std
+        "intercept": float(model.intercept_),
+        "feat_mean": mean, "feat_std": std,
+    }
+    return predict, predict(val), info
 
 
 # ---------------------------------------------------------------------------
