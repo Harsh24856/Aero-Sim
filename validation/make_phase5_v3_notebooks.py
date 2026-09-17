@@ -169,8 +169,8 @@ hist = model.fit(
     validation_data=R.tf_dataset(val, batch_size=BATCH, shuffle=False),
     steps_per_epoch=R.steps_for(train, BATCH),
     validation_steps=R.steps_for(val, BATCH),
-    epochs=25,     # starts at the ridge; EarlyStopping ends it when it stops improving
-    callbacks=C.callbacks(cand, monitor="val_mae", mode="min", patience=6,
+    epochs=50,     # starts at the ridge; EarlyStopping ends it when it stops improving
+    callbacks=C.callbacks(cand, monitor="val_mae", mode="min", patience=20,
                           lr_patience=3, min_lr=1e-5),
     verbose=1,
 )
