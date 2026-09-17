@@ -45,7 +45,7 @@ export default function Navbar() {
           <Image
             src="/aero-sim-logo-bar.svg"
             alt="AERO-SIM"
-            width={940}
+            width={1060}
             height={328}
             priority
             unoptimized
