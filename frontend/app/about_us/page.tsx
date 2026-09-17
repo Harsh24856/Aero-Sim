@@ -24,23 +24,29 @@ const capabilities = [
     icon: Cpu,
     label: "01 // PHYSICS TWIN",
     title: "A living engine model",
-    text: "Run a real-time UAV propulsion simulation with engine torque, propeller response, aerodynamics, fuel flow, thermal behavior, oil systems, vibration, wear, and automatically derived fault stress.",
+    text: "Physics v3 runs engine torque, propeller, aerodynamics, fuel flow, thermals, oil, vibration, electrical bus and injection timing at 1 Hz with RK4 - and feeds accumulated wear back into every one of those channels, so a 1,900-hour engine no longer reads like a new one.",
   },
   {
     icon: Radio,
     label: "02 // LIVE TELEMETRY",
     title: "See every important signal",
-    text: "The dashboard streams engine, propeller, aerodynamic, thermal, oil, vibration, and fault telemetry over a live connection so operating changes are visible as they happen.",
+    text: "The cockpit streams 25 model-input channels plus monitor-only electrical and ambient signals over a WebSocket. The same endpoints accept real sensor readings from an aircraft on a CAN bus, so the twin can run beside hardware rather than only instead of it.",
   },
   {
     icon: BrainCircuit,
     label: "03 // AI DIAGNOSTICS",
     title: "From signals to decisions",
-    text: "Dedicated model heads detect faults, identify affected channels, estimate severity, and calculate remaining useful life for the Rotax 912, 914, 915, and 916 engine sets.",
+    text: "Five heads per engine over a 128-sample window: fault detection, per-channel diagnosis, severity, four engine failure modes (misfire, injector fouling, cooling degradation, combustion instability) and remaining useful life in real engine hours against TBO.",
+  },
+  {
+    icon: Wrench,
+    label: "04 // PHYSICS RESIDUALS",
+    title: "A second opinion with no model in it",
+    text: "Every sensor is compared with what the physics expects at this power, airspeed, altitude and wear. The gap, and its shape - bias, drift, noise, stuck, spike - says whether the engine is degrading or the sender is lying. It needs no training data and runs onboard.",
   },
   {
     icon: Database,
-    label: "04 // FLIGHT HISTORY",
+    label: "05 // FLIGHT HISTORY",
     title: "Keep the story of a run",
     text: "Optional Supabase persistence stores simulation runs, telemetry, diagnostics, and final engine state, making it possible to review or resume a previous scenario.",
   },
@@ -54,10 +60,11 @@ const workflow = [
 ];
 
 const traceabilityPoints = [
-  "Input features follow the model training contract.",
-  "Each engine uses its own scaler and model checkpoints.",
-  "Physics continues running if optional AI or persistence is offline.",
-  "RUL is clearly presented as a simulated-timescale estimate.",
+  "Input features follow the model training contract, byte-identical across the pipeline, the service and the twin.",
+  "Each engine carries its own scaler, checkpoints and manifest, with the SHA-256 of every deployed head recorded.",
+  "Physics keeps running if the AI service or persistence is offline - a circuit breaker degrades one feature, never the flight.",
+  "RUL is real engine hours against that engine's TBO, shown with the uncertainty band measured on held-out data.",
+  "Remaining life never rises during a flight, and no figure is shown at all until the AI window holds only in-envelope samples.",
 ];
 
 const EMAILJS_SERVICE_ID = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
@@ -201,7 +208,7 @@ export default function AboutUsPage() {
             <div>
               <span className="font-mono text-[10px] font-bold tracking-[0.2em] text-tertiary uppercase">WHAT THE PLATFORM DOES</span>
               <h2 className="mt-1.5 font-headline-display text-2xl md:text-3xl font-bold uppercase text-white tracking-tight">
-                One system, four connected jobs
+                One system, five connected jobs
               </h2>
             </div>
             <p className="max-w-sm text-xs leading-relaxed text-on-surface-variant/70">
@@ -209,7 +216,7 @@ export default function AboutUsPage() {
             </p>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             {capabilities.map((cap) => {
               const Icon = cap.icon;
               return (
@@ -267,17 +274,96 @@ export default function AboutUsPage() {
           </div>
         </section>
 
+        {/* Runtime architecture - what actually runs, as opposed to the plant model below */}
+        <section className="relative z-10 mx-auto max-w-7xl px-4 md:px-6 py-12 md:py-16">
+          <div className="mb-8">
+            <span className="font-mono text-[10px] font-bold tracking-[0.2em] text-tertiary uppercase">HOW IT FITS TOGETHER</span>
+            <h2 className="mt-1.5 font-headline-display text-2xl md:text-3xl font-bold uppercase text-white tracking-tight">
+              System architecture
+            </h2>
+            <p className="mt-3 max-w-3xl text-sm leading-relaxed text-on-surface-variant">
+              Three processes and one shared contract. The physics twin produces telemetry; the
+              inference service turns a 128-sample window into five predictions; the cockpit shows
+              both, alongside a model-free physics check that can disagree with them.
+            </p>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-4">
+            {[
+              {
+                n: "01", name: "Physics twin", file: "backend/physics.py",
+                lines: ["Rotax 912 / 914 / 915 / 916", "1 Hz step, RK4 inside", "wear -> every channel", "4 engine failure modes"],
+                note: "Also runs as a verified Simulink model - identical to 4e-10.",
+              },
+              {
+                n: "02", name: "Simulation loop", file: "backend/main.py",
+                lines: ["WebSocket at 20 Hz", "bounded AI queue", "circuit breaker + recovery", "CAN sensors via /measured"],
+                note: "Guards every stage: a failure degrades one feature, not the flight.",
+              },
+              {
+                n: "03", name: "Inference service", file: "backend/aiv3.py",
+                lines: ["detection · diagnosis", "severity · failure modes", "RUL in engine hours", "128 x 25 window + 10 aux"],
+                note: "Separate process and environment, so training numbers are what serves.",
+              },
+              {
+                n: "04", name: "Cockpit", file: "frontend/",
+                lines: ["live telemetry + gauges", "advisory and residuals", "mission replay + report", "Supabase history"],
+                note: "Shows the model's own numbers, and says when it is not ready.",
+              },
+            ].map((b) => (
+              <div key={b.n} className="bg-surface/80 border border-outline-variant/30 rounded-lg p-5 shadow-[2px_2px_0px_#000000] flex flex-col">
+                <div className="flex items-baseline justify-between">
+                  <span className="font-mono text-[10px] tracking-[0.18em] text-tertiary font-bold">{b.n}</span>
+                  <span className="font-mono text-[9px] text-on-surface-variant/50">{b.file}</span>
+                </div>
+                <h3 className="font-headline-display text-lg text-white uppercase tracking-tight mt-2">{b.name}</h3>
+                <ul className="mt-3 space-y-1.5">
+                  {b.lines.map((l) => (
+                    <li key={l} className="font-mono text-[11px] text-on-surface-variant leading-snug flex gap-2">
+                      <span className="text-tertiary/60">&rsaquo;</span>{l}
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-4 pt-3 border-t border-outline-variant/20 text-[11px] leading-relaxed text-on-surface-variant/70">{b.note}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <div className="bg-surface/60 border border-outline-variant/25 rounded-lg p-5">
+              <h3 className="font-mono text-[10px] uppercase tracking-[0.16em] text-tertiary font-bold">The parallel path</h3>
+              <p className="mt-2 text-[13px] leading-relaxed text-on-surface-variant">
+                <span className="font-mono text-white">residual.py</span> compares each reading with the
+                physics expectation for the current operating point and wear. It shares no weights, no
+                training set and no failure mode with the AI - so when the two agree, that agreement
+                means something, and when they disagree the cockpit says which one is out of step.
+              </p>
+            </div>
+            <div className="bg-surface/60 border border-outline-variant/25 rounded-lg p-5">
+              <h3 className="font-mono text-[10px] uppercase tracking-[0.16em] text-tertiary font-bold">Onboard and on hardware</h3>
+              <p className="mt-2 text-[13px] leading-relaxed text-on-surface-variant">
+                The heads export to TensorFlow Lite for edge deployment, and
+                <span className="font-mono text-white"> can_ingest.py</span> bridges a SocketCAN bus into the
+                same endpoints the simulator uses - so the twin can shadow a real engine without
+                any change to the pipeline that reads it.
+              </p>
+            </div>
+          </div>
+        </section>
+
         {/* System diagram */}
         <section className="relative z-10 mx-auto max-w-7xl px-4 md:px-6 py-12 md:py-16">
           <div className="mb-8 flex flex-col md:flex-row md:items-end md:justify-between gap-3">
             <div>
               <span className="font-mono text-[10px] font-bold tracking-[0.2em] text-tertiary uppercase">INSIDE THE MODEL</span>
               <h2 className="mt-1.5 font-headline-display text-2xl md:text-3xl font-bold uppercase text-white tracking-tight">
-                Full system diagram
+                Plant model — full signal flow
               </h2>
               <p className="mt-3 max-w-2xl text-sm leading-relaxed text-on-surface-variant">
-                The complete signal flow of <span className="font-mono text-tertiary">UAV_Piston_Engine.slx</span> — the
-                top-level architecture plus every one of the nine subsystems, redrawn from roughly 500 Simulink blocks.
+                The engine itself, block by block: the complete signal flow of
+                <span className="font-mono text-tertiary"> UAV_Piston_Engine.slx</span>, top level plus all nine
+                subsystems, redrawn from roughly 500 Simulink blocks. This is the physics the
+                architecture above wraps — not the running system.
               </p>
             </div>
             <a

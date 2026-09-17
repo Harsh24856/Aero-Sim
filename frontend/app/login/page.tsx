@@ -89,11 +89,43 @@ export default function LoginPage() {
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-64 bg-tertiary/10 rounded-full blur-[80px]" />
         </div>
 
-        <div className="relative z-10 w-full max-w-sm mx-auto px-4 py-16">
+        <div className="relative z-10 w-full max-w-5xl mx-auto px-4 py-16 grid gap-10 lg:grid-cols-[1.05fr_minmax(0,380px)] lg:items-center">
+
+          {/* Identity panel. Hidden below lg: on a phone the card should be the
+              whole screen, not something to scroll past. */}
+          <section className="hidden lg:block">
+            <span className="font-mono text-[10px] tracking-[0.24em] text-tertiary font-bold uppercase">
+              DRDO PS 26054 // SIH 26054
+            </span>
+            <h2 className="font-headline-display text-[42px] leading-[1.05] font-bold text-primary uppercase tracking-tight mt-3">
+              AI digital twin for<br />aero piston engines
+            </h2>
+            <p className="text-on-surface-variant text-[13px] leading-relaxed mt-4 max-w-md">
+              A physics twin of the Rotax powerplants in MALE-class UAVs, with five AI heads
+              reading its telemetry in real time: fault detection, per-channel diagnosis,
+              severity, engine failure modes and remaining useful life.
+            </p>
+            <dl className="mt-8 grid grid-cols-3 gap-px bg-outline-variant/20 border border-outline-variant/20 rounded overflow-hidden max-w-md">
+              {[
+                { k: "Engines", v: "912 · 914", s: "915 · 916 iS" },
+                { k: "Channels", v: "25", s: "model inputs" },
+                { k: "RUL error", v: "0.6%", s: "of TBO" },
+              ].map((it) => (
+                <div key={it.k} className="bg-surface/70 px-3 py-3">
+                  <dt className="font-mono text-[9px] uppercase tracking-[0.14em] text-on-surface-variant/70">{it.k}</dt>
+                  <dd className="font-headline-display text-[17px] text-primary mt-1 leading-none">{it.v}</dd>
+                  <dd className="font-mono text-[9px] text-on-surface-variant/50 mt-1">{it.s}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+
+          {/* Auth column */}
+          <div className="w-full max-w-sm mx-auto lg:mx-0">
 
           {/* Brand mark above card */}
           <div className="text-center mb-6">
-            <span className="font-mono text-[10px] tracking-[0.24em] text-tertiary font-bold uppercase">
+            <span className="font-mono text-[10px] tracking-[0.24em] text-tertiary font-bold uppercase lg:hidden">
               AERO-SIM // PILOT ACCESS SYSTEM
             </span>
             <h1 className="font-headline-display text-3xl font-bold text-primary uppercase tracking-tight mt-1">
@@ -243,6 +275,7 @@ export default function LoginPage() {
           <div className="mt-6 flex items-center justify-center gap-2 text-on-surface-variant/40 font-mono text-[10px] uppercase tracking-wider">
             <ShieldCheck size={12} />
             <span>Secured by Supabase Auth · TLS 1.3</span>
+          </div>
           </div>
         </div>
       </main>
