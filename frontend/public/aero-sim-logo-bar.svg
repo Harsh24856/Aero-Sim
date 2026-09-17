@@ -1,0 +1,44 @@
+<svg width="940" height="328" viewBox="16 16 940 328" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">AERO-SIM logo, bar lockup</title>
+  <desc id="desc">The AERO-SIM mark and wordmark, composed for a navigation bar: the strapline is omitted because it renders about two pixels at this height.</desc>
+  <defs>
+    <linearGradient id="flameBar" x1="44" y1="48" x2="244" y2="275" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFD09A"/>
+      <stop offset="0.45" stop-color="#FF742E"/>
+      <stop offset="1" stop-color="#D63E16"/>
+    </linearGradient>
+    <linearGradient id="metalBar" x1="84" y1="89" x2="267" y2="268" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF4EA"/>
+      <stop offset="0.45" stop-color="#E7C4A7"/>
+      <stop offset="1" stop-color="#9A6854"/>
+    </linearGradient>
+    <filter id="glowBar" x="-35%" y="-35%" width="170%" height="170%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="9" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Mark: aircraft silhouette inside a data-acquisition aperture. -->
+  <g transform="translate(32 32)">
+    <path d="M148 10C224 10 286 72 286 148C286 224 224 286 148 286C72 286 10 224 10 148C10 72 72 10 148 10Z" stroke="#6D4435" stroke-width="4"/>
+    <path d="M148 30C213 30 266 83 266 148" stroke="url(#flameBar)" stroke-width="7" stroke-linecap="round" filter="url(#glowBar)"/>
+    <path d="M148 266C83 266 30 213 30 148" stroke="#5A382D" stroke-width="4" stroke-linecap="round"/>
+    <path d="M148 50V72M148 224V246M50 148H72M224 148H246" stroke="#C98C71" stroke-width="4" stroke-linecap="round"/>
+    <path d="M88 178L130 160L150 88L170 160L222 178L170 190L150 222L130 190L88 178Z" fill="url(#metalBar)"/>
+    <path d="M150 88V222" stroke="#241410" stroke-width="5" stroke-linecap="round"/>
+    <path d="M94 178H206" stroke="#241410" stroke-width="5" stroke-linecap="round"/>
+    <path d="M119 165L150 88L181 165" stroke="#FFF1E5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="148" cy="148" r="13" fill="#FF762F" filter="url(#glowBar)"/>
+    <circle cx="148" cy="148" r="5" fill="#FFF4EA"/>
+    <path d="M46 221C74 251 111 268 148 268" stroke="#FF762F" stroke-width="3" stroke-linecap="round" stroke-dasharray="2 10"/>
+  </g>
+
+  <g transform="translate(365 96)">
+    <text x="0" y="92" fill="#F8EEE7" font-family="Arial, Helvetica, sans-serif" font-size="104" font-weight="800" letter-spacing="-5">AERO</text>
+    <path d="M313 53H355" stroke="#FF762F" stroke-width="13" stroke-linecap="round"/>
+    <text x="372" y="92" fill="#F8EEE7" font-family="Arial, Helvetica, sans-serif" font-size="104" font-weight="800" letter-spacing="-5">SIM</text>
+  </g>
+</svg>
