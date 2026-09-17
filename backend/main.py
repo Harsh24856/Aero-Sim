@@ -224,6 +224,7 @@ state = {
     "ai_resync": False,        # the AI's window has a gap: /reset it before the next sample
     "ai_settle_until": 0.0,    # sim time until which AI alerts are held (see hold_alerts_outside_envelope)
     "ai_last_sample_time": None,
+    "ai_last_seen_time": None,   # last sample time sent to the AI; a drop means a new flight
     # Wall-clock ms from a physics sample entering the AI queue to its diagnosis being
     # stored for the next broadcast - the "real-time" figure reported in /health.
     "ai_latency_ms": deque(maxlen=300),
@@ -342,7 +343,12 @@ def hold_alerts_outside_envelope(sample: dict, result: dict) -> dict:
     # The detector's confidence goes with fault_detected, or the cockpit prints
     # "100% conf" beside a nominal status - the same contradiction, one field over.
     diagnosis = result.get("diagnosis") or {}
+    # How long the hold still has to run, so the cockpit can show progress instead of a
+    # bare "stabilising". It is a countdown to a moving target: any sample below the
+    # envelope pushes ai_settle_until out again, and the bar honestly goes back with it.
     held = {**result, "settling": True, "fault_detected": False, "faulty_channels": [],
+            "settle_seconds_left": max(0.0, round(state["ai_settle_until"] - t, 1)),
+            "settle_window_s": AI_WINDOW_S,
             "detection_confidence": 0.0, "detection_confidence_raw": result.get("detection_confidence"),
             "severity_percent": {ch: 0.0 for ch in (result.get("severity_percent") or {})},
             "severity_percent_raw": result.get("severity_percent") or {},
@@ -431,12 +437,15 @@ def smooth_rul(sample: dict, result: dict) -> dict:
         return min(value, ceiling) if ceiling else value
 
     if result.get("settling"):
+        # NO NUMBER AT ALL while the window is not clean. Passing the raw prediction
+        # through was worse than useless: on a 914 the gauge read 99.1%, then 99.0%,
+        # then 100% - RUL rising, which is the one thing it must never do. The window
+        # still holds ground roll here, so the head is extrapolating and its output
+        # wanders. The cockpit shows "stabilising" until the first in-envelope
+        # prediction, which then seeds the floor (see reset above).
         reset_rul_filter()
-        shown = presented(raw)
-        out = {**result, "rul_hours_raw": raw, "rul_hours": round(shown, 3)}
-        if ceiling:
-            out["rul_percent_remaining"] = round(100.0 * shown / ceiling, 4)
-        return out
+        return {**result, "rul_ready": False, "rul_hours_raw": raw,
+                "rul_hours": None, "rul_percent_remaining": None}
     f = state["rul_filter"]
     if f["t"] is not None and isinstance(t, (int, float)) and t < f["t"]:
         reset_rul_filter()                       # clock restarted: a new flight
@@ -452,7 +461,8 @@ def smooth_rul(sample: dict, result: dict) -> dict:
     f["shown"] = presented(f["shown"])
     f["t"] = t if isinstance(t, (int, float)) else f["t"]
     f["wear"] = float(wear) if isinstance(wear, (int, float)) else f["wear"]
-    out = {**result, "rul_hours_raw": raw, "rul_hours": round(f["shown"], 3)}
+    out = {**result, "rul_ready": True, "rul_hours_raw": raw,
+           "rul_hours": round(f["shown"], 3)}
     if tbo:
         out["rul_percent_remaining"] = round(max(0.0, min(100.0, 100.0 * f["shown"] / float(tbo))), 4)
     return out
@@ -476,9 +486,24 @@ async def ai_worker(queue: asyncio.Queue):
                                            "error": ai_breaker.last_error or "AI service unreachable",
                                            "retrying": True}
                 continue
+            # A RESTARTED CLOCK IS A NEW FLIGHT, whatever the session bookkeeping says.
+            # /start clears the AI's rolling buffer only when it treats the session as
+            # fresh (session_active False); reopening the page after leaving without
+            # Stop, or any resume path, leaves session_active True - and the AI then
+            # predicts from a window still holding the previous flight's telemetry.
+            # The simulated clock going backwards is the unambiguous signal, so resync
+            # on it regardless of how the flight was started.
+            sample_t = out.get("time")
+            prev_t = state["ai_last_seen_time"]
+            if (isinstance(sample_t, (int, float)) and isinstance(prev_t, (int, float))
+                    and sample_t < prev_t):
+                state["ai_resync"] = True
+            if isinstance(sample_t, (int, float)):
+                state["ai_last_seen_time"] = sample_t
             if state["ai_resync"]:
                 state["ai_resync"] = False
                 state["ai_warmed_up"] = False
+                reset_rul_filter()          # the RUL floor belongs to the old flight
                 await ai_reset_buffer()
             result = await call_ai_service(out)
             status = result.get("status")

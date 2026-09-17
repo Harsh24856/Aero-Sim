@@ -59,21 +59,31 @@ class RulFilterTest(unittest.TestCase):
         for t in range(60):                       # takeoff hold: a pessimistic estimate
             r = main.smooth_rul({"time": t, "wear": 0.0},
                                 {**OK, "rul_hours": 1900.0, "settling": True})
-            self.assertEqual(r["rul_hours"], 1900.0)          # passed straight through
+            self.assertIs(r["rul_hours"], None)               # nothing shown at all
         first = main.smooth_rul({"time": 61, "wear": 0.0}, {**OK, "rul_hours": 1990.0})
         self.assertAlmostEqual(first["rul_hours"], 1990.0, places=3)   # floor is the
         # first IN-ENVELOPE prediction, not the held one
         later = main.smooth_rul({"time": 62, "wear": 0.0}, {**OK, "rul_hours": 1995.0})
         self.assertLessEqual(later["rul_hours"], first["rul_hours"] + 1e-9)  # still never rises
 
+    def test_no_rul_is_shown_until_the_window_is_clean(self):
+        """A 914 flight showed 99.1%, then 99.0%, then 100% during the takeoff hold:
+        the head extrapolates while its window still holds ground roll, and a rising
+        RUL is the one thing the gauge must never do. Show nothing instead."""
+        for t, raw in ((5, 1980.0), (6, 1978.0), (7, 2000.0)):
+            r = main.smooth_rul({"time": t, "wear": 0.0},
+                                {**OK, "rul_hours": raw, "settling": True})
+            self.assertIs(r["rul_hours"], None)
+            self.assertIs(r["rul_percent_remaining"], None)
+            self.assertFalse(r["rul_ready"])
+            self.assertEqual(r["rul_hours_raw"], raw)      # kept for the logs
+        live = main.smooth_rul({"time": 8, "wear": 0.0}, {**OK, "rul_hours": 1975.0})
+        self.assertTrue(live["rul_ready"])
+        self.assertAlmostEqual(live["rul_hours"], 1975.0, places=3)
+
     def test_shown_rul_never_exceeds_tbo(self):
         """TBO * relu(z) is unbounded above: a live 916 read 2101 h against a 2000 h
         TBO during the takeoff window, which the gauge would show as 105% remaining."""
-        held = main.smooth_rul({"time": 5, "wear": 0.0},
-                               {**OK, "rul_hours": 2101.1, "settling": True})
-        self.assertEqual(held["rul_hours"], TBO)
-        self.assertEqual(held["rul_hours_raw"], 2101.1)
-        self.assertEqual(held["rul_percent_remaining"], 100.0)
         flying = main.smooth_rul({"time": 6, "wear": 0.0}, {**OK, "rul_hours": 2101.1})
         self.assertEqual(flying["rul_hours"], TBO)
         self.assertLessEqual(flying["rul_percent_remaining"], 100.0)
@@ -82,6 +92,35 @@ class RulFilterTest(unittest.TestCase):
         main.smooth_rul({"time": 500, "wear": 0.0}, {**OK, "rul_hours": 1500.0})
         self.assertEqual(main.smooth_rul({"time": 3, "wear": 0.0}, {**OK, "rul_hours": 1900.0})["rul_hours"], 1900.0)
         self.assertEqual(main.smooth_rul({"time": 4}, {"status": "warming_up"}), {"status": "warming_up"})
+
+
+class AiWindowFreshnessTest(unittest.TestCase):
+    """A restarted simulated clock means a new flight, and the AI's 128-sample window
+    must not carry the old one into it. /start only clears that buffer when it treats
+    the session as fresh - reopening the page without pressing Stop leaves
+    session_active True, and the first predictions of the new flight then come from a
+    window still holding the previous flight's telemetry."""
+
+    def setUp(self):
+        main.state["ai_last_seen_time"] = None
+        main.state["ai_resync"] = False
+
+    def feed(self, t):
+        """The clock check the worker runs before sending a sample."""
+        prev = main.state["ai_last_seen_time"]
+        if isinstance(t, (int, float)) and isinstance(prev, (int, float)) and t < prev:
+            main.state["ai_resync"] = True
+        main.state["ai_last_seen_time"] = t
+        return main.state["ai_resync"]
+
+    def test_clock_going_backwards_forces_a_resync(self):
+        for t in (100, 101, 102):
+            self.assertFalse(self.feed(t))
+        self.assertTrue(self.feed(1))            # new flight: t restarted
+
+    def test_a_continuous_flight_never_resyncs(self):
+        for t in range(0, 400, 1):
+            self.assertFalse(self.feed(float(t)))
 
 
 class TakeoffHoldTest(unittest.TestCase):
@@ -111,6 +150,9 @@ class TakeoffHoldTest(unittest.TestCase):
         self.assertEqual(held["severity_percent_raw"]["cht"], 88.0)
         self.assertEqual(held["diagnosis"]["cht"]["fault_type"], "none")
         self.assertEqual(held["diagnosis_raw"]["cht"]["fault_type"], "bias")
+        # The cockpit needs a countdown, not just a flag.
+        self.assertEqual(held["settle_window_s"], main.AI_WINDOW_S)
+        self.assertAlmostEqual(held["settle_seconds_left"], 100 + main.AI_WINDOW_S - 150, places=1)
         self.assertEqual(held["detection_confidence"], 0.0)
         self.assertEqual(held["detection_confidence_raw"], 0.97)
         released = main.hold_alerts_outside_envelope({"time": 229, "airspeed": 40.0}, self.ALARM)
