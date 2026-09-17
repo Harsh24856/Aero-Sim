@@ -124,6 +124,24 @@ class EngineFailureShutdownTest(unittest.TestCase):
         for t in range(120):
             self.assertEqual(self.elapsed(t, None), 0.0)
 
+    def test_the_loops_decision_trips_only_after_the_hold(self):
+        for t in range(int(main.HEALTH_FAILURE_HOLD_S)):
+            self.assertFalse(main.should_end_flight(t, self.DEAD))
+        self.assertTrue(main.should_end_flight(main.HEALTH_FAILURE_HOLD_S, self.DEAD))
+
+    def test_zero_hold_disables_the_shutdown(self):
+        """AERO_HEALTH_FAILURE_HOLD_S=0 means off, not "fire on the first second".
+        The loop used to test `elapsed >= hold` inline, and 0 >= 0 ended every flight
+        at t=1 s - measured on a bench run, with no AI result at all."""
+        hold = main.HEALTH_FAILURE_HOLD_S
+        main.HEALTH_FAILURE_HOLD_S = 0.0
+        try:
+            for t in range(200):
+                self.assertFalse(main.should_end_flight(t, self.DEAD),
+                                 f"a zero hold tripped at t={t}")
+        finally:
+            main.HEALTH_FAILURE_HOLD_S = hold
+
     def test_a_new_flights_clock_restarts_the_count(self):
         for t in range(19):
             self.elapsed(100 + t, self.DEAD)

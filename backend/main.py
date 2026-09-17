@@ -752,8 +752,7 @@ async def simulation_loop():
                 # ---- engine failure ----
                 # Health written off for HEALTH_FAILURE_HOLD_S straight: the flight ends
                 # itself rather than cruising on with a 0% engine and a red panel.
-                if health_failure_seconds(state["sim_time_offset"],
-                                          state["last_ai_result"]) >= HEALTH_FAILURE_HOLD_S:
+                if should_end_flight(state["sim_time_offset"], state["last_ai_result"]):
                     await engine_failure_shutdown()
                     break
 
@@ -971,6 +970,21 @@ async def close_session(outcome: str):
     spawn_background(summary.generate_summary, _sim_id)
     state["simulation_id"] = None
     return _sim_id
+
+
+def should_end_flight(sim_time: float, result) -> bool:
+    """True when this flight must end: health at the floor for HEALTH_FAILURE_HOLD_S
+    consecutive simulated seconds.
+
+    The zero case is the whole reason this is a function. The loop used to test
+    `health_failure_seconds(...) >= HEALTH_FAILURE_HOLD_S` inline, so setting the hold
+    to 0 to DISABLE the shutdown instead made it fire on the first simulated second of
+    every flight - healthy, warming up, or not reporting at all - because 0 >= 0. A
+    bench run with AERO_HEALTH_FAILURE_HOLD_S=0 halted every flight at t=1 s.
+    """
+    if HEALTH_FAILURE_HOLD_S <= 0:
+        return False
+    return health_failure_seconds(sim_time, result) >= HEALTH_FAILURE_HOLD_S
 
 
 async def engine_failure_shutdown():
