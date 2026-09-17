@@ -263,12 +263,15 @@ def build_rul_window_stats(x_input):
     mean_sq = layers.Multiply(name="rul_win_mean_sq")([mean, mean])
     # E[x^2] - E[x]^2, floored at 0: the subtraction can go slightly negative on
     # float32 for a constant channel.
+    # VARIANCE, not standard deviation. std would need a sqrt, and the only way to
+    # spell that here is a Lambda - which this project has now been bitten by three
+    # times: on reload the lambda's closure has lost the module globals, so
+    # `tf.sqrt` raises "name 'tf' is not defined" the first time the head is called.
+    # It loads fine and fails at export. Variance needs no new op, keeps this head
+    # free of Lambdas entirely (so it also converts to TFLite without the unrolling
+    # workaround), and rul_data.window_features emits variance to match.
     var = layers.ReLU(name="rul_win_var")(
         layers.Subtract(name="rul_win_var_raw")([sq_mean, mean_sq]))
-    # std rather than variance, so these are exactly rul_data.window_features and a
-    # Normalization layer adapted on those numpy features fits this graph.
-    std = layers.Lambda(lambda t: tf.sqrt(t + 1e-8), output_shape=lambda s: s,
-                        name="rul_win_std")(var)
     last = layers.Flatten(name="rul_win_last")(
         layers.Cropping1D(cropping=(win - 1, 0), name="rul_win_last_crop")(x_input))
     h1 = layers.GlobalAveragePooling1D(name="rul_win_h1")(
@@ -276,7 +279,7 @@ def build_rul_window_stats(x_input):
     h2 = layers.GlobalAveragePooling1D(name="rul_win_h2")(
         layers.Cropping1D(cropping=(half, 0), name="rul_win_h2_crop")(x_input))
     slope = layers.Subtract(name="rul_win_slope")([h2, h1])
-    return layers.Concatenate(name="rul_win_stats")([mean, std, last, slope])
+    return layers.Concatenate(name="rul_win_stats")([mean, var, last, slope])
 
 
 def build_rul_hybrid(x_input, aux_input, init_hours=None, lstm_units=32, lstm_layers=2,
