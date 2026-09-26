@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import { supabase } from "@/lib/supabase";
-import { engineHoursOf, flightHours, modelVersionOf, rulPercentOf, tboHoursOf } from "@/lib/timeScale";
+import { engineHoursOf, flightHours, modelVersionOf, rulPercentOf, tboHoursOf, usesEngineHours } from "@/lib/timeScale";
+import EnginesCard from "@/components/EnginesCard";
 import ModelBadge from "@/components/ModelBadge";
 import { Rocket, History, ListChecks, TrendingUp, Clock, ChevronRight, LogOut } from "lucide-react";
 import {
@@ -98,7 +99,7 @@ export default function DashboardPage() {
 
     const totalFlightHours = simulations.reduce((sum, s) => {
       // v3 runs count engine hours (wear x TBO); legacy v2 runs their real-world equivalent.
-      if (modelVersionOf(s) === "v3") return sum + (engineHoursOf(s) ?? 0);
+      if (usesEngineHours(modelVersionOf(s))) return sum + (engineHoursOf(s) ?? 0);
       const secs = elapsedSecondsOf(s);
       return secs != null ? sum + flightHours(secs, "v2") : sum;
     }, 0);
@@ -182,7 +183,7 @@ export default function DashboardPage() {
               <div className="p-2.5 bg-tertiary/10 rounded"><Clock size={20} className="text-tertiary" /></div>
               <div>
                 <div className="text-2xl font-bold text-primary">{stats.totalFlightHours.toFixed(1)}h</div>
-                <div className="text-[11px] uppercase tracking-[0.1em] text-on-surface-variant" title="v3 runs: engine hours (wear x TBO). Legacy runs: real-world equivalent flight time.">Engine Hours Flown</div>
+                <div className="text-[11px] uppercase tracking-[0.1em] text-on-surface-variant" title="v3/v4 runs: engine hours on the engine. Legacy runs: real-world equivalent flight time.">Engine Hours Flown</div>
               </div>
             </div>
           </div>
@@ -224,6 +225,8 @@ export default function DashboardPage() {
               </ResponsiveContainer>
             </div>
           )}
+
+          <EnginesCard />
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-10">
             <Link href="/engine" className="group bg-surface/80 border border-tertiary/30 rounded-lg p-6 hover:border-tertiary transition-colors flex items-center justify-between">

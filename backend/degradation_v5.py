@@ -1,0 +1,177 @@
+"""Degradation for physics v5: degradation_v4 with labels a model can learn.
+
+Changes (docs/v5_model_improvement_plan.md, Phase 2)
+----------------------------------------------------
+1. RUL WITHOUT FUTURE FAULTS. v4's RUL label came from `wear_out_hours()`, which
+   includes faults whose onset is still in the future. An engine that is healthy
+   now - every sensor reading normal - was labelled with a short remaining life
+   caused by a fault that had not started and could not be seen. No model can
+   learn that; it set an error floor (v4 model cards: 18.6-21% of TBO on live
+   inputs). v5 labels RUL from what exists at that hour: baseline wear plus the
+   faults already under way, projected along their known progression law:
+       rul_hours = min(TBO, wear_out_known(hours)) - hours
+   The v4 label is kept as `rul_hours_oracle` for reference.
+2. ONSET HAZARD. v4 drew every fault's onset uniformly over 0-0.9 TBO. Wear-out
+   faults (bearings, rings and valves, oil pump, turbocharger, radiator silting,
+   propeller erosion) are more likely late in life; v5 draws their onset with a
+   linearly rising hazard (density proportional to age, Beta(2,1) over 0-0.9 TBO).
+   Random faults (ignition, injector, combustion, filter, oil condition, wastegate
+   and intercooler) keep a uniform onset: they depend on maintenance and chance,
+   not on age.
+3. REMOVAL, NOT DESTRUCTION. v4 wore an engine out only when its condition reached
+   exactly 0 - a component at 100% damage. Faults saturate towards 1.0 and almost
+   never got there before TBO, so in 600 pilot flights no fault ever shortened an
+   engine's remaining life: RUL depended on baseline wear alone. An engine comes off
+   the wing long before total destruction; v5 removes it when any FAULTED component
+   reaches REMOVAL_SEVERITY (0.8 damage - an ASSUMED maintenance threshold), when
+   baseline wear is used up (as v4), or at TBO - whichever is first. Faults now
+   shorten life, which is what makes the no-future-faults label (1) matter. (The
+   threshold applies to faults only: applied to baseline wear too, 57% of pilot
+   rows became wear-limited, while most real Rotax engines reach their TBO.)
+4. NORMAL AGEING WITHIN LIMITS. v4's baseline wear gave an engine at TBO up to 29%
+   more friction, 18% less cooling and 21% worse oil (depths x the 1.3 worst-case
+   scale): a normally aged engine then broke the 2 bar oil-pressure minimum at an
+   ordinary standard-day cruise and ran its oil past 130 C in the certified hot-day
+   climb. Rotax sets TBO with margin - a normally worn engine at TBO is inside its
+   limits - and oil is changed every ~100 h, so it cannot degrade over the engine's
+   life. v5 baseline depths: friction 0.15, cooling 0.10, oil condition 0.06
+   (compression, breathing and propeller unchanged).
+5. WEAR-ONLY HEALTH. `health_wear_only(hours)` is the same engine with its baseline
+   wear but none of its faults. The generator flies it alongside, so a fault is
+   labelled PRESENT only when its physical effect on the instruments is visible
+   against normal wear - "wear alone is never a fault".
+"""
+from __future__ import annotations
+
+import math
+
+import numpy as np
+
+from degradation_v4 import (  # noqa: F401  re-exported
+    A_RANGE, B_RANGE, BASELINE_MODS, FAULT_MODES, FAULT_NAMES, N_FAULTS,
+    DegradationState, FaultEvent, applicable_faults,
+)
+from physics_v4 import Health
+
+REMOVAL_SEVERITY = 0.8
+REMOVAL_CONDITION = 1.0 - REMOVAL_SEVERITY      # engines already past it do not fly
+BASELINE_MODS_V5 = {
+    "compression_mod": 0.07,
+    "friction_mod": 0.15,
+    "cooling_mod": 0.10,
+    "oil_quality_mod": 0.06,
+    "volumetric_eff_mod": 0.05,
+    "prop_eff_mod": 0.05,
+}
+
+WEAR_OUT_FAULTS = {"bearing_wear", "compression_loss", "valve_leakage",
+                   "oil_pump_degradation", "turbo_degradation",
+                   "cooling_degradation", "prop_erosion"}
+ONSET_SPAN = 0.9                 # onset falls in 0 .. 0.9 x TBO, as in v4
+
+
+class DegradationStateV5(DegradationState):
+
+    def __init__(self, rng: np.random.Generator, start_hours: float, tbo_hours: float,
+                 n_faults: int | None = None, forced: int | None = None,
+                 allowed: list | None = None):
+        super().__init__(rng, start_hours, tbo_hours, n_faults=n_faults,
+                         forced=forced, allowed=allowed)
+        span = max(self.tbo * ONSET_SPAN, 1.0)
+        for f in self.faults:
+            if f.name in WEAR_OUT_FAULTS:
+                # Beta(2,1): density 2x on [0,1], inverse CDF sqrt(u).
+                f.onset_h = float(span * math.sqrt(rng.random()))
+
+    # ------------------------------------------------------------------
+    def _known(self, hours: float) -> list:
+        return [f for f in self.faults if f.onset_h <= hours]
+
+    def condition_known(self, at_hours: float, known: list) -> float:
+        """Condition at `at_hours` counting only the faults in `known`."""
+        frac = self._progress(at_hours / max(self.tbo, 1.0) * 100.0,
+                              self.base_a, self.base_b) * self.base_scale
+        worst = min(frac, 1.0)
+        for f in known:
+            age = at_hours - f.onset_h
+            if age > 0.0:
+                worst = max(worst, self._progress(age / max(self.tbo, 1.0) * 100.0, f.a, f.b))
+        return float(min(max(1.0 - worst, 0.0), 1.0))
+
+    def _removed(self, age: float, known: list) -> bool:
+        """Due for removal at this age: baseline wear used up, or a faulted
+        component at REMOVAL_SEVERITY. Monotone in age (both only grow)."""
+        base = self._progress(age / max(self.tbo, 1.0) * 100.0, self.base_a, self.base_b) * self.base_scale
+        if base >= 1.0:
+            return True
+        for f in known:
+            a = age - f.onset_h
+            if a > 0.0 and self._progress(a / max(self.tbo, 1.0) * 100.0, f.a, f.b) >= REMOVAL_SEVERITY:
+                return True
+        return False
+
+    def _removal_age(self, start: float, known: list, cap_mult: float = 20.0) -> float:
+        """First age >= start at which the engine is due for removal (bisection)."""
+        cond = lambda a: self._removed(a, known)  # noqa: E731
+        lo = float(start)
+        if cond(lo):
+            return lo
+        hi = max(lo, 1.0)
+        cap = cap_mult * self.tbo
+        while hi < cap:
+            hi *= 2.0
+            if cond(hi):
+                break
+        else:
+            return float("inf")
+        if not cond(hi):
+            return float("inf")
+        for _ in range(80):
+            mid = 0.5 * (lo + hi)
+            if cond(mid):
+                hi = mid
+            else:
+                lo = mid
+        return float(hi)
+
+    def wear_out_known(self, hours: float) -> float:
+        """Age at which the engine is due for removal if nothing new goes wrong
+        after `hours`: baseline wear plus the faults already under way."""
+        return self._removal_age(hours, self._known(hours))
+
+    def wear_out_hours(self, cap_mult: float = 20.0) -> float:
+        """Oracle: removal age counting every fault, including ones not yet started."""
+        return self._removal_age(self.start_hours, list(self.faults), cap_mult)
+
+    def health_at(self, hours: float) -> tuple[Health, dict]:
+        """degradation_v4.health_at with the v5 baseline-wear depths."""
+        h = self.health_wear_only(hours)
+        sev = {n: 0.0 for n in FAULT_NAMES}
+        for f in self.faults:
+            age = hours - f.onset_h
+            if age <= 0.0:
+                continue
+            s = self._progress(age / max(self.tbo, 1.0) * 100.0, f.a, f.b)
+            sev[f.name] = max(sev[f.name], s)
+            for mod in FAULT_MODES[f.name]["mods"]:
+                cur = getattr(h, mod)
+                delta = f.depth * s
+                setattr(h, mod, cur + delta if f.sense < 0 else cur - delta)
+        for k, v in h.as_dict().items():
+            setattr(h, k, float(min(max(v, 0.05), 2.5)))
+        return h, sev
+
+    def n_known(self, hours: float) -> int:
+        return sum(1 for f in self.faults if f.onset_h <= hours)
+
+    def health_wear_only(self, hours: float) -> Health:
+        """Baseline wear only - the same engine without any of its faults."""
+        h = Health()
+        frac = min(self._progress(hours / max(self.tbo, 1.0) * 100.0,
+                                  self.base_a, self.base_b) * self.base_scale, 1.0)
+        for mod, depth in BASELINE_MODS_V5.items():
+            cur = getattr(h, mod)
+            setattr(h, mod, cur + depth * frac if mod == "friction_mod" else cur - depth * frac)
+        for k, v in h.as_dict().items():
+            setattr(h, k, float(min(max(v, 0.05), 2.5)))
+        return h

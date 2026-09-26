@@ -5,8 +5,9 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Film, RefreshCw, Sparkles, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { missionName } from "@/lib/missionPresets";
 import Navbar from "@/components/Navbar";
-import { engineHoursOf, flightHours, formatSimClock, modelVersionOf, rulPercentOf, tboHoursOf } from "@/lib/timeScale";
+import { engineHoursFlown, engineHoursOf, flightHours, formatLifeScale, formatSimClock, modelVersionOf, rulPercentOf, tboHoursOf, usesEngineHours } from "@/lib/timeScale";
 import ModelBadge from "@/components/ModelBadge";
 import { formatRul, isRulOutOfRange } from "@/lib/units";
 
@@ -37,6 +38,12 @@ type SimRow = {
   final_telemetry: Record<string, unknown> | null;
   model_version: string | null;
   tbo_hours: number | null;
+  // physics v4: the engine's hour meter across this flight, and the scale it ran at
+  life_scale?: number | null;
+  start_engine_hours?: number | null;
+  end_engine_hours?: number | null;
+  scenario?: string | null;
+  mission?: string | null;
   groq_result: GroqResult | null;
 };
 
@@ -61,7 +68,7 @@ export default function MissionReportPage() {
   const fetchSim = useCallback(async () => {
     const { data, error } = await supabase
       .from("simulations")
-      .select("id, user_id, engine_model, started_at, ended_at, outcome, final_health_percent, final_rul_hours, final_telemetry, groq_result, model_version, tbo_hours")
+      .select("id, user_id, engine_model, started_at, ended_at, outcome, final_health_percent, final_rul_hours, final_telemetry, groq_result, model_version, tbo_hours, life_scale, start_engine_hours, end_engine_hours, scenario, mission")
       .eq("id", id)
       .single();
     if (error || !data) return null;
@@ -150,6 +157,7 @@ export default function MissionReportPage() {
                     <span className="ml-3 text-[12px] font-mono text-tertiary/70 align-middle">ID #{sim.id}</span>
                   </h1>
                   <div className="text-[12px] text-on-surface-variant mt-1">
+                    {missionName(sim.mission) && <span className="text-tertiary">{missionName(sim.mission)} &middot; </span>}
                     {sim.engine_model.replace(/_/g, " ")}<ModelBadge version={version} /> &middot; {new Date(sim.started_at).toLocaleString()}
                     {sim.outcome && <> &middot; {sim.outcome.toUpperCase()}</>}
                   </div>
@@ -189,16 +197,24 @@ export default function MissionReportPage() {
                   )}
                 </div>
                 <div className="bg-surface/80 border border-outline-variant/30 rounded-lg p-5">
-                  {version === "v3" ? (
+                  {usesEngineHours(version) ? (
                     <>
                       {/* v3: engine hours on the engine (wear x TBO) - the clock RUL counts on. */}
                       <div className="text-[11px] uppercase tracking-[0.1em] text-on-surface-variant">Engine Hours</div>
                       <div className="text-3xl font-bold text-primary">
                         {engineHoursOf(sim) == null ? "--" : `${(engineHoursOf(sim) as number).toFixed(1)}h`}
                       </div>
+                      {version === "v4" && sim.start_engine_hours != null && (
+                        <div className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mt-1">
+                          {sim.start_engine_hours.toFixed(1)} &rarr; {sim.end_engine_hours != null ? sim.end_engine_hours.toFixed(1) : "--"} h
+                          {engineHoursFlown(sim) != null ? ` (+${(engineHoursFlown(sim) as number).toFixed(1)})` : ""}
+                          {" "}&middot; {formatLifeScale(sim.life_scale)}
+                          {sim.scenario ? ` \u00b7 ${sim.scenario.replace(/_/g, " ")}` : ""}
+                        </div>
+                      )}
                       {simSeconds !== null && (
                         <div className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mt-1">
-                          sim {formatSimClock(simSeconds)}
+                          {version === "v4" ? "flight" : "sim"} {formatSimClock(simSeconds)}
                         </div>
                       )}
                     </>

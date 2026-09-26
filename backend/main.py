@@ -6,6 +6,7 @@ POST /params and take effect on the very next simulation step - the loop itself 
 stops until POST /stop is called. Live telemetry streams over WebSocket at ~20Hz.
 """
 import asyncio
+import copy
 import importlib
 import json
 import math
@@ -22,20 +23,25 @@ from pydantic import BaseModel
 
 from physics import UAVEngineTwin, ENGINE_CONFIGS
 
-# Physics version for every twin this process creates. v3 (default) pairs with the
-# v3 AI service (backend/aiv3.py, backend/models_v3/); AERO_PHYSICS_VERSION=v2 runs the
-# legacy physics with ai.py and backend/models/. /state reports both so a mismatch is visible.
-PHYSICS_VERSION = os.environ.get("AERO_PHYSICS_VERSION", "v3").strip().lower()
-if PHYSICS_VERSION not in ("v2", "v3"):
-    raise ValueError(f"AERO_PHYSICS_VERSION must be v2 or v3, got {PHYSICS_VERSION!r}")
+# Physics version for every twin this process creates. v4 (default) pairs with
+# backend/aiv4.py (backend/models_v4/); AERO_PHYSICS_VERSION=v3 runs physics v3 with aiv3.py
+# (backend/models_v3/), and v2 the legacy physics with ai.py (backend/models/). /state
+# reports both so a mismatch is visible.
+PHYSICS_VERSION = os.environ.get("AERO_PHYSICS_VERSION", "v4").strip().lower()
+if PHYSICS_VERSION not in ("v2", "v3", "v4"):
+    raise ValueError(f"AERO_PHYSICS_VERSION must be v2, v3 or v4, got {PHYSICS_VERSION!r}")
 
-# v3 runs persist through dbv3 (real engine-hour RUL). Same function names as db,
-# so nothing below changes.
-db = importlib.import_module("dbv3" if PHYSICS_VERSION == "v3" else "db")
+# v3 runs persist through dbv3 (real engine-hour RUL), v4 through dbv4 (engines with
+# an hour meter, both clocks). Same function names as db, so nothing below changes.
+db = importlib.import_module({"v2": "db", "v3": "dbv3", "v4": "dbv4"}[PHYSICS_VERSION])
 import advisory
 import residual
 import safety
 import summary
+import scenarios_v4
+import timescale_v4
+import twin_v4
+from twin_v4 import UAVEngineTwinV4
 
 # Sensor offsets from zeroing (POST /residuals/zero) describe the installed senders, so they
 # survive a backend restart. Kept next to main.py and out of git.
@@ -101,8 +107,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def new_twin(engine_model: str) -> UAVEngineTwin:
-    """The ONLY place twins are built, so the physics version cannot be missed."""
+def new_twin(engine_model: str, engine: Optional[dict] = None):
+    """The ONLY place twins are built, so the physics version cannot be missed.
+    v4 flies an engine record (scenarios_v4 preset or an engines row); None = the
+    default preset for this engine model."""
+    if PHYSICS_VERSION == "v4":
+        return UAVEngineTwinV4(dt=0.01, engine_model=engine_model, engine=engine)
     return UAVEngineTwin(dt=0.01, engine_model=engine_model, physics_version=PHYSICS_VERSION)
 
 
@@ -134,7 +144,16 @@ MEASURED_FRESH_S = 1.0
 MEASURED_KEYS = {"rpm": "rpm_fault", "egt": "egt", "cht": "cht", "oil_pressure": "oil_pressure",
                  "oil_temp": "oil_temp", "vibx": "vibx", "viby": "viby", "vibz": "vibz",
                  "fuel_flow": "fuel_flow"}
-MEASURED_LIMITS = {**residual.SENSOR_LIMITS, "fuel_flow": (0.0, 200.0)}
+MEASURED_LIMITS = {**residual.SENSOR_LIMITS, "fuel_flow": (0.0, 200.0),
+                   "coolant_temp": (0.0, 200.0), "manifold_pressure_kpa": (0.0, 250.0),
+                   "battery_voltage": (0.0, 20.0)}
+# v4 measures twelve channels, named as twin_v4 names them. The bus carries oil pressure
+# in psi (can_bus.py, the physical spec); v4 works in bar.
+MEASURED_KEYS_V4 = {"rpm": "engine_rpm", "egt": "egt", "cht": "cht", "oil_pressure": "oil_pressure",
+                    "oil_temp": "oil_temp", "vibx": "vibx", "viby": "viby", "vibz": "vibz",
+                    "fuel_flow": "fuel_flow", "coolant_temp": "coolant_temp",
+                    "manifold_pressure_kpa": "manifold_pressure_kpa", "battery_voltage": "battery_voltage"}
+PSI_PER_BAR = 14.5038
 
 
 def measured_age_s() -> Optional[float]:
@@ -152,6 +171,8 @@ def apply_measured(out: dict) -> dict:
     if data_source() != "can":
         return {**out, "data_source": "sim"}
     measured = state["measured"]
+    if PHYSICS_VERSION == "v4":
+        return apply_measured_v4(out, measured)
     merged = {**out, "data_source": "can",
               "twin_sensors": {ch: out[key] for ch, key in MEASURED_KEYS.items() if ch in measured}}
     for ch, value in measured.items():
@@ -159,10 +180,72 @@ def apply_measured(out: dict) -> dict:
     return merged
 
 
+def apply_measured_v4(out: dict, measured: dict) -> dict:
+    """The aircraft's instruments replace the twin's simulated ones; residuals are
+    re-taken against the on-board twin and the operating margin re-read from them."""
+    merged = {**out, "data_source": "can", "twin_sensors": {}}
+    for ch, value in measured.items():
+        key = MEASURED_KEYS_V4.get(ch)
+        if key is None:
+            continue
+        merged["twin_sensors"][key] = out.get(key)
+        merged[key] = value / PSI_PER_BAR if ch == "oil_pressure" else value
+    ref = out.get("twin") or {}
+    for c in twin_v4.RESIDUAL_CHANNELS:
+        if isinstance(ref.get(c), (int, float)):
+            merged[f"res_{c}"] = merged[c] - ref[c]
+    merged["margins"] = twin.eng.margins(merged)
+    merged["margin_min"] = merged["margins"]["health_index"]
+    return merged
+
+
+PENDING_LOGS_MAX = 2000        # 10 s rows: over 5 hours of flight held while the DB is unreachable
+SIM_RETRY_S = 15.0
+
+
+def pending_simulation_args(user_id: Optional[str], mission: Optional[str] = None) -> Optional[tuple]:
+    """What start_simulation needs, captured at /start so a retry records the flight
+    as it began (a copy: the live record's hours move on)."""
+    if not user_id or not importlib.import_module("db")._enabled:
+        return None
+    if PHYSICS_VERSION == "v4":
+        return (user_id, CURRENT_ENGINE_MODEL, copy.deepcopy(twin.record), model_manifest_snapshot(), mission)
+    return (user_id, CURRENT_ENGINE_MODEL)
+
+
+async def retry_simulation_row() -> None:
+    """Create the flight's simulations row now, if /start could not, then write the
+    telemetry rows held since. Never raises; the next attempt waits SIM_RETRY_S."""
+    args = state["pending_simulation"]
+    if args is None or state["simulation_id"] is not None or state["sim_retrying"]:
+        return
+    state["sim_retrying"] = True
+    try:
+        sim_id = await db_call(db.start_simulation, *args)
+        if sim_id is None:
+            state["sim_retry_at"] = time.monotonic() + SIM_RETRY_S
+            return
+        if PHYSICS_VERSION == "v4" and getattr(twin, "record", None) is not None:
+            twin.record["engine_id"] = args[2].get("engine_id")
+        state["simulation_id"], state["pending_simulation"] = sim_id, None
+        held, state["pending_logs"] = state["pending_logs"], []
+        print(f"[db] simulation row created late (id {sim_id}); writing {len(held)} held telemetry rows")
+        for t, raw, ai, res in held:
+            await db_call(write_telemetry_row, sim_id, t, raw, ai, res)
+    finally:
+        state["sim_retrying"] = False
+
+
+def write_telemetry_row(simulation_id, time_offset_s, raw, ai, residuals):
+    if PHYSICS_VERSION in ("v3", "v4"):
+        return db.log_telemetry(simulation_id, time_offset_s, raw, ai, residuals=residuals)
+    return db.log_telemetry(simulation_id, time_offset_s, raw, ai)
+
+
 def log_telemetry(simulation_id, time_offset_s, raw, ai):
     """Thread target for telemetry_logs writes. v3 (dbv3) also persists the physics
     residuals; db.py (v2) keeps its original signature."""
-    if PHYSICS_VERSION == "v3":
+    if PHYSICS_VERSION in ("v3", "v4"):
         return db.log_telemetry(simulation_id, time_offset_s, raw, ai, residuals=state["residuals"])
     return db.log_telemetry(simulation_id, time_offset_s, raw, ai)
 STEPS_PER_BROADCAST = 5  # 0.01s * 5 = 20Hz telemetry rate
@@ -196,12 +279,22 @@ state = {
     "last_ai_result": None,
     "ai_step_counter": 0,
     "ai_warmed_up": False,   # True once the AI has returned a real (non-warmup) result
+    # v4: after a fault is removed, the last AI result with that fault taken out. Shown
+    # while the AI's window refills in real time, so the cockpit never says "buffering".
+    "ai_hold": None,
     # False while the AI service cannot be reached. Warmup fast-forward exists only to
     # fill the AI's 128 s window quickly; with no AI to fill it, fast-forwarding just
     # ran physics unthrottled (1,386 simulated seconds in ~40 s) and wrote a telemetry
     # row every ~0.3 s of wall time. Unreachable -> real-time pacing.
     "ai_reachable": True,
     "simulation_id": None,   # current Supabase simulations.id, or None if not persisted
+    # A flight whose simulations row could not be created at /start (e.g. the network
+    # was down): the start_simulation arguments, retried until it succeeds, and the
+    # telemetry rows held meanwhile so the history is complete once it does.
+    "pending_simulation": None,
+    "pending_logs": [],
+    "sim_retry_at": 0.0,
+    "sim_retrying": False,
     "db_log_counter": 0,     # simulated seconds since the last telemetry_logs write
     # Tracks whether the PHYSICS SESSION is logically ongoing - deliberately
     # separate from simulation_id, which only tracks DB persistence and stays None
@@ -245,6 +338,10 @@ state = {
     "db_skipped": 0,
     "loop_lag_ms": 0.0,        # how far the loop is behind real time (EWMA)
     "steps": 0,
+    # ---- physics v4 ----
+    "scenario": None,          # preset chosen with POST /scenario, flown at the next fresh /start
+    "ai_health": None,         # aiv4 /health: which engines have their own models, and their metrics
+    "advisories_logged": {},   # advisory code -> level already written to maintenance_events
 }
 
 # Must be a SUPERSET of the AI service's feature columns, same names. ai.py (v2)
@@ -257,12 +354,15 @@ AI_FEATURE_COLS = [
     "egt", "cht", "oil_pressure", "oil_temp", "vibx", "viby", "vibz", "rpm_fault",
     "injection_timing",
 ]
+# v4: the 29 inputs the models were trained on (twin_v4.FEATURE_COLS), plus the hour
+# meter and this flight's usage for the RUL head's aux inputs.
+AI_FEATURE_COLS_V4 = twin_v4.FEATURE_COLS + ["engine_hours", "life_used_hours"]
 
 
 def final_rul_hours(ai: dict):
     """RUL for simulations.final_rul_hours. ai.py (v2) reports simulated-timescale
     hours in rul_hours_internal; aiv3.py reports real engine hours in rul_hours."""
-    if ai.get("model_version") == "v3":
+    if ai.get("model_version") in ("v3", "v4"):
         return ai.get("rul_hours")
     return ai.get("rul_hours_internal")
 
@@ -274,6 +374,7 @@ async def refresh_ai_version():
         resp = await ai_client.get(f"{AI_SERVICE_URL}/health")
         health = resp.json()
         state["ai_model_version"] = health.get("model_version", "v2")
+        state["ai_health"] = health
         if isinstance(health.get("available_engines"), list) and health["available_engines"]:
             AI_VALID_ENGINES = set(health["available_engines"])
     except Exception:
@@ -289,7 +390,8 @@ async def call_ai_service(telemetry: dict):
     """Sends one timestep to the AI service. Never raises: failures come back as an
     ai_service_unavailable result, and feed the circuit breaker."""
     try:
-        payload = {c: telemetry[c] for c in AI_FEATURE_COLS}
+        cols = AI_FEATURE_COLS_V4 if PHYSICS_VERSION == "v4" else AI_FEATURE_COLS
+        payload = {c: telemetry[c] for c in cols}
         payload["time"] = telemetry["time"]
         resp = await ai_client.post(f"{AI_SERVICE_URL}/step", json=safety.json_safe(payload))
         resp.raise_for_status()
@@ -313,13 +415,14 @@ async def ai_reset_buffer():
 # in-envelope samples its fault and failure-mode calls are extrapolation - the 916 raised
 # a ~60 s false misfire/combustion alarm after every takeoff - so those alerts are held.
 AI_ENVELOPE_MIN_AIRSPEED_MS = 32.0
+AI_ENVELOPE_MIN_AIRSPEED_MS_V4 = 28.0   # generate_dataset_v4.py's airspeed floor
 AI_WINDOW_S = 128.0
 
 
 def hold_alerts_outside_envelope(sample: dict, result: dict) -> dict:
     """Return result with fault alerts cleared while the AI window still contains
     below-envelope (ground roll) samples. Health and RUL pass through unchanged."""
-    if PHYSICS_VERSION != "v3":
+    if PHYSICS_VERSION not in ("v3", "v4"):
         return result
     t = sample.get("time")
     if not isinstance(t, (int, float)):
@@ -329,10 +432,25 @@ def hold_alerts_outside_envelope(sample: dict, result: dict) -> dict:
         state["ai_settle_until"] = 0.0
     state["ai_last_sample_time"] = t
     airspeed = sample.get("airspeed")
-    if isinstance(airspeed, (int, float)) and airspeed < AI_ENVELOPE_MIN_AIRSPEED_MS:
+    floor = AI_ENVELOPE_MIN_AIRSPEED_MS_V4 if PHYSICS_VERSION == "v4" else AI_ENVELOPE_MIN_AIRSPEED_MS
+    if isinstance(airspeed, (int, float)) and airspeed < floor:
         state["ai_settle_until"] = t + AI_WINDOW_S
     if result.get("status") != "ok" or t >= state["ai_settle_until"]:
         return result
+    if PHYSICS_VERSION == "v4":
+        # Same rule for v4: while the window still holds ground roll every call is
+        # extrapolation. Wear condition goes too - it is a model output on the same
+        # window - and the model's own numbers stay available as *_raw.
+        return {**result, "settling": True, "fault_detected": False, "detection_confidence": 0.0,
+                "detection_confidence_raw": result.get("detection_confidence"),
+                "settle_seconds_left": max(0.0, round(state["ai_settle_until"] - t, 1)),
+                "settle_window_s": AI_WINDOW_S,
+                "fault_modes": {k: {**v, "present": False} for k, v in (result.get("fault_modes") or {}).items()},
+                "fault_modes_raw": result.get("fault_modes"), "faults_present": [],
+                "sensors": {c: {**v, "condition": "none"} for c, v in (result.get("sensors") or {}).items()},
+                "sensors_raw": result.get("sensors"), "faulty_sensors": [],
+                "wear_condition": None, "health_percent": None,
+                "health_percent_raw": result.get("health_percent")}
     # Severities go too: leaving them at 100% while the status reads nominal put a red number
     # next to a green "OK" in the cockpit.
     # Health goes with them: it is computed from the same detection and severity outputs, so
@@ -502,7 +620,9 @@ async def ai_worker(queue: asyncio.Queue):
                 state["ai_last_seen_time"] = sample_t
             if state["ai_resync"]:
                 state["ai_resync"] = False
-                state["ai_warmed_up"] = False
+                # A silent refill (fault removed) runs in real time: fast-forwarding would
+                # visibly jump the flight ahead two minutes.
+                state["ai_warmed_up"] = state["ai_hold"] is not None
                 reset_rul_filter()          # the RUL floor belongs to the old flight
                 await ai_reset_buffer()
             result = await call_ai_service(out)
@@ -531,7 +651,12 @@ async def ai_worker(queue: asyncio.Queue):
                 if ai_breaker.state != "closed":
                     state["ai_resync"] = True
                     state["ai_reachable"] = False
-            state["last_ai_result"] = smooth_rul(out, hold_alerts_outside_envelope(out, result))
+            if status == "warming_up" and state["ai_hold"] is not None:
+                state["last_ai_result"] = state["ai_hold"]
+            else:
+                if status == "ok":
+                    state["ai_hold"] = None
+                state["last_ai_result"] = smooth_rul(out, hold_alerts_outside_envelope(out, result))
         except asyncio.CancelledError:
             raise
         except Exception as e:                      # never let the worker die
@@ -580,6 +705,15 @@ class ParamUpdate(BaseModel):
     # ISA temperature deviation in degrees C (hot/cold day). Clamped in the
     # handler. Deliberately NOT an AI feature - see AI_FEATURE_COLS.
     isa_dev_c: Optional[float] = None
+    # physics v4 installation and fuel state (twin_v4.DEFAULT_ENV); ignored by v2/v3.
+    qnh_offset_pa: Optional[float] = None
+    humidity_frac: Optional[float] = None
+    fuel_octane_mon: Optional[float] = None
+    fuel_ethanol_frac: Optional[float] = None
+    cooling_airflow_factor: Optional[float] = None
+    electrical_load_a: Optional[float] = None
+    target_lambda: Optional[float] = None
+    oil_thermostat_open: Optional[bool] = None
     # "can" from can_ingest.py. While the aircraft is on the bus it owns the set-points,
     # and untagged updates (the cockpit sliders/autopilot) are ignored.
     source: Optional[str] = None
@@ -596,6 +730,10 @@ class MeasuredUpdate(BaseModel):
     viby: Optional[float] = None
     vibz: Optional[float] = None
     fuel_flow: Optional[float] = None
+    # physics v4 only
+    coolant_temp: Optional[float] = None
+    manifold_pressure_kpa: Optional[float] = None
+    battery_voltage: Optional[float] = None
 
 
 async def client_sender(ws: WebSocket, queue: asyncio.Queue):
@@ -764,7 +902,10 @@ async def simulation_loop():
 
             # ---- once per simulated second: residuals, AI, database ----
             state["ai_step_counter"] += 1
-            if state["ai_step_counter"] >= AI_STEPS_PER_CALL:
+            # v4: the twin reads its sensors once per flight second and flags that step.
+            new_sample = (bool(out.get("sample_new")) if PHYSICS_VERSION == "v4"
+                          else state["ai_step_counter"] >= AI_STEPS_PER_CALL)
+            if new_sample:
                 state["ai_step_counter"] = 0
                 state["sim_time_offset"] += 1.0
                 # A new data stream (the aircraft joined or left the bus): the AI window and
@@ -777,7 +918,8 @@ async def simulation_loop():
                     state["ai_warmed_up"] = False
                     reset_rul_filter()
                 try:
-                    state["residuals"] = residual_monitor.update(out, dt=1.0)
+                    state["residuals"] = (residual.twin_residuals_v4(out) if PHYSICS_VERSION == "v4"
+                                          else residual_monitor.update(out, dt=1.0))
                     if isinstance(state["residuals"], dict) and state["residuals"].get("zeroed") is not None:
                         state["residual_offsets"][CURRENT_ENGINE_MODEL] = dict(state["residuals"]["zeroed"])
                         save_residual_offsets(state["residual_offsets"])
@@ -808,8 +950,18 @@ async def simulation_loop():
                 state["db_log_counter"] += 1
                 if state["db_log_counter"] >= DB_LOG_INTERVAL_S:
                     state["db_log_counter"] = 0
-                    spawn_db_write(log_telemetry, state["simulation_id"], state["sim_time_offset"],
-                                   out, state["last_ai_result"])
+                    if state["simulation_id"] is None and state["pending_simulation"] is not None:
+                        if len(state["pending_logs"]) < PENDING_LOGS_MAX:
+                            state["pending_logs"].append((state["sim_time_offset"], out,
+                                                          state["last_ai_result"], state["residuals"]))
+                        if time.monotonic() >= state["sim_retry_at"]:
+                            state["sim_retry_at"] = time.monotonic() + SIM_RETRY_S
+                            asyncio.create_task(retry_simulation_row())
+                    else:
+                        spawn_db_write(log_telemetry, state["simulation_id"], state["sim_time_offset"],
+                                       out, state["last_ai_result"])
+                if PHYSICS_VERSION == "v4" and state["simulation_id"] is not None:
+                    log_new_advisories(out)
 
                 # Warm-up fast-forward waits (briefly) for the AI to keep its order.
                 if not state["ai_warmed_up"] and ai_breaker.state == "closed":
@@ -822,7 +974,7 @@ async def simulation_loop():
             # ---- broadcast at 20 Hz (guarded) ----
             if step_count % STEPS_PER_BROADCAST == 0:
                 try:
-                    payload = dict(out)
+                    payload = client_frame(out)
                     payload["ai"] = state["last_ai_result"]
                     payload["residuals"] = state["residuals"]
                     try:
@@ -918,6 +1070,85 @@ async def start_loop():
 
 class StartRequest(BaseModel):
     user_id: Optional[str] = None   # Supabase auth.users.id, if the frontend user is logged in
+    # v4 only. engine_id continues one of the user's saved engines from its hour meter;
+    # scenario starts a fresh engine from a preset (GET /scenarios). Neither: the preset
+    # chosen with POST /scenario, else the default.
+    engine_id: Optional[int] = None
+    scenario: Optional[str] = None
+    # v4: the engine's atmosphere, fuel and installation inputs for this flight (a
+    # mission's hot day, or what the pilot set before Start), applied to the fresh
+    # engine - a separate /params could land before /start has built it.
+    inputs: Optional[dict] = None
+    # v4: the mission profile being flown (frontend lib/missionPresets.ts id), recorded
+    # on the simulations row so reports and replays can name the sortie.
+    mission: Optional[str] = None
+
+
+async def choose_engine(req: "StartRequest") -> tuple[Optional[dict], Optional[str]]:
+    """(engine record, None) or (None, reason it cannot fly)."""
+    if req.engine_id is not None:
+        if not req.user_id:
+            return None, "sign in to continue a saved engine"
+        rec = await db_call(db.get_engine, req.engine_id)
+        if not rec or rec.get("user_id") != req.user_id:
+            return None, "engine not found"                 # same answer for another user's engine
+        if rec["engine_model"] != CURRENT_ENGINE_MODEL:
+            return None, f"that engine is a {rec['engine_model']} - select it before starting"
+        if rec.get("status") == "worn_out":
+            return None, "that engine is worn out - it needs an overhaul before it flies again"
+        return rec, None
+    try:
+        return scenarios_v4.make_engine(CURRENT_ENGINE_MODEL, req.scenario or state["scenario"]
+                                        or scenarios_v4.DEFAULT_PRESET), None
+    except ValueError as e:
+        return None, str(e)
+
+
+def client_frame(out: dict) -> dict:
+    """A telemetry step as browsers receive it. v4: the restore data (physics state,
+    engine record) stays in last_telemetry for /stop and recovery and is left out of
+    the frame; the engine being flown is summarised instead."""
+    frame = dict(out)
+    if PHYSICS_VERSION == "v4":
+        frame.pop("physics_state", None)
+        frame.pop("engine_record", None)
+        frame["engine"] = engine_summary()
+    return frame
+
+
+def engine_summary() -> dict:
+    """The engine being flown, for the cockpit (v4)."""
+    rec = getattr(twin, "record", None) or {}
+    placeholders = (state["ai_health"] or {}).get("placeholder_engines") or []
+    return {"engine_id": rec.get("engine_id"), "scenario": rec.get("scenario"),
+            "start_engine_hours": getattr(twin, "start_engine_hours", None),
+            "tbo_hours": getattr(twin, "TBO_HOURS", None), **timescale_v4.describe(),
+            "placeholder_models": CURRENT_ENGINE_MODEL in placeholders}
+
+
+def model_manifest_snapshot() -> Optional[dict]:
+    """Test metrics of the models about to fly, stored on the run (v4)."""
+    return ((state["ai_health"] or {}).get("metrics") or {}).get(CURRENT_ENGINE_MODEL)
+
+
+def log_new_advisories(out: dict) -> None:
+    """Maintenance history on the life clock: an advisory at caution or above is
+    written when it first appears or escalates, never once a second."""
+    try:
+        adv = advisory.build_advisory(state["last_ai_result"], out, state["residuals"])
+    except Exception:
+        return
+    rec = getattr(twin, "record", None) or {}
+    for it in adv.get("items") or []:
+        level = it.get("severity")
+        if level not in ("caution", "warning"):
+            continue
+        prev = state["advisories_logged"].get(it["code"])
+        if prev == level or prev == "warning":
+            continue
+        state["advisories_logged"][it["code"]] = level
+        spawn_db_write(db.log_maintenance_event, rec.get("engine_id"), state["simulation_id"],
+                       out.get("engine_hours"), level, it.get("message", "")[:500], it.get("action", "")[:500])
 
 
 @app.post("/start")
@@ -934,16 +1165,25 @@ async def start_sim(req: StartRequest = StartRequest()):
     # time/altitude/wear on every pause/resume cycle. This was a real, confirmed
     # bug - session_active is independent of whether persistence succeeds.
     if not state["session_active"]:
+        engine = None
+        if PHYSICS_VERSION == "v4":
+            engine, problem = await choose_engine(req)
+            if problem:
+                return {"status": "error", "message": problem}
         state["session_active"] = True
-        twin = new_twin(CURRENT_ENGINE_MODEL)
+        state["advisories_logged"] = {}
+        twin = new_twin(CURRENT_ENGINE_MODEL, engine)
         # A fresh session takes off from the ground, matching the frontend's own
         # auto-climb takeoff sequence (Simulator.tsx starts its visual at altitude 0
         # and climbs automatically) - the twin's own __init__ default (2000m) would
         # otherwise briefly mismatch that visual until the first /params call caught up.
         twin.altitude = 0.0
+        if req.inputs:
+            apply_env_inputs(req.inputs)
         state["sim_time_offset"] = 0.0
         state["last_telemetry"] = None
         state["last_ai_result"] = None
+        state["ai_hold"] = None
         state["ai_step_counter"] = 0
         state["ai_warmed_up"] = False
         state["ai_resync"] = False
@@ -969,7 +1209,16 @@ async def start_sim(req: StartRequest = StartRequest()):
         # simulation_id tracks DB persistence ONLY - independent of session_active,
         # since a session can be genuinely fresh but still have no user_id to
         # persist under (db.start_simulation returns None in that case, by design).
-        state["simulation_id"] = await db_call(db.start_simulation, req.user_id, CURRENT_ENGINE_MODEL)
+        mission = (req.mission or "")[:64] or None
+        retry_args = pending_simulation_args(req.user_id, mission)
+        state["pending_logs"], state["sim_retry_at"] = [], 0.0
+        if PHYSICS_VERSION == "v4":
+            state["simulation_id"] = await db_call(db.start_simulation, req.user_id, CURRENT_ENGINE_MODEL,
+                                                   twin.record, model_manifest_snapshot(), mission)
+        else:
+            state["simulation_id"] = await db_call(db.start_simulation, req.user_id, CURRENT_ENGINE_MODEL)
+        # Not persisted although it should be: keep retrying from the simulation loop.
+        state["pending_simulation"] = retry_args if state["simulation_id"] is None else None
     await start_loop()
     return {"status": "started", "simulation_id": state["simulation_id"]}
 
@@ -993,6 +1242,9 @@ async def close_session(outcome: str):
     kicked off. Returns the closed row id (None when nothing was being persisted).
     Shared by /stop and the engine-failure shutdown, so a flight that ends itself is
     recorded exactly like one the pilot ended."""
+    if state["simulation_id"] is None and state["pending_simulation"] is not None:
+        await retry_simulation_row()               # one last try before the flight is lost
+    state["pending_simulation"], state["pending_logs"] = None, []
     if state["simulation_id"] is None:
         return None
     ai = state["last_ai_result"] or {}
@@ -1096,8 +1348,10 @@ async def reset_sim():
         await db_call(db.end_simulation, state["simulation_id"], "reset",
                       ai.get("health_percent"), final_rul_hours(ai), safety.json_safe(state["last_telemetry"]))
         state["simulation_id"] = None
+    state["pending_simulation"], state["pending_logs"] = None, []
     state["last_telemetry"] = None
     state["last_ai_result"] = None
+    state["ai_hold"] = None
     state["ai_step_counter"] = 0
     state["ai_warmed_up"] = False
     state["ai_resync"] = False
@@ -1164,10 +1418,13 @@ async def select_engine(sel: EngineSelect):
         await db_call(db.end_simulation, state["simulation_id"], "engine_switched",
                       ai.get("health_percent"), final_rul_hours(ai), safety.json_safe(state["last_telemetry"]))
         state["simulation_id"] = None
+    state["pending_simulation"], state["pending_logs"] = None, []
     CURRENT_ENGINE_MODEL = sel.engine_model
+    state["scenario"] = None          # presets depend on the hardware; choose again
     twin = new_twin(CURRENT_ENGINE_MODEL)
     state["last_telemetry"] = None
     state["last_ai_result"] = None
+    state["ai_hold"] = None
     state["ai_step_counter"] = 0
     state["ai_warmed_up"] = False
     state["ai_resync"] = False
@@ -1256,6 +1513,7 @@ async def resume_sim(req: ResumeRequest):
     twin = restored
     state["last_telemetry"] = None
     state["last_ai_result"] = None
+    state["ai_hold"] = None
     state["ai_step_counter"] = 0
     state["ai_warmed_up"] = False
     state["ai_resync"] = False
@@ -1271,6 +1529,7 @@ async def resume_sim(req: ResumeRequest):
     # where the previous session left off, so the series is continuous rather than
     # folding back over itself at zero.
     state["simulation_id"] = req.simulation_id
+    state["pending_simulation"], state["pending_logs"] = None, []
     state["sim_time_offset"] = (await db_call(db.get_max_time_offset, req.simulation_id)) or 0.0
     # Clear ended_at/outcome - the run is flying again and should not read as
     # finished. end_simulation() sets them again at the next genuine stop.
@@ -1299,6 +1558,39 @@ async def resume_sim(req: ResumeRequest):
     }
 
 
+ENV_PARAMS = ("qnh_offset_pa", "humidity_frac", "fuel_octane_mon", "fuel_ethanol_frac",
+              "cooling_airflow_factor", "electrical_load_a", "target_lambda")
+
+
+def apply_env_inputs(values: dict) -> list:
+    """Set the v4 twin's environment inputs from `values` (None = leave alone), each
+    bounded to safety.PARAM_LIMITS. Returns the names refused as non-finite; a v2/v3
+    twin has no such inputs and ignores them."""
+    env = getattr(twin, "env", None)
+    if env is None:
+        return []
+    rejected = []
+    for name in ENV_PARAMS:
+        raw = values.get(name)
+        if raw is None:
+            continue
+        v = safety.clamp_param(name, raw)
+        if v is None:
+            rejected.append(name)
+            continue
+        env[name] = v
+    if isinstance(values.get("oil_thermostat_open"), bool):
+        env["oil_thermostat_open"] = values["oil_thermostat_open"]
+    isa = values.get("isa_dev_c")
+    if isa is not None:
+        v = safety.clamp_param("isa_dev_c", isa)
+        if v is None:
+            rejected.append("isa_dev_c")
+        else:
+            twin.isa_dev_c = v
+    return rejected
+
+
 @app.post("/params")
 async def update_params(p: ParamUpdate):
     """Every value is bounded to safety.PARAM_LIMITS before it reaches the twin, and a
@@ -1317,6 +1609,7 @@ async def update_params(p: ParamUpdate):
             rejected.append(name)
             continue
         setattr(twin, name, v)
+    rejected += apply_env_inputs({n: getattr(p, n) for n in (*ENV_PARAMS, "oil_thermostat_open")})
     return {"status": "ok", "altitude": twin.altitude, "throttle": twin.throttle,
             "airspeed": twin.airspeed, "aoa": twin.aoa, "rejected": rejected}
 
@@ -1331,6 +1624,8 @@ async def zero_residuals():
     this engine from the next sample and are kept until the backend restarts."""
     if not state["running"]:
         return {"status": "error", "detail": "start a flight and hold a steady operating point first"}
+    if PHYSICS_VERSION == "v4":
+        return {"status": "error", "detail": "v4 residuals are taken against the on-board twin and need no zeroing"}
     if PHYSICS_VERSION != "v3":
         return {"status": "error", "detail": "physics residuals need physics v3"}
     residual_monitor.begin_zeroing(known_wear=float(twin.wear), samples=ZERO_SAMPLES)
@@ -1344,7 +1639,7 @@ async def update_measured(m: MeasuredUpdate):
     """Measured sensor values from the aircraft. A non-finite or out-of-range value is
     refused and reported, never overlaid - a corrupted reading must not reach the AI."""
     accepted, rejected = {}, []
-    for ch in MEASURED_KEYS:
+    for ch in (MEASURED_KEYS_V4 if PHYSICS_VERSION == "v4" else MEASURED_KEYS):
         raw = getattr(m, ch)
         if raw is None:
             continue
@@ -1398,7 +1693,122 @@ async def get_state():
         "residuals": safety.json_safe(state["residuals"]),
         "advisory": _safe_advisory(),
         "sim_status": sim_status(),
+        **(v4_state() if PHYSICS_VERSION == "v4" else {}),
     }
+
+
+def v4_state() -> dict:
+    return {"time_model": timescale_v4.describe(), "engine": engine_summary(),
+            "scenario_pending": state["scenario"],
+            "engine_hours": round(twin.engine_hours, 4)}
+
+
+class ScenarioSelect(BaseModel):
+    name: str
+
+
+class InjectRequest(BaseModel):
+    kind: str                       # "fault" or "sensor"
+    name: Optional[str] = None      # fault name (kind=fault)
+    channel: Optional[str] = None   # sensor channel (kind=sensor)
+    type: Optional[str] = None      # sensor fault type (kind=sensor)
+    severity: Optional[float] = None
+
+
+def engine_inputs() -> Optional[dict]:
+    """The engine's atmosphere, fuel and installation inputs, for the cockpit before a flight."""
+    env = getattr(twin, "env", None)
+    return None if env is None else {**env, "isa_dev_c": twin.isa_dev_c}
+
+
+def applicable_faults_now() -> list:
+    spec = getattr(twin, "spec", None)
+    return [] if spec is None else twin_v4.applicable_faults(spec.turbocharged, spec.intercooled)
+
+
+@app.get("/scenarios")
+async def list_scenarios():
+    """Demo presets this engine can fly (v4)."""
+    if PHYSICS_VERSION != "v4":
+        return {"status": "error", "detail": "scenarios need physics v4"}
+    return {"status": "ok", "engine_model": CURRENT_ENGINE_MODEL, "selected": state["scenario"],
+            "scenarios": scenarios_v4.listing(CURRENT_ENGINE_MODEL), "inputs": engine_inputs(),
+            "applicable_faults": applicable_faults_now(), **timescale_v4.describe()}
+
+
+@app.post("/scenario")
+async def select_scenario(sel: ScenarioSelect):
+    """Choose the preset the next fresh flight starts from. A flight in progress is not
+    changed: stop it first (a preset is a different engine, not a different sky)."""
+    if PHYSICS_VERSION != "v4":
+        return {"status": "error", "detail": "scenarios need physics v4"}
+    if sel.name not in scenarios_v4.available(CURRENT_ENGINE_MODEL):
+        return {"status": "error", "detail": f"{sel.name!r} is not available for {CURRENT_ENGINE_MODEL}"}
+    if state["session_active"]:
+        return {"status": "error", "detail": "stop the current flight before choosing another engine"}
+    global twin
+    state["scenario"] = sel.name
+    twin = new_twin(CURRENT_ENGINE_MODEL, scenarios_v4.make_engine(CURRENT_ENGINE_MODEL, sel.name))
+    return {"status": "ok", "scenario": sel.name, "start_engine_hours": twin.start_engine_hours,
+            "inputs": engine_inputs()}
+
+
+@app.post("/inject")
+async def inject(req: InjectRequest):
+    """Inject a component or sensor fault into the engine being flown (v4, for Q&A)."""
+    if PHYSICS_VERSION != "v4":
+        return {"status": "error", "detail": "injection needs physics v4"}
+    try:
+        if req.kind == "fault":
+            entry = twin.inject_fault(req.name or "", req.severity if req.severity is not None else 0.35)
+        elif req.kind == "sensor":
+            entry = twin.inject_sensor(req.channel or "", req.type or "", req.severity if req.severity is not None else 0.8)
+        else:
+            return {"status": "error", "detail": "kind must be 'fault' or 'sensor'"}
+    except ValueError as e:
+        return {"status": "error", "detail": str(e)}
+    return {"status": "ok", "injected": entry}
+
+
+def without_removed(ai: dict, fault: Optional[str] = None, channel: Optional[str] = None) -> dict:
+    """An AI result with one removed fault or sensor fault taken out; the detection
+    call goes with it when nothing else is left (the settle hold's rule)."""
+    modes = {k: ({**v, "present": False, "severity": 0.0} if k == fault else v)
+             for k, v in (ai.get("fault_modes") or {}).items()}
+    sensors = {c: ({**v, "condition": "none"} if c == channel else v)
+               for c, v in (ai.get("sensors") or {}).items()}
+    present = [k for k, v in modes.items() if isinstance(v, dict) and v.get("present")]
+    faulty = [c for c, v in sensors.items() if isinstance(v, dict) and v.get("condition") != "none"]
+    held = {**ai, "fault_modes": modes, "faults_present": present, "sensors": sensors,
+            "faulty_sensors": faulty, "held_after_repair": True}
+    if not present and not faulty:
+        held.update(fault_detected=False, detection_confidence=0.0,
+                    detection_confidence_raw=ai.get("detection_confidence"))
+    return held
+
+
+@app.post("/inject/clear")
+async def clear_injection(req: InjectRequest):
+    """Take a component fault (by name) or a sensor fault (by channel) back out (v4)."""
+    if PHYSICS_VERSION != "v4":
+        return {"status": "error", "detail": "injection needs physics v4"}
+    if req.kind == "fault":
+        removed = twin.clear_fault(req.name or "")
+    elif req.kind == "sensor":
+        removed = twin.clear_sensor(req.channel or "")
+    else:
+        return {"status": "error", "detail": "kind must be 'fault' or 'sensor'"}
+    if not removed:
+        return {"status": "error", "detail": "nothing to remove"}
+    # The AI's window still holds the faulty samples: start it clean. While it refills
+    # (in real time) the cockpit keeps the last result, minus what was just removed.
+    last = state["last_ai_result"]
+    if isinstance(last, dict) and last.get("status") == "ok":
+        state["ai_hold"] = state["last_ai_result"] = without_removed(
+            last, fault=req.name if req.kind == "fault" else None,
+            channel=req.channel if req.kind == "sensor" else None)
+    state["ai_resync"] = True
+    return {"status": "ok", "removed": removed}
 
 
 def _safe_advisory():
@@ -1438,6 +1848,7 @@ async def health():
         "db_pending": state["db_pending"],
         "db_skipped": state["db_skipped"],
         "clients": len(clients),
+        **({"time_model": timescale_v4.describe()} if PHYSICS_VERSION == "v4" else {}),
     }
 
 
@@ -1462,7 +1873,7 @@ async def websocket_endpoint(websocket: WebSocket):
     clients[websocket] = (queue, sender)
     try:
         if state["last_telemetry"]:
-            first = {**state["last_telemetry"], "ai": state["last_ai_result"],
+            first = {**client_frame(state["last_telemetry"]), "ai": state["last_ai_result"],
                      "residuals": state["residuals"], "sim_status": sim_status()}
             queue.put_nowait(json.dumps(safety.json_safe(first), allow_nan=False))
         while True:

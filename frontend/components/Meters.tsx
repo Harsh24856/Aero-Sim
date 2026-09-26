@@ -1,7 +1,9 @@
 "use client";
 
-import { useMemo } from "react";
-import { Pause, Play } from "lucide-react";
+import { useMemo, useState } from "react";
+import { ArrowLeftRight, Pause, Play } from "lucide-react";
+import SlidingBar from "@/components/SlidingBar";
+import InputBar from "@/components/SlidingBar1(a)";
 
 // ─── Shared types & helpers ─────────────────────────────────────────────────
 export type RawTelemetry = {
@@ -15,7 +17,29 @@ export type RawTelemetry = {
   // deliberately not AI inputs, so they are shown and alarmed, never diagnosed by a model.
   battery_voltage?: number; battery_current?: number; alternator_output?: number;
   injection_timing?: number;
+  // physics v4 (backend/twin_v4.py): what the twelve instruments read, plus the engine's
+  // own induction and combustion state.
+  physics_version?: string; torque_nm?: number; coolant_temp?: number;
+  manifold_pressure_kpa?: number; boost_pressure_ratio?: number; ambient_temp_c?: number;
+  lambda?: number; knock_retard?: number; wastegate_position?: number; engine_hours?: number;
+  // physics v4 inputs to the engine besides the flight controls (twin_v4.DEFAULT_ENV)
+  isa_dev_c?: number; qnh_offset_pa?: number; humidity_frac?: number; fuel_octane_mon?: number;
+  fuel_ethanol_frac?: number; target_lambda?: number; cooling_airflow_factor?: number;
+  electrical_load_a?: number; oil_thermostat_open?: boolean;
 };
+
+// The v4 atmosphere, fuel and installation inputs. Ranges are safety.PARAM_LIMITS, which are
+// the ranges the training data sampled, so the models never see an engine they weren't trained on.
+export const ENGINE_INPUTS: { key: keyof RawTelemetry; label: string; min: number; max: number; step: number; show: (v: number) => string }[] = [
+  { key: "isa_dev_c", label: "ISA Dev", min: -30, max: 50, step: 1, show: (v) => `${v > 0 ? "+" : ""}${v.toFixed(0)} °C` },
+  { key: "qnh_offset_pa", label: "QNH", min: -2700, max: 2700, step: 100, show: (v) => `${(1013.25 + v / 100).toFixed(0)} hPa` },
+  { key: "humidity_frac", label: "Humidity", min: 0, max: 1, step: 0.05, show: (v) => `${Math.round(v * 100)}%` },
+  { key: "fuel_octane_mon", label: "Octane", min: 91, max: 100, step: 1, show: (v) => `${v.toFixed(0)} MON` },
+  { key: "fuel_ethanol_frac", label: "Ethanol", min: 0, max: 0.1, step: 0.01, show: (v) => `E${Math.round(v * 100)}` },
+  { key: "target_lambda", label: "Target λ", min: 0.78, max: 1.02, step: 0.01, show: (v) => v.toFixed(2) },
+  { key: "cooling_airflow_factor", label: "Cooling Air", min: 0.65, max: 1.3, step: 0.05, show: (v) => `×${v.toFixed(2)}` },
+  { key: "electrical_load_a", label: "Elec Load", min: 3, max: 34, step: 1, show: (v) => `${v.toFixed(0)} A` },
+];
 
 export function mpsToKmh(mps: number): number { return mps * 3.6; }
 // Airspeed is displayed in KNOTS - the unit aircrew, ICAO and real ground
@@ -56,6 +80,37 @@ export const SENSOR_FIELDS: { key: keyof RawTelemetry; label: string; unit: stri
   { key: "injection_timing", label: "Injection", unit: "deg", decimals: 2 },
 ];
 
+// Physics v4: oil pressure is in bar, torque is brake torque, and the cockpit reads the
+// twelve instruments the AI is trained on (plus the induction state that explains them).
+export const SENSOR_FIELDS_V4: typeof SENSOR_FIELDS = [
+  { key: "altitude", label: "Altitude", unit: "m", decimals: 0 },
+  { key: "throttle", label: "Throttle", unit: "", decimals: 2 },
+  { key: "airspeed", label: "Airspeed", unit: "kt", decimals: 0, convert: mpsToKnots },
+  { key: "aoa", label: "AoA", unit: "deg", decimals: 1 },
+  { key: "ambient_temp_c", label: "OAT", unit: "C", decimals: 1 },
+  { key: "air_density", label: "Air Density", unit: "kg/m3", decimals: 3 },
+  { key: "engine_rpm", label: "Engine RPM", unit: "", decimals: 0 },
+  { key: "prop_rpm", label: "Prop RPM", unit: "", decimals: 0 },
+  { key: "torque_nm", label: "Torque", unit: "Nm", decimals: 1 },
+  { key: "power_kw", label: "Power", unit: "kW", decimals: 1 },
+  { key: "manifold_pressure_kpa", label: "MAP", unit: "kPa", decimals: 1 },
+  { key: "boost_pressure_ratio", label: "Boost PR", unit: "", decimals: 2 },
+  { key: "wastegate_position", label: "Wastegate", unit: "", decimals: 2 },
+  { key: "fuel_flow", label: "Fuel Flow", unit: "L/h", decimals: 1 },
+  { key: "lambda", label: "Lambda", unit: "", decimals: 2 },
+  { key: "knock_retard", label: "Knock Retard", unit: "", decimals: 2 },
+  { key: "egt", label: "EGT", unit: "C", decimals: 0 },
+  { key: "cht", label: "CHT", unit: "C", decimals: 0 },
+  { key: "coolant_temp", label: "Coolant", unit: "C", decimals: 0 },
+  { key: "oil_temp", label: "Oil Temp", unit: "C", decimals: 0 },
+  { key: "oil_pressure", label: "Oil Press", unit: "bar", decimals: 2 },
+  { key: "battery_voltage", label: "Battery", unit: "V", decimals: 2 },
+  { key: "vibx", label: "Vib X", unit: "g", decimals: 3 },
+  { key: "viby", label: "Vib Y", unit: "g", decimals: 3 },
+  { key: "vibz", label: "Vib Z", unit: "g", decimals: 3 },
+  { key: "thrust", label: "Thrust", unit: "N", decimals: 0 },
+];
+
 export type MetersProps = {
   /** Live airspeed in KNOTS for the semicircle gauge */
   speedKnots?: number;
@@ -73,6 +128,9 @@ export type MetersProps = {
   isSignedIn?: boolean | null;   // null = auth check still in flight
   /** The aircraft is on the CAN bus and owns the set-points: sliders lock, gauges show its values */
   canLive?: boolean;
+  /** v4 only: the engine's current inputs, shown as the "Inputs to the engine" controls */
+  engineInputs?: RawTelemetry | null;
+  onEngineInputChange?: (key: keyof RawTelemetry, value: number | boolean) => void;
 };
 
 const TICK_COUNT = 52;
@@ -93,8 +151,14 @@ export default function Meters({
   onTogglePause,
   isSignedIn = true,
   canLive = false,
+  engineInputs,
+  onEngineInputChange,
 }: MetersProps) {
   const fraction = Math.max(0, Math.min(1, speedKnots / MAX_SPEED));
+  // v4: the panel slides between the flight controls and the engine's other inputs.
+  const [view, setView] = useState<"flight" | "engine">("flight");
+  const hasInputs = !!(engineInputs && onEngineInputChange);
+  const showEngine = view === "engine" && hasInputs;
 
   // Compute 180° dome/semicircle tick positions in SVG coordinates (0 0 300 150)
   const ticks = useMemo(() => {
@@ -128,6 +192,24 @@ export default function Meters({
       {/* Background ambient glow */}
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_60%_80%_at_50%_35%,rgba(232,118,58,0.12),transparent_70%)]" />
 
+      {hasInputs && (
+        <button
+          type="button"
+          onClick={() => setView(showEngine ? "flight" : "engine")}
+          className="absolute right-2 top-2 z-20 flex items-center gap-1 rounded-sm border border-[#4c3025] bg-[#1a110d] px-1.5 py-0.5 text-[7px] font-semibold uppercase tracking-[0.12em] text-[#d9c0ae] hover:text-[#ff8050] md:text-[9px]"
+          aria-pressed={showEngine}
+        >
+          <ArrowLeftRight size={11} /> {showEngine ? "Flight controls" : "Engine inputs"}
+        </button>
+      )}
+
+      {/* Two panes side by side in a 200%-wide strip; the swap slides it by half. */}
+      <div className="relative z-10 min-h-0 flex-1 overflow-hidden">
+      <div
+        className="flex h-full w-[200%] transition-transform duration-300 ease-out"
+        style={{ transform: showEngine ? "translateX(-50%)" : "translateX(0)" }}
+      >
+      <div className="flex h-full w-1/2 min-h-0 flex-col justify-between" inert={showEngine} aria-hidden={showEngine}>
       {/* ── Top section: Throttle Stat | Semicircle Speedometer | Altitude Stat ── */}
       <div className="relative z-10 flex min-h-0 flex-1 items-center justify-between px-2 md:px-4">
         {/* Left: Throttle Stat */}
@@ -198,65 +280,43 @@ export default function Meters({
       )}
 
       {/* ── Middle section: Throttle & Speed Target sliders side by side ── */}
-      <div className={`relative z-10 my-2 grid grid-cols-2 gap-4 md:gap-6 ${canLive ? "opacity-60" : ""}`}>
-        {/* Throttle Slider */}
-        <div>
-          <div className="flex items-center justify-between text-[8px] uppercase tracking-[0.12em] text-[#d9c0ae] md:text-[10px]">
-            <label htmlFor="throttle-input" className="font-semibold">Throttle</label>
-            <output className="font-mono text-[#ff8050] font-semibold">{Math.round(throttle)}%</output>
-          </div>
-          <div className="mt-1.5 h-3.5 border border-[#4c3025] bg-[#1a110d] p-[2px] rounded-sm">
-            <div
-              className="h-full bg-gradient-to-r from-[#ff971e] via-[#ff5b1c] to-[#ed3919] rounded-[1px] transition-all duration-75"
-              style={{ width: `${throttle}%` }}
-            />
-          </div>
-          <input
-            id="throttle-input"
-            className="cockpit-range mt-1.5 w-full"
-            type="range"
-            min="0"
-            max="100"
-            value={throttle}
-            disabled={canLive}
-            onChange={(e) => onThrottleChange(Number(e.target.value))}
-          />
-          <div className="mt-0.5 flex justify-between font-mono text-[7px] text-[#8a7263] md:text-[8px]">
-            <span>0%</span>
-            <span>100%</span>
-          </div>
-        </div>
+      {/* The speed track starts at the stall floor, not at zero, so its end labels are
+          spelled out; without them a near-empty bar reads as a fault. */}
+      <div className="relative z-10 my-2 grid grid-cols-2 gap-4 md:gap-6">
+        <SlidingBar label="Throttle" value={throttle} onChange={onThrottleChange} disabled={canLive}
+          format={(v) => `${Math.round(v)}%`} />
+        <SlidingBar label="Speed Target" min={MIN_SPEED} max={MAX_SPEED} disabled={canLive}
+          value={Math.round(mpsToKnots(airspeedTarget))}
+          onChange={(kt) => onAirspeedTargetChange(knotsToMps(kt))}
+          format={(v) => `${Math.round(v)} KT`} />
+      </div>
 
-        {/* Speed Target Slider */}
-        <div>
-          <div className="flex items-center justify-between text-[8px] uppercase tracking-[0.12em] text-[#d9c0ae] md:text-[10px]">
-            <label htmlFor="airspeed-input" className="font-semibold">Speed Target</label>
-            <output className="font-mono text-[#ff8050] font-semibold">{Math.round(mpsToKnots(airspeedTarget))} KT</output>
-          </div>
-          <div className="mt-1.5 h-3.5 border border-[#4c3025] bg-[#1a110d] p-[2px] rounded-sm">
-            <div
-              className="h-full bg-gradient-to-r from-[#ff971e] via-[#ff5b1c] to-[#ed3919] rounded-[1px] transition-all duration-75"
-              style={{ width: `${Math.max(0, ((mpsToKnots(airspeedTarget) - MIN_SPEED) / (MAX_SPEED - MIN_SPEED)) * 100)}%` }}
-            />
-          </div>
-          <input
-            id="airspeed-input"
-            className="cockpit-range mt-1.5 w-full"
-            type="range"
-            min={MIN_SPEED}
-            max={MAX_SPEED}
-            step="1"
-            value={Math.round(mpsToKnots(airspeedTarget))}
-            disabled={canLive}
-            onChange={(e) => onAirspeedTargetChange(knotsToMps(Number(e.target.value)))}
-          />
-          {/* Endpoints spelled out: the speed track starts at the stall floor,
-              not at zero, so without them a near-empty bar reads as a fault. */}
-          <div className="mt-0.5 flex justify-between font-mono text-[7px] text-[#8a7263] md:text-[8px]">
-            <span>{MIN_SPEED} KT</span>
-            <span>{MAX_SPEED} KT</span>
-          </div>
-        </div>
+      </div>
+
+      {/* ── v4: atmosphere, fuel and installation inputs ── */}
+      <div className={`flex h-full w-1/2 min-h-0 flex-col ${canLive ? "opacity-60" : ""}`} inert={!showEngine} aria-hidden={!showEngine}>
+        {engineInputs && onEngineInputChange && (
+          <>
+            <div className="px-1 pb-2 pt-0.5 text-[8px] font-semibold uppercase tracking-[0.12em] text-[#d9c0ae] md:text-[10px]">
+              Inputs to the engine
+            </div>
+            {/* px-2 / pt-3: room for the thumb at either end and the drag tooltip above it. */}
+            <div className="grid min-h-0 flex-1 grid-cols-2 content-start gap-x-4 gap-y-2 overflow-y-auto px-2 pt-3 md:grid-cols-3">
+              {ENGINE_INPUTS.map(({ key, label, min, max, step, show }) => (
+                <InputBar key={key} compact label={label} min={min} max={max} step={step} format={show}
+                  value={Number(engineInputs[key] ?? min)} disabled={canLive}
+                  onChange={(v) => onEngineInputChange(key, Number(v.toFixed(4)))} />
+              ))}
+              <label className="flex items-center gap-1.5 text-[7px] uppercase tracking-[0.1em] text-[#d9c0ae] md:text-[9px]">
+                <input type="checkbox" checked={engineInputs.oil_thermostat_open !== false} disabled={canLive}
+                  onChange={(e) => onEngineInputChange("oil_thermostat_open", e.target.checked)} />
+                Oil thermostat {engineInputs.oil_thermostat_open === false ? "stuck (bypass)" : "working"}
+              </label>
+            </div>
+          </>
+        )}
+      </div>
+      </div>
       </div>
 
       {/* ── Bottom section: Full width Start/Pause Simulation button ── */}

@@ -1,0 +1,1058 @@
+{
+ "space": {
+  "channels": [
+   48,
+   64,
+   96
+  ],
+  "layers": [
+   6,
+   7
+  ],
+  "dropout": [
+   0.1,
+   0.2,
+   0.3
+  ],
+  "input_dropout": [
+   0.0,
+   0.03,
+   0.08
+  ],
+  "head_hidden": [
+   64,
+   96,
+   128
+  ],
+  "lr": [
+   0.0003,
+   0.0006,
+   0.001,
+   0.002
+  ],
+  "weight_decay": [
+   1e-05,
+   0.0001,
+   0.001
+  ],
+  "balance": [
+   "uncertainty",
+   "sum"
+  ],
+  "batch": [
+   64,
+   128
+  ]
+ },
+ "rungs": [
+  3,
+  8,
+  30
+ ],
+ "trials": [
+  {
+   "id": 0,
+   "cfg": {
+    "channels": 96,
+    "layers": 7,
+    "dropout": 0.3,
+    "input_dropout": 0.08,
+    "head_hidden": 96,
+    "lr": 0.002,
+    "weight_decay": 0.001,
+    "balance": "uncertainty",
+    "batch": 64,
+    "seed": 0
+   },
+   "rung0": {
+    "epochs": 3,
+    "best_epoch": 0,
+    "val": {
+     "det_auc": 0.7234,
+     "det_recall_p95": 0.2083,
+     "diag_macro_f1": 0.1113,
+     "diag_macro_ap": 0.1893,
+     "family_f1": 0.1604,
+     "sev_on_fault_mae": 0.4045,
+     "sev_clean_mae": 0.0803,
+     "sensor_macro_f1": 0.6006,
+     "health_mae": 0.1798,
+     "composite": 0.8293
+    },
+    "seconds": 413.8
+   }
+  },
+  {
+   "id": 1,
+   "cfg": {
+    "channels": 48,
+    "layers": 6,
+    "dropout": 0.3,
+    "input_dropout": 0.08,
+    "head_hidden": 64,
+    "lr": 0.0006,
+    "weight_decay": 0.001,
+    "balance": "uncertainty",
+    "batch": 128,
+    "seed": 0
+   },
+   "rung0": {
+    "epochs": 3,
+    "best_epoch": 2,
+    "val": {
+     "det_auc": 0.6943,
+     "det_recall_p95": 0.2486,
+     "diag_macro_f1": 0.1036,
+     "diag_macro_ap": 0.1707,
+     "family_f1": 0.2234,
+     "sev_on_fault_mae": 0.3115,
+     "sev_clean_mae": 0.1432,
+     "sensor_macro_f1": 0.6168,
+     "health_mae": 0.187,
+     "composite": 0.9082
+    },
+    "seconds": 205.2
+   }
+  },
+  {
+   "id": 2,
+   "cfg": {
+    "channels": 48,
+    "layers": 6,
+    "dropout": 0.3,
+    "input_dropout": 0.0,
+    "head_hidden": 96,
+    "lr": 0.0006,
+    "weight_decay": 0.001,
+    "balance": "uncertainty",
+    "batch": 128,
+    "seed": 0
+   },
+   "rung0": {
+    "epochs": 3,
+    "best_epoch": 2,
+    "val": {
+     "det_auc": 0.7338,
+     "det_recall_p95": 0.2853,
+     "diag_macro_f1": 0.1403,
+     "diag_macro_ap": 0.2328,
+     "family_f1": 0.0745,
+     "sev_on_fault_mae": 0.2025,
+     "sev_clean_mae": 0.1262,
+     "sensor_macro_f1": 0.6082,
+     "health_mae": 0.1958,
+     "composite": 1.0178
+    },
+    "seconds": 217.0
+   },
+   "rung1": {
+    "epochs": 8,
+    "best_epoch": 5,
+    "val": {
+     "det_auc": 0.7827,
+     "det_recall_p95": 0.4117,
+     "diag_macro_f1": 0.2694,
+     "diag_macro_ap": 0.3438,
+     "family_f1": 0.3139,
+     "sev_on_fault_mae": 0.2759,
+     "sev_clean_mae": 0.0864,
+     "sensor_macro_f1": 0.7029,
+     "health_mae": 0.2168,
+     "composite": 1.2768
+    },
+    "seconds": 926.2
+   }
+  },
+  {
+   "id": 3,
+   "cfg": {
+    "channels": 64,
+    "layers": 6,
+    "dropout": 0.2,
+    "input_dropout": 0.03,
+    "head_hidden": 96,
+    "lr": 0.001,
+    "weight_decay": 0.001,
+    "balance": "sum",
+    "batch": 128,
+    "seed": 0
+   },
+   "rung0": {
+    "epochs": 3,
+    "best_epoch": 1,
+    "val": {
+     "det_auc": 0.7376,
+     "det_recall_p95": 0.2281,
+     "diag_macro_f1": 0.2624,
+     "diag_macro_ap": 0.2772,
+     "family_f1": 0.3878,
+     "sev_on_fault_mae": 0.2084,
+     "sev_clean_mae": 0.1567,
+     "sensor_macro_f1": 0.6241,
+     "health_mae": 0.2745,
+     "composite": 1.0754
+    },
+    "seconds": 222.8
+   },
+   "rung1": {
+    "epochs": 8,
+    "best_epoch": 6,
+    "val": {
+     "det_auc": 0.7772,
+     "det_recall_p95": 0.3517,
+     "diag_macro_f1": 0.202,
+     "diag_macro_ap": 0.2332,
+     "family_f1": 0.2244,
+     "sev_on_fault_mae": 0.232,
+     "sev_clean_mae": 0.1076,
+     "sensor_macro_f1": 0.6827,
+     "health_mae": 0.2054,
+     "composite": 1.1625
+    },
+    "seconds": 966.2
+   }
+  },
+  {
+   "id": 4,
+   "cfg": {
+    "channels": 96,
+    "layers": 7,
+    "dropout": 0.2,
+    "input_dropout": 0.08,
+    "head_hidden": 96,
+    "lr": 0.0003,
+    "weight_decay": 0.001,
+    "balance": "uncertainty",
+    "batch": 128,
+    "seed": 0
+   },
+   "rung0": {
+    "epochs": 3,
+    "best_epoch": 2,
+    "val": {
+     "det_auc": 0.6524,
+     "det_recall_p95": 0.2338,
+     "diag_macro_f1": 0.1699,
+     "diag_macro_ap": 0.2036,
+     "family_f1": 0.1983,
+     "sev_on_fault_mae": 0.2749,
+     "sev_clean_mae": 0.1235,
+     "sensor_macro_f1": 0.4677,
+     "health_mae": 0.2453,
+     "composite": 0.6573
+    },
+    "seconds": 558.7
+   }
+  },
+  {
+   "id": 5,
+   "cfg": {
+    "channels": 64,
+    "layers": 6,
+    "dropout": 0.1,
+    "input_dropout": 0.03,
+    "head_hidden": 64,
+    "lr": 0.0003,
+    "weight_decay": 0.0001,
+    "balance": "sum",
+    "batch": 64,
+    "seed": 0
+   },
+   "rung0": {
+    "epochs": 3,
+    "best_epoch": 2,
+    "val": {
+     "det_auc": 0.6986,
+     "det_recall_p95": 0.3023,
+     "diag_macro_f1": 0.0928,
+     "diag_macro_ap": 0.2143,
+     "family_f1": 0.1686,
+     "sev_on_fault_mae": 0.3016,
+     "sev_clean_mae": 0.0577,
+     "sensor_macro_f1": 0.5573,
+     "health_mae": 0.2422,
+     "composite": 0.7685
+    },
+    "seconds": 249.8
+   }
+  },
+  {
+   "id": 6,
+   "cfg": {
+    "channels": 96,
+    "layers": 7,
+    "dropout": 0.3,
+    "input_dropout": 0.03,
+    "head_hidden": 96,
+    "lr": 0.001,
+    "weight_decay": 1e-05,
+    "balance": "uncertainty",
+    "batch": 64,
+    "seed": 0
+   },
+   "rung0": {
+    "epochs": 3,
+    "best_epoch": 2,
+    "val": {
+     "det_auc": 0.7574,
+     "det_recall_p95": 0.2218,
+     "diag_macro_f1": 0.1041,
+     "diag_macro_ap": 0.2659,
+     "family_f1": 0.1366,
+     "sev_on_fault_mae": 0.3347,
+     "sev_clean_mae": 0.0569,
+     "sensor_macro_f1": 0.6585,
+     "health_mae": 0.2093,
+     "composite": 0.9969
+    },
+    "seconds": 384.1
+   },
+   "rung1": {
+    "epochs": 8,
+    "best_epoch": 4,
+    "val": {
+     "det_auc": 0.7432,
+     "det_recall_p95": 0.375,
+     "diag_macro_f1": 0.2721,
+     "diag_macro_ap": 0.2688,
+     "family_f1": 0.1571,
+     "sev_on_fault_mae": 0.4363,
+     "sev_clean_mae": 0.0302,
+     "sensor_macro_f1": 0.7255,
+     "health_mae": 0.1952,
+     "composite": 0.9893
+    },
+    "seconds": 2016.5
+   }
+  },
+  {
+   "id": 7,
+   "cfg": {
+    "channels": 48,
+    "layers": 7,
+    "dropout": 0.1,
+    "input_dropout": 0.0,
+    "head_hidden": 64,
+    "lr": 0.002,
+    "weight_decay": 0.001,
+    "balance": "sum",
+    "batch": 64,
+    "seed": 0
+   },
+   "rung0": {
+    "epochs": 3,
+    "best_epoch": 0,
+    "val": {
+     "det_auc": 0.6046,
+     "det_recall_p95": 0.0388,
+     "diag_macro_f1": 0.1358,
+     "diag_macro_ap": 0.1395,
+     "family_f1": 0.1091,
+     "sev_on_fault_mae": 0.4041,
+     "sev_clean_mae": 0.0287,
+     "sensor_macro_f1": 0.5206,
+     "health_mae": 0.2227,
+     "composite": 0.4697
+    },
+    "seconds": 280.3
+   }
+  },
+  {
+   "id": 8,
+   "cfg": {
+    "channels": 96,
+    "layers": 6,
+    "dropout": 0.2,
+    "input_dropout": 0.0,
+    "head_hidden": 96,
+    "lr": 0.002,
+    "weight_decay": 0.0001,
+    "balance": "uncertainty",
+    "batch": 128,
+    "seed": 0
+   },
+   "rung0": {
+    "epochs": 3,
+    "best_epoch": 1,
+    "val": {
+     "det_auc": 0.7967,
+     "det_recall_p95": 0.3496,
+     "diag_macro_f1": 0.2803,
+     "diag_macro_ap": 0.2812,
+     "family_f1": 0.3368,
+     "sev_on_fault_mae": 0.3565,
+     "sev_clean_mae": 0.0438,
+     "sensor_macro_f1": 0.6353,
+     "health_mae": 0.2428,
+     "composite": 1.0394
+    },
+    "seconds": 258.9
+   },
+   "rung1": {
+    "epochs": 8,
+    "best_epoch": 0,
+    "val": {
+     "det_auc": 0.736,
+     "det_recall_p95": 0.3305,
+     "diag_macro_f1": 0.2213,
+     "diag_macro_ap": 0.2458,
+     "family_f1": 0.2487,
+     "sev_on_fault_mae": 0.3297,
+     "sev_clean_mae": 0.1724,
+     "sensor_macro_f1": 0.4888,
+     "health_mae": 0.2508,
+     "composite": 0.7636
+    },
+    "seconds": 610.5
+   }
+  },
+  {
+   "id": 9,
+   "cfg": {
+    "channels": 48,
+    "layers": 7,
+    "dropout": 0.3,
+    "input_dropout": 0.0,
+    "head_hidden": 96,
+    "lr": 0.002,
+    "weight_decay": 0.001,
+    "balance": "sum",
+    "batch": 128,
+    "seed": 0
+   },
+   "rung0": {
+    "epochs": 3,
+    "best_epoch": 2,
+    "val": {
+     "det_auc": 0.7779,
+     "det_recall_p95": 0.3065,
+     "diag_macro_f1": 0.31,
+     "diag_macro_ap": 0.2624,
+     "family_f1": 0.3227,
+     "sev_on_fault_mae": 0.2533,
+     "sev_clean_mae": 0.132,
+     "sensor_macro_f1": 0.7529,
+     "health_mae": 0.1938,
+     "composite": 1.3137
+    },
+    "seconds": 311.0
+   },
+   "rung1": {
+    "epochs": 8,
+    "best_epoch": 2,
+    "val": {
+     "det_auc": 0.7948,
+     "det_recall_p95": 0.4357,
+     "diag_macro_f1": 0.3343,
+     "diag_macro_ap": 0.3154,
+     "family_f1": 0.306,
+     "sev_on_fault_mae": 0.1938,
+     "sev_clean_mae": 0.0975,
+     "sensor_macro_f1": 0.7389,
+     "health_mae": 0.1885,
+     "composite": 1.4312
+    },
+    "seconds": 701.0
+   },
+   "rung2": {
+    "epochs": 30,
+    "best_epoch": 2,
+    "val": {
+     "det_auc": 0.7928,
+     "det_recall_p95": 0.4075,
+     "diag_macro_f1": 0.3185,
+     "diag_macro_ap": 0.3117,
+     "family_f1": 0.3378,
+     "sev_on_fault_mae": 0.2758,
+     "sev_clean_mae": 0.1487,
+     "sensor_macro_f1": 0.7501,
+     "health_mae": 0.198,
+     "composite": 1.3517
+    },
+    "seconds": 1575.2
+   }
+  },
+  {
+   "id": 10,
+   "cfg": {
+    "channels": 48,
+    "layers": 7,
+    "dropout": 0.2,
+    "input_dropout": 0.0,
+    "head_hidden": 64,
+    "lr": 0.001,
+    "weight_decay": 0.001,
+    "balance": "sum",
+    "batch": 128,
+    "seed": 0
+   },
+   "rung0": {
+    "epochs": 3,
+    "best_epoch": 2,
+    "val": {
+     "det_auc": 0.7033,
+     "det_recall_p95": 0.0,
+     "diag_macro_f1": 0.2098,
+     "diag_macro_ap": 0.2132,
+     "family_f1": 0.3167,
+     "sev_on_fault_mae": 0.2745,
+     "sev_clean_mae": 0.1078,
+     "sensor_macro_f1": 0.5055,
+     "health_mae": 0.2389,
+     "composite": 0.828
+    },
+    "seconds": 322.9
+   }
+  },
+  {
+   "id": 11,
+   "cfg": {
+    "channels": 96,
+    "layers": 7,
+    "dropout": 0.2,
+    "input_dropout": 0.03,
+    "head_hidden": 96,
+    "lr": 0.0003,
+    "weight_decay": 1e-05,
+    "balance": "sum",
+    "batch": 64,
+    "seed": 0
+   },
+   "rung0": {
+    "epochs": 3,
+    "best_epoch": 1,
+    "val": {
+     "det_auc": 0.658,
+     "det_recall_p95": 0.2253,
+     "diag_macro_f1": 0.1332,
+     "diag_macro_ap": 0.2754,
+     "family_f1": 0.2451,
+     "sev_on_fault_mae": 0.2352,
+     "sev_clean_mae": 0.1958,
+     "sensor_macro_f1": 0.426,
+     "health_mae": 0.2327,
+     "composite": 0.7814
+    },
+    "seconds": 627.9
+   }
+  },
+  {
+   "id": 12,
+   "cfg": {
+    "channels": 64,
+    "layers": 6,
+    "dropout": 0.1,
+    "input_dropout": 0.0,
+    "head_hidden": 96,
+    "lr": 0.002,
+    "weight_decay": 0.0001,
+    "balance": "uncertainty",
+    "batch": 128,
+    "seed": 0
+   },
+   "rung0": {
+    "epochs": 3,
+    "best_epoch": 1,
+    "val": {
+     "det_auc": 0.7732,
+     "det_recall_p95": 0.3919,
+     "diag_macro_f1": 0.1251,
+     "diag_macro_ap": 0.2771,
+     "family_f1": 0.1492,
+     "sev_on_fault_mae": 0.4415,
+     "sev_clean_mae": 0.0307,
+     "sensor_macro_f1": 0.6533,
+     "health_mae": 0.3327,
+     "composite": 0.6714
+    },
+    "seconds": 298.2
+   }
+  },
+  {
+   "id": 13,
+   "cfg": {
+    "channels": 96,
+    "layers": 6,
+    "dropout": 0.2,
+    "input_dropout": 0.03,
+    "head_hidden": 96,
+    "lr": 0.0006,
+    "weight_decay": 0.0001,
+    "balance": "sum",
+    "batch": 128,
+    "seed": 0
+   },
+   "rung0": {
+    "epochs": 3,
+    "best_epoch": 2,
+    "val": {
+     "det_auc": 0.7936,
+     "det_recall_p95": 0.4583,
+     "diag_macro_f1": 0.251,
+     "diag_macro_ap": 0.2826,
+     "family_f1": 0.3008,
+     "sev_on_fault_mae": 0.216,
+     "sev_clean_mae": 0.1597,
+     "sensor_macro_f1": 0.5943,
+     "health_mae": 0.2912,
+     "composite": 1.0225
+    },
+    "seconds": 357.6
+   },
+   "rung1": {
+    "epochs": 8,
+    "best_epoch": 7,
+    "val": {
+     "det_auc": 0.8478,
+     "det_recall_p95": 0.4647,
+     "diag_macro_f1": 0.2768,
+     "diag_macro_ap": 0.2874,
+     "family_f1": 0.3056,
+     "sev_on_fault_mae": 0.1632,
+     "sev_clean_mae": 0.1863,
+     "sensor_macro_f1": 0.7182,
+     "health_mae": 0.2582,
+     "composite": 1.3267
+    },
+    "seconds": 1201.8
+   },
+   "rung2": {
+    "epochs": 30,
+    "best_epoch": 9,
+    "val": {
+     "det_auc": 0.8226,
+     "det_recall_p95": 0.4188,
+     "diag_macro_f1": 0.2625,
+     "diag_macro_ap": 0.2732,
+     "family_f1": 0.3211,
+     "sev_on_fault_mae": 0.1788,
+     "sev_clean_mae": 0.1359,
+     "sensor_macro_f1": 0.7261,
+     "health_mae": 0.197,
+     "composite": 1.4096
+    },
+    "seconds": 2566.4
+   }
+  },
+  {
+   "id": 14,
+   "cfg": {
+    "channels": 96,
+    "layers": 6,
+    "dropout": 0.2,
+    "input_dropout": 0.03,
+    "head_hidden": 96,
+    "lr": 0.0003,
+    "weight_decay": 1e-05,
+    "balance": "uncertainty",
+    "batch": 128,
+    "seed": 0
+   },
+   "rung0": {
+    "epochs": 3,
+    "best_epoch": 2,
+    "val": {
+     "det_auc": 0.772,
+     "det_recall_p95": 0.3164,
+     "diag_macro_f1": 0.2226,
+     "diag_macro_ap": 0.2609,
+     "family_f1": 0.2783,
+     "sev_on_fault_mae": 0.1748,
+     "sev_clean_mae": 0.1658,
+     "sensor_macro_f1": 0.438,
+     "health_mae": 0.2476,
+     "composite": 0.9401
+    },
+    "seconds": 398.9
+   }
+  },
+  {
+   "id": 15,
+   "cfg": {
+    "channels": 48,
+    "layers": 6,
+    "dropout": 0.3,
+    "input_dropout": 0.08,
+    "head_hidden": 64,
+    "lr": 0.0003,
+    "weight_decay": 0.001,
+    "balance": "uncertainty",
+    "batch": 64,
+    "seed": 0
+   },
+   "rung0": {
+    "epochs": 3,
+    "best_epoch": 2,
+    "val": {
+     "det_auc": 0.756,
+     "det_recall_p95": 0.2514,
+     "diag_macro_f1": 0.1413,
+     "diag_macro_ap": 0.1985,
+     "family_f1": 0.1421,
+     "sev_on_fault_mae": 0.329,
+     "sev_clean_mae": 0.1118,
+     "sensor_macro_f1": 0.4528,
+     "health_mae": 0.2048,
+     "composite": 0.7398
+    },
+    "seconds": 502.6
+   }
+  },
+  {
+   "id": 16,
+   "cfg": {
+    "channels": 64,
+    "layers": 7,
+    "dropout": 0.1,
+    "input_dropout": 0.03,
+    "head_hidden": 96,
+    "lr": 0.0003,
+    "weight_decay": 0.001,
+    "balance": "sum",
+    "batch": 64,
+    "seed": 0
+   },
+   "rung0": {
+    "epochs": 3,
+    "best_epoch": 2,
+    "val": {
+     "det_auc": 0.7076,
+     "det_recall_p95": 0.2698,
+     "diag_macro_f1": 0.1189,
+     "diag_macro_ap": 0.1754,
+     "family_f1": 0.141,
+     "sev_on_fault_mae": 0.188,
+     "sev_clean_mae": 0.1815,
+     "sensor_macro_f1": 0.5989,
+     "health_mae": 0.248,
+     "composite": 0.8685
+    },
+    "seconds": 541.6
+   }
+  },
+  {
+   "id": 17,
+   "cfg": {
+    "channels": 96,
+    "layers": 7,
+    "dropout": 0.3,
+    "input_dropout": 0.08,
+    "head_hidden": 96,
+    "lr": 0.0006,
+    "weight_decay": 1e-05,
+    "balance": "sum",
+    "batch": 64,
+    "seed": 0
+   },
+   "rung0": {
+    "epochs": 3,
+    "best_epoch": 1,
+    "val": {
+     "det_auc": 0.7942,
+     "det_recall_p95": 0.3291,
+     "diag_macro_f1": 0.2157,
+     "diag_macro_ap": 0.2508,
+     "family_f1": 0.2749,
+     "sev_on_fault_mae": 0.242,
+     "sev_clean_mae": 0.1105,
+     "sensor_macro_f1": 0.4949,
+     "health_mae": 0.2214,
+     "composite": 0.9925
+    },
+    "seconds": 691.9
+   },
+   "rung1": {
+    "epochs": 8,
+    "best_epoch": 3,
+    "val": {
+     "det_auc": 0.7837,
+     "det_recall_p95": 0.3919,
+     "diag_macro_f1": 0.2096,
+     "diag_macro_ap": 0.2596,
+     "family_f1": 0.2991,
+     "sev_on_fault_mae": 0.3336,
+     "sev_clean_mae": 0.1073,
+     "sensor_macro_f1": 0.699,
+     "health_mae": 0.2257,
+     "composite": 1.1069
+    },
+    "seconds": 1841.7
+   }
+  },
+  {
+   "id": 18,
+   "cfg": {
+    "channels": 96,
+    "layers": 7,
+    "dropout": 0.1,
+    "input_dropout": 0.03,
+    "head_hidden": 64,
+    "lr": 0.0003,
+    "weight_decay": 0.0001,
+    "balance": "sum",
+    "batch": 128,
+    "seed": 0
+   },
+   "rung0": {
+    "epochs": 3,
+    "best_epoch": 2,
+    "val": {
+     "det_auc": 0.7291,
+     "det_recall_p95": 0.2571,
+     "diag_macro_f1": 0.1469,
+     "diag_macro_ap": 0.2253,
+     "family_f1": 0.2245,
+     "sev_on_fault_mae": 0.3876,
+     "sev_clean_mae": 0.1784,
+     "sensor_macro_f1": 0.4284,
+     "health_mae": 0.4312,
+     "composite": 0.245
+    },
+    "seconds": 493.9
+   }
+  },
+  {
+   "id": 19,
+   "cfg": {
+    "channels": 64,
+    "layers": 7,
+    "dropout": 0.2,
+    "input_dropout": 0.0,
+    "head_hidden": 96,
+    "lr": 0.002,
+    "weight_decay": 0.0001,
+    "balance": "uncertainty",
+    "batch": 64,
+    "seed": 0
+   },
+   "rung0": {
+    "epochs": 3,
+    "best_epoch": 0,
+    "val": {
+     "det_auc": 0.7393,
+     "det_recall_p95": 0.2182,
+     "diag_macro_f1": 0.1517,
+     "diag_macro_ap": 0.2175,
+     "family_f1": 0.2109,
+     "sev_on_fault_mae": 0.3367,
+     "sev_clean_mae": 0.0339,
+     "sensor_macro_f1": 0.6143,
+     "health_mae": 0.2161,
+     "composite": 0.9076
+    },
+    "seconds": 560.4
+   }
+  },
+  {
+   "id": 20,
+   "cfg": {
+    "channels": 96,
+    "layers": 6,
+    "dropout": 0.3,
+    "input_dropout": 0.08,
+    "head_hidden": 96,
+    "lr": 0.0006,
+    "weight_decay": 0.001,
+    "balance": "sum",
+    "batch": 64,
+    "seed": 0
+   },
+   "rung0": {
+    "epochs": 3,
+    "best_epoch": 2,
+    "val": {
+     "det_auc": 0.8051,
+     "det_recall_p95": 0.3835,
+     "diag_macro_f1": 0.2261,
+     "diag_macro_ap": 0.2463,
+     "family_f1": 0.255,
+     "sev_on_fault_mae": 0.2159,
+     "sev_clean_mae": 0.1101,
+     "sensor_macro_f1": 0.7082,
+     "health_mae": 0.2703,
+     "composite": 1.1305
+    },
+    "seconds": 653.4
+   },
+   "rung1": {
+    "epochs": 8,
+    "best_epoch": 5,
+    "val": {
+     "det_auc": 0.7522,
+     "det_recall_p95": 0.3227,
+     "diag_macro_f1": 0.2665,
+     "diag_macro_ap": 0.3516,
+     "family_f1": 0.2242,
+     "sev_on_fault_mae": 0.2582,
+     "sev_clean_mae": 0.084,
+     "sensor_macro_f1": 0.701,
+     "health_mae": 0.2068,
+     "composite": 1.2451
+    },
+    "seconds": 1351.9
+   }
+  },
+  {
+   "id": 21,
+   "cfg": {
+    "channels": 48,
+    "layers": 6,
+    "dropout": 0.3,
+    "input_dropout": 0.0,
+    "head_hidden": 64,
+    "lr": 0.001,
+    "weight_decay": 0.0001,
+    "balance": "sum",
+    "batch": 64,
+    "seed": 0
+   },
+   "rung0": {
+    "epochs": 3,
+    "best_epoch": 0,
+    "val": {
+     "det_auc": 0.7368,
+     "det_recall_p95": 0.3263,
+     "diag_macro_f1": 0.1967,
+     "diag_macro_ap": 0.2283,
+     "family_f1": 0.2176,
+     "sev_on_fault_mae": 0.3596,
+     "sev_clean_mae": 0.166,
+     "sensor_macro_f1": 0.6109,
+     "health_mae": 0.2167,
+     "composite": 0.8918
+    },
+    "seconds": 489.3
+   }
+  },
+  {
+   "id": 22,
+   "cfg": {
+    "channels": 96,
+    "layers": 6,
+    "dropout": 0.2,
+    "input_dropout": 0.08,
+    "head_hidden": 64,
+    "lr": 0.001,
+    "weight_decay": 0.001,
+    "balance": "uncertainty",
+    "batch": 64,
+    "seed": 0
+   },
+   "rung0": {
+    "epochs": 3,
+    "best_epoch": 0,
+    "val": {
+     "det_auc": 0.6765,
+     "det_recall_p95": 0.2931,
+     "diag_macro_f1": 0.1983,
+     "diag_macro_ap": 0.2716,
+     "family_f1": 0.1967,
+     "sev_on_fault_mae": 0.2625,
+     "sev_clean_mae": 0.0861,
+     "sensor_macro_f1": 0.6102,
+     "health_mae": 0.2359,
+     "composite": 0.9223
+    },
+    "seconds": 698.9
+   }
+  },
+  {
+   "id": 23,
+   "cfg": {
+    "channels": 64,
+    "layers": 6,
+    "dropout": 0.3,
+    "input_dropout": 0.08,
+    "head_hidden": 96,
+    "lr": 0.0003,
+    "weight_decay": 0.0001,
+    "balance": "uncertainty",
+    "batch": 128,
+    "seed": 0
+   },
+   "rung0": {
+    "epochs": 3,
+    "best_epoch": 2,
+    "val": {
+     "det_auc": 0.6662,
+     "det_recall_p95": 0.2013,
+     "diag_macro_f1": 0.1604,
+     "diag_macro_ap": 0.1986,
+     "family_f1": 0.161,
+     "sev_on_fault_mae": 0.2501,
+     "sev_clean_mae": 0.1382,
+     "sensor_macro_f1": 0.3639,
+     "health_mae": 0.1982,
+     "composite": 0.6627
+    },
+    "seconds": 394.2
+   }
+  }
+ ],
+ "best": {
+  "id": 13,
+  "cfg": {
+   "channels": 96,
+   "layers": 6,
+   "dropout": 0.2,
+   "input_dropout": 0.03,
+   "head_hidden": 96,
+   "lr": 0.0006,
+   "weight_decay": 0.0001,
+   "balance": "sum",
+   "batch": 128,
+   "seed": 0
+  },
+  "rung0": {
+   "epochs": 3,
+   "best_epoch": 2,
+   "val": {
+    "det_auc": 0.7936,
+    "det_recall_p95": 0.4583,
+    "diag_macro_f1": 0.251,
+    "diag_macro_ap": 0.2826,
+    "family_f1": 0.3008,
+    "sev_on_fault_mae": 0.216,
+    "sev_clean_mae": 0.1597,
+    "sensor_macro_f1": 0.5943,
+    "health_mae": 0.2912,
+    "composite": 1.0225
+   },
+   "seconds": 357.6
+  },
+  "rung1": {
+   "epochs": 8,
+   "best_epoch": 7,
+   "val": {
+    "det_auc": 0.8478,
+    "det_recall_p95": 0.4647,
+    "diag_macro_f1": 0.2768,
+    "diag_macro_ap": 0.2874,
+    "family_f1": 0.3056,
+    "sev_on_fault_mae": 0.1632,
+    "sev_clean_mae": 0.1863,
+    "sensor_macro_f1": 0.7182,
+    "health_mae": 0.2582,
+    "composite": 1.3267
+   },
+   "seconds": 1201.8
+  },
+  "rung2": {
+   "epochs": 30,
+   "best_epoch": 9,
+   "val": {
+    "det_auc": 0.8226,
+    "det_recall_p95": 0.4188,
+    "diag_macro_f1": 0.2625,
+    "diag_macro_ap": 0.2732,
+    "family_f1": 0.3211,
+    "sev_on_fault_mae": 0.1788,
+    "sev_clean_mae": 0.1359,
+    "sensor_macro_f1": 0.7261,
+    "health_mae": 0.197,
+    "composite": 1.4096
+   },
+   "seconds": 2566.4
+  }
+ }
+}

@@ -15,7 +15,7 @@
 // it can never block a control.
 
 type Props = {
-  health: number | null | undefined;   // 0..100, AI composite health
+  health: number | null | undefined;   // 0..100: v3 composite health, v4 the health head
   active: boolean;                     // only while flying with a live AI result
 };
 

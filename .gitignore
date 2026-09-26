@@ -155,3 +155,13 @@ coverage/
 graphify-out/
 Thumbs.db
 desktop.ini
+
+# ─── NASA C-MAPSS reference data (read-only input, not ours to redistribute) ──
+CMAPSSData/
+data/cmapss/
+
+# ─── v4/v5 datasets & training caches (local-only, multi-GB) ──────────────────
+/data/
+/validation_v4/logs/
+/validation_v5/cache/
+/validation_v5/logs/

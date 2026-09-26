@@ -79,17 +79,17 @@ export function isRulExtrapolated(simRulHours: number | null | undefined): boole
 }
 
 /** RUL text on the run's own scale: "1,234 engine h" (v3) or "4.17 sim h" (v2). */
-export function formatRul(rulHours: number | null | undefined, version: "v2" | "v3"): string {
+export function formatRul(rulHours: number | null | undefined, version: "v2" | "v3" | "v4"): string {
   if (rulHours == null || Number.isNaN(rulHours)) return "--";
-  return version === "v3" ? `${nf(rulHours)} engine h` : formatRulSimHours(rulHours);
+  return version === "v2" ? formatRulSimHours(rulHours) : `${nf(rulHours)} engine h`;
 }
 
 /** v3: beyond 105% of TBO (aiv3.py RUL_OUT_OF_RANGE_FRAC). v2: beyond MAX_SIM_LIFE_HOURS. */
 export function isRulOutOfRange(
   rulHours: number | null | undefined,
-  version: "v2" | "v3",
+  version: "v2" | "v3" | "v4",
   tboHours?: number | null,
 ): boolean {
   if (rulHours == null) return false;
-  return version === "v3" ? tboHours != null && rulHours > 1.05 * tboHours : isRulExtrapolated(rulHours);
+  return version === "v2" ? isRulExtrapolated(rulHours) : tboHours != null && rulHours > 1.05 * tboHours;
 }

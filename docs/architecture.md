@@ -9,7 +9,7 @@ Digital twin and predictive-maintenance system for Rotax 912 / 914 / 915 / 916 U
 |---|---|---|---|
 | `frontend/` (Next.js) | 3000 | Node | Cockpit, telemetry history, mission replay and reports |
 | `backend/main.py` (FastAPI) | 8000 | `backend/.venv` | Physics twin loop at 100 Hz, WebSocket telemetry, persistence, advisory |
-| `backend/ai.py` **or** `backend/aiv3.py` (FastAPI) | 8100 | `validation/venv` (TensorFlow + Metal) | Neural inference on a rolling 128-second window |
+| `backend/ai.py`, `aiv3.py` **or** `aiv4.py` (FastAPI) | 8100 | `validation/venv` (TensorFlow + Metal) | Neural inference on a rolling 128-second window |
 | Supabase | — | hosted Postgres | Runs, per-10 s telemetry, per-channel diagnostics, auth |
 | `backend/can_ingest.py` | — | `backend/.venv` (+ optional `python-can`) | CAN bridge: set-point frames to `/params`, sensor frames to `/measured` |
 | `backend/aircraft_sim.py` | — | `backend/.venv` | The simulated aircraft: its own engine, optional mismatch, CAN frames only |
@@ -153,3 +153,33 @@ The frontend decides every RUL and flight-time conversion through `lib/timeScale
 Dataset v3: 10 M rows per engine, life-stage sampled, 80/10/10 split by scenario. Phases 1-5 are
 run per engine by `validation/run.py` or the per-engine notebooks; see `docs/model_cards.md` for
 measured results and `docs/deployment_roadmap.md` for what remains.
+
+## Physics v4 (`AERO_PHYSICS_VERSION=v4`)
+
+Full plan and status: `docs/v4_integration_plan.md`. Model results: `docs/model_cards_v4.md`.
+
+```mermaid
+flowchart LR
+  UI[Cockpit + ScenarioPanel] -- /params, /scenario, /inject --> API
+  subgraph API[main.py :8000]
+    ENG[flown engine<br/>PistonEngineV4 + Health] --> SENS[sensors_v4<br/>noise, sensor faults]
+    TW[healthy on-board twin<br/>same inputs, perfect Health] --> RESID[residuals<br/>measured - twin]
+    SENS --> RESID
+    DEG[DegradationState<br/>on the life clock] --> ENG
+  end
+  API -- 1 Hz: 29 inputs + engine hours --> AI[aiv4.py :8100<br/>6 models, live RUL inputs]
+  AI --> API
+  API -- 20 Hz WebSocket: instruments, twin, truth, AI --> UI
+  API -- every 10 flight s --> DB[(Supabase: engines,<br/>simulations, telemetry_logs,<br/>maintenance_events)]
+```
+
+- **One engine pair, two rates.** `twin_v4.py` steps the flown engine and its healthy twin at 100 Hz. It reads the sensors and forms the six residuals once per flight second, the training row rate. Sampling the 100 Hz pair once a second shifts no model input by more than 0.002 scaler standard deviations.
+- **Two clocks** (`timescale_v4.py`):
+  - **Flight time** is real seconds: the AI window, telemetry timestamps and replay.
+  - **Engine hours** advance ×180: degradation, wear, RUL and TBO.
+
+  Each run stores the scale it used (`simulations.life_scale`).
+- **Engines persist.** A flight is a flight of an `engines` row. Its hour meter and fault plan carry to the next flight, and `maintenance_events` logs each advisory on the life clock.
+- **AI inputs are live-only.** `aiv4.py` builds the RUL inputs from the health and severity models and the measured sensors, never from simulator labels. At start-up it refuses to run if the training pipeline, a manifest and the twin disagree on the 29-input contract.
+- **Ground truth travels separately.** The twin puts what was injected in `truth` in every frame, for the cockpit's ground-truth panel and the database. It never reaches the AI.
+- **Device.** The v4 weights must run on the Metal GPU they were trained on; the CPU gives very different answers.

@@ -8,7 +8,9 @@ import {
   ArrowRight,
   BrainCircuit,
   CheckCircle2,
+  Copy,
   Cpu,
+  Crosshair,
   Database,
   Gauge,
   Mail,
@@ -23,48 +25,76 @@ const capabilities = [
   {
     icon: Cpu,
     label: "01 // PHYSICS TWIN",
-    title: "A living engine model",
-    text: "Physics v3 runs engine torque, propeller, aerodynamics, fuel flow, thermals, oil, vibration, electrical bus and injection timing at 1 Hz with RK4 - and feeds accumulated wear back into every one of those channels, so a 1,900-hour engine no longer reads like a new one.",
+    title: "A real-physics engine",
+    text: "Physics v4 models each Rotax engine layer by layer at 100 Hz - atmosphere, induction, combustion and knock, friction, propeller, shaft, thermal network, lubrication, electrical and vibration - with its own hardware: carburettors or injection, naturally aspirated or turbocharged. Weather, fuel and installation are live inputs.",
   },
   {
-    icon: Radio,
-    label: "02 // LIVE TELEMETRY",
-    title: "See every important signal",
-    text: "The cockpit streams 25 model-input channels plus monitor-only electrical and ambient signals over a WebSocket. The same endpoints accept real sensor readings from an aircraft on a CAN bus, so the twin can run beside hardware rather than only instead of it.",
+    icon: Copy,
+    label: "02 // HEALTHY TWIN",
+    title: "A perfect copy flies beside it",
+    text: "Every second, a healthy copy of the same engine flies the same throttle, altitude and weather. The gap between what the instruments read and what the healthy engine would read is the clearest sign of damage there is - and the heat of the day cancels out.",
   },
   {
     icon: BrainCircuit,
-    label: "03 // AI DIAGNOSTICS",
+    label: "03 // SIX AI HEADS",
     title: "From signals to decisions",
-    text: "Five heads per engine over a 128-sample window: fault detection, per-channel diagnosis, severity, four engine failure modes (misfire, injector fouling, cooling degradation, combustion instability) and remaining useful life in real engine hours against TBO.",
+    text: "One dilated-TCN model per engine reads the last 128 seconds of 29 inputs and answers six questions: is anything wrong, which part, how bad, is it a sensor, how worn is the engine, and how many hours are left.",
   },
   {
-    icon: Wrench,
-    label: "04 // PHYSICS RESIDUALS",
-    title: "A second opinion with no model in it",
-    text: "Every sensor is compared with what the physics expects at this power, airspeed, altitude and wear. The gap, and its shape - bias, drift, noise, stuck, spike - says whether the engine is degrading or the sender is lying. It needs no training data and runs onboard.",
+    icon: Radio,
+    label: "04 // ENGINE OR SENSOR",
+    title: "A broken sender is not a broken engine",
+    text: "Twelve instruments, each of which can fail six ways - bias, drift, stuck, spike, noise or dropout. The AI tells a failed thermocouple from a failing engine, so a bad sensor never grounds a healthy aircraft.",
+  },
+  {
+    icon: Crosshair,
+    label: "05 // MISSIONS",
+    title: "Fly the sorties that matter",
+    text: "MALE-UAV sorties - endurance, high altitude, hot and high, rapid throttle, in-flight fault isolation - set the weather and inject faults on the mission clock. Any fault can also be injected or removed by hand, with the ground truth shown beside the AI's answer.",
   },
   {
     icon: Database,
-    label: "05 // FLIGHT HISTORY",
-    title: "Keep the story of a run",
-    text: "Optional Supabase persistence stores simulation runs, telemetry, diagnostics, and final engine state, making it possible to review or resume a previous scenario.",
+    label: "06 // ENGINE HISTORY",
+    title: "Every engine keeps its hours",
+    text: "Engines have hour meters that age 180 times faster than flight time, so wear builds up visibly during a flight. Flights, telemetry, maintenance events and reports are kept per engine, and any flight can be replayed second by second.",
   },
 ];
 
 const workflow = [
-  "Choose a Rotax engine model from the technical catalogue.",
-  "Set altitude, throttle, airspeed, and angle of attack.",
-  "Start the simulation and watch the twin respond in real time.",
-  "Review health, diagnosis, severity, and RUL as the AI window fills.",
+  "Pick a Rotax 912, 914, 915 or 916 and its condition - a demo scenario, or one of your own engines continuing from its hour meter.",
+  "Fly it by hand, or launch a mission sortie. Weather and fuel are set under Engine inputs.",
+  "Watch the engine against its healthy twin. Inject a fault or break a sensor whenever you like.",
+  "After 128 seconds the AI names what is wrong, how bad it is, whether it is a sensor, the engine's health and its hours left - beside the ground truth.",
+  "Stop: the report, the replay and the engine's hour meter carry on to its next flight.",
 ];
 
 const traceabilityPoints = [
-  "Input features follow the model training contract, byte-identical across the pipeline, the service and the twin.",
-  "Each engine carries its own scaler, checkpoints and manifest, with the SHA-256 of every deployed head recorded.",
-  "Physics keeps running if the AI service or persistence is offline - a circuit breaker degrades one feature, never the flight.",
-  "RUL is real engine hours against that engine's TBO, shown with the uncertainty band measured on held-out data.",
-  "Remaining life never rises during a flight, and no figure is shown at all until the AI window holds only in-envelope samples.",
+  "The 29 model inputs are the same, in the same order, in the training pipeline, the AI service and the twin - the AI service refuses to start if they drift.",
+  "Each engine ships its own models, scalers and manifest: per-fault cut-offs, test results, and the RUL error band at each stage of life.",
+  "Every number is measured on flights the models never saw, split by flight so no flight is in two sets.",
+  "Physics keeps flying if the AI service or the database is offline; a flight whose record could not be saved at takeoff is saved when the connection returns.",
+  "Remaining life is in real engine hours against that engine's overhaul interval, and never rises during a flight.",
+  "Flight time is real seconds, as the AI was trained on; engine hours run 180 times faster. The scale is one declared constant, recorded on every flight.",
+];
+
+// Test-flight results per engine (backend/models_v4/<engine>/manifest.json, docs/model_cards_v4.md).
+const results = [
+  { engine: "Rotax 914 ULF", auc: "0.879", f1: "0.61", health: "0.063", note: "" },
+  { engine: "Rotax 912 ULS", auc: "0.925", f1: "0.73", health: "0.075", note: "" },
+  { engine: "Rotax 915 iS", auc: "0.900", f1: "0.63", health: "0.063", note: "" },
+  { engine: "Rotax 916 iS", auc: "-", f1: "-", health: "-", note: "Training; flies on the 914's models meanwhile" },
+];
+
+// physics_v4 layer chain, in signal order, with the engines that have each block.
+const layers: { name: string; on?: string }[] = [
+  { name: "Atmosphere" }, { name: "Air filter" },
+  { name: "Turbocharger + wastegate", on: "914 · 915 · 916" }, { name: "Intercooler", on: "915 · 916" },
+  { name: "Throttle body" }, { name: "Volumetric efficiency" }, { name: "Air mass flow" },
+  { name: "Carburettor", on: "912 · 914" }, { name: "Fuel injection", on: "915 · 916" },
+  { name: "Combustion" }, { name: "Otto cycle + knock" }, { name: "Friction + pumping" },
+  { name: "Exhaust" }, { name: "Propeller" }, { name: "Shaft" },
+  { name: "Thermal network" }, { name: "Lubrication" }, { name: "Electrical" },
+  { name: "Aerodynamics" }, { name: "Vibration" }, { name: "Life + margins" },
 ];
 
 const EMAILJS_SERVICE_ID = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
@@ -179,10 +209,10 @@ export default function AboutUsPage() {
                 <span className="block text-tertiary">before it becomes a problem.</span>
               </h1>
               <p className="mt-5 max-w-3xl text-sm md:text-base leading-relaxed text-on-surface-variant">
-                AERO-SIM is a UAV engine digital-twin platform for exploring propulsion behavior,
-                monitoring live operating data, and turning complex sensor signals into useful
-                engineering decisions. It connects validated physics with model-driven diagnostics
-                in one workspace.
+                AERO-SIM is a digital twin of the Rotax engines that fly MALE-class UAVs. A
+                real-physics engine flies beside a healthy copy of itself, and an AI watching both
+                names the failing part, tells a broken sensor from a broken engine, and counts down
+                the hours the engine has left.
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
                 <Link
@@ -208,7 +238,7 @@ export default function AboutUsPage() {
             <div>
               <span className="font-mono text-[10px] font-bold tracking-[0.2em] text-tertiary uppercase">WHAT THE PLATFORM DOES</span>
               <h2 className="mt-1.5 font-headline-display text-2xl md:text-3xl font-bold uppercase text-white tracking-tight">
-                One system, five connected jobs
+                One system, six connected jobs
               </h2>
             </div>
             <p className="max-w-sm text-xs leading-relaxed text-on-surface-variant/70">
@@ -216,7 +246,7 @@ export default function AboutUsPage() {
             </p>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {capabilities.map((cap) => {
               const Icon = cap.icon;
               return (
@@ -268,7 +298,7 @@ export default function AboutUsPage() {
 
               <div className="mt-6 pt-5 border-t border-outline-variant/25 flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-on-surface-variant/60">
                 <Wrench size={13} className="text-tertiary" />
-                UAV ENGINE DIGITAL TWIN // STATUS: ONLINE
+                PHYSICS V4 // FOUR ROTAX ENGINES
               </div>
             </div>
           </div>
@@ -282,32 +312,32 @@ export default function AboutUsPage() {
               System architecture
             </h2>
             <p className="mt-3 max-w-3xl text-sm leading-relaxed text-on-surface-variant">
-              Three processes and one shared contract. The physics twin produces telemetry; the
-              inference service turns a 128-sample window into five predictions; the cockpit shows
-              both, alongside a model-free physics check that can disagree with them.
+              Three processes and one shared contract. The physics twin flies the engine and its
+              healthy copy; the inference service turns the last 128 seconds into six answers; the
+              cockpit shows both, next to the ground truth the AI never sees.
             </p>
           </div>
 
           <div className="grid gap-4 lg:grid-cols-4">
             {[
               {
-                n: "01", name: "Physics twin", file: "backend/physics.py",
-                lines: ["Rotax 912 / 914 / 915 / 916", "1 Hz step, RK4 inside", "wear -> every channel", "4 engine failure modes"],
-                note: "Also runs as a verified Simulink model - identical to 4e-10.",
+                n: "01", name: "Physics twin", file: "backend/twin_v4.py",
+                lines: ["Rotax 912 / 914 / 915 / 916", "100 Hz physics, 1 Hz instruments", "healthy twin, same inputs", "wear on the engine-hour clock"],
+                note: "Each engine is also a Simulink model built from primitive blocks, matching the Python to about 2e-15.",
               },
               {
                 n: "02", name: "Simulation loop", file: "backend/main.py",
-                lines: ["WebSocket at 20 Hz", "bounded AI queue", "circuit breaker + recovery", "CAN sensors via /measured"],
+                lines: ["WebSocket at 20 Hz", "bounded AI queue + breaker", "fault injection and removal", "missions, CAN bus, Supabase"],
                 note: "Guards every stage: a failure degrades one feature, not the flight.",
               },
               {
-                n: "03", name: "Inference service", file: "backend/aiv3.py",
-                lines: ["detection · diagnosis", "severity · failure modes", "RUL in engine hours", "128 x 25 window + 10 aux"],
-                note: "Separate process and environment, so training numbers are what serves.",
+                n: "03", name: "Inference service", file: "backend/aiv4.py",
+                lines: ["dilated TCN, six heads", "128 s x 29-input window", "per-fault cut-offs", "on the Metal GPU"],
+                note: "Separate process and environment, so the test numbers are what serves.",
               },
               {
                 n: "04", name: "Cockpit", file: "frontend/",
-                lines: ["live telemetry + gauges", "advisory and residuals", "mission replay + report", "Supabase history"],
+                lines: ["gauges + engine inputs", "engine vs healthy twin", "AI beside ground truth", "missions, replay, reports"],
                 note: "Shows the model's own numbers, and says when it is not ready.",
               },
             ].map((b) => (
@@ -331,61 +361,102 @@ export default function AboutUsPage() {
 
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <div className="bg-surface/60 border border-outline-variant/25 rounded-lg p-5">
-              <h3 className="font-mono text-[10px] uppercase tracking-[0.16em] text-tertiary font-bold">The parallel path</h3>
+              <h3 className="font-mono text-[10px] uppercase tracking-[0.16em] text-tertiary font-bold">Physics against physics</h3>
               <p className="mt-2 text-[13px] leading-relaxed text-on-surface-variant">
-                <span className="font-mono text-white">residual.py</span> compares each reading with the
-                physics expectation for the current operating point and wear. It shares no weights, no
-                training set and no failure mode with the AI - so when the two agree, that agreement
-                means something, and when they disagree the cockpit says which one is out of step.
+                The healthy twin is the same engine with no wear and no faults, flown on the same
+                inputs. Its difference from the instruments on six channels - EGT, CHT, oil
+                temperature and pressure, rpm and fuel flow - needs no model to read, so the cockpit
+                charts it directly; the AI reads the same six residuals as part of its input.
               </p>
             </div>
             <div className="bg-surface/60 border border-outline-variant/25 rounded-lg p-5">
-              <h3 className="font-mono text-[10px] uppercase tracking-[0.16em] text-tertiary font-bold">Onboard and on hardware</h3>
+              <h3 className="font-mono text-[10px] uppercase tracking-[0.16em] text-tertiary font-bold">On real hardware</h3>
               <p className="mt-2 text-[13px] leading-relaxed text-on-surface-variant">
-                The heads export to TensorFlow Lite for edge deployment, and
-                <span className="font-mono text-white"> can_ingest.py</span> bridges a SocketCAN bus into the
-                same endpoints the simulator uses - so the twin can shadow a real engine without
-                any change to the pipeline that reads it.
+                <span className="font-mono text-white">can_ingest.py</span> bridges a SocketCAN bus into the
+                same endpoints the simulator uses, so the twin can shadow a real engine without any
+                change to the pipeline that reads it. While the aircraft is on the bus it owns the
+                set-points, and the cockpit's controls lock.
               </p>
             </div>
           </div>
         </section>
 
-        {/* System diagram */}
+        {/* Results */}
         <section className="relative z-10 mx-auto max-w-7xl px-4 md:px-6 py-12 md:py-16">
-          <div className="mb-8 flex flex-col md:flex-row md:items-end md:justify-between gap-3">
-            <div>
-              <span className="font-mono text-[10px] font-bold tracking-[0.2em] text-tertiary uppercase">INSIDE THE MODEL</span>
-              <h2 className="mt-1.5 font-headline-display text-2xl md:text-3xl font-bold uppercase text-white tracking-tight">
-                Plant model — full signal flow
-              </h2>
-              <p className="mt-3 max-w-2xl text-sm leading-relaxed text-on-surface-variant">
-                The engine itself, block by block: the complete signal flow of
-                <span className="font-mono text-tertiary"> UAV_Piston_Engine.slx</span>, top level plus all nine
-                subsystems, redrawn from roughly 500 Simulink blocks. This is the physics the
-                architecture above wraps — not the running system.
-              </p>
-            </div>
-            <a
-              href="/uav-piston-engine-diagram.html"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex shrink-0 items-center gap-2 border border-outline-variant/50 bg-surface-container-highest/60 px-5 py-3 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-white rounded hover:border-tertiary hover:text-tertiary transition-colors"
-            >
-              Open full diagram <ArrowRight size={14} />
-            </a>
+          <div className="mb-8">
+            <span className="font-mono text-[10px] font-bold tracking-[0.2em] text-tertiary uppercase">HOW WELL IT WORKS</span>
+            <h2 className="mt-1.5 font-headline-display text-2xl md:text-3xl font-bold uppercase text-white tracking-tight">
+              Results on unseen flights
+            </h2>
+            <p className="mt-3 max-w-3xl text-sm leading-relaxed text-on-surface-variant">
+              About 4,000 simulated flights per engine, split by flight. Every figure is from test
+              flights the models never saw during training or selection.
+            </p>
           </div>
+          <div className="overflow-x-auto bg-surface/80 border border-outline-variant/30 rounded-lg shadow-[2px_2px_0px_#000000]">
+            <table className="w-full min-w-[560px] text-left">
+              <thead>
+                <tr className="border-b border-outline-variant/30 font-mono text-[10px] uppercase tracking-[0.14em] text-on-surface-variant">
+                  <th className="px-5 py-3 font-bold">Engine</th>
+                  <th className="px-5 py-3 font-bold">Anything wrong? <span className="normal-case tracking-normal text-on-surface-variant/60">AUC</span></th>
+                  <th className="px-5 py-3 font-bold">Which part? <span className="normal-case tracking-normal text-on-surface-variant/60">F1</span></th>
+                  <th className="px-5 py-3 font-bold">How worn? <span className="normal-case tracking-normal text-on-surface-variant/60">error</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {results.map((r) => (
+                  <tr key={r.engine} className="border-b border-outline-variant/20 last:border-b-0">
+                    <td className="px-5 py-3 font-headline-display text-sm uppercase text-white">{r.engine}</td>
+                    {r.note ? (
+                      <td colSpan={3} className="px-5 py-3 text-[12px] text-on-surface-variant/70">{r.note}</td>
+                    ) : (
+                      <>
+                        <td className="px-5 py-3 font-mono text-sm text-tertiary">{r.auc}</td>
+                        <td className="px-5 py-3 font-mono text-sm text-tertiary">{r.f1}</td>
+                        <td className="px-5 py-3 font-mono text-sm text-tertiary">{r.health}</td>
+                      </>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-3 max-w-3xl text-[12px] leading-relaxed text-on-surface-variant/70">
+            Said plainly: remaining life is the open problem. On engines that wear out before their
+            overhaul, the estimate made from what an aircraft can actually measure is off by about 19-21% of
+            the overhaul interval - better than counting down the calendar, but not yet our 15% target.
+          </p>
+        </section>
 
-          <div className="bg-surface/80 border border-outline-variant/30 rounded-lg p-2 shadow-[2px_2px_0px_#000000]">
-            <iframe
-              src="/uav-piston-engine-diagram.html"
-              title="UAV Piston Engine — Full System Diagram"
-              loading="lazy"
-              className="w-full h-[600px] md:h-[760px] rounded bg-background"
-            />
+        {/* Inside the engine */}
+        <section className="relative z-10 mx-auto max-w-7xl px-4 md:px-6 py-12 md:py-16">
+          <div className="mb-8">
+            <span className="font-mono text-[10px] font-bold tracking-[0.2em] text-tertiary uppercase">INSIDE THE ENGINE</span>
+            <h2 className="mt-1.5 font-headline-display text-2xl md:text-3xl font-bold uppercase text-white tracking-tight">
+              Physics v4, layer by layer
+            </h2>
+            <p className="mt-3 max-w-3xl text-sm leading-relaxed text-on-surface-variant">
+              The signal chain every engine runs, in order. Each engine&rsquo;s hardware decides its
+              blocks: the 912 breathes without a turbo, the 914 adds one, and the 915 and 916 add an
+              intercooler and fuel injection. The same chain exists block for block in Simulink.
+            </p>
           </div>
-          <p className="mt-3 font-mono text-[10px] uppercase tracking-wider text-on-surface-variant/60">
-            Scroll inside the frame to move through sections 01 &ndash; 09.
+          <ol className="flex flex-wrap items-center gap-2">
+            {layers.map((l, i) => (
+              <li key={l.name} className="flex items-center gap-2">
+                <span className={`rounded border px-3 py-2 ${l.on ? "border-tertiary/40 bg-tertiary/5" : "border-outline-variant/30 bg-surface/80"}`}>
+                  <span className="block font-mono text-[11px] text-white">{l.name}</span>
+                  {l.on && <span className="block font-mono text-[9px] text-tertiary/80">{l.on} only</span>}
+                </span>
+                {i < layers.length - 1 && <span className="text-tertiary/50">&rsaquo;</span>}
+              </li>
+            ))}
+          </ol>
+          <p className="mt-4 font-mono text-[10px] uppercase tracking-wider text-on-surface-variant/60">
+            The earlier (v3) plant model is still here:{" "}
+            <a href="/uav-piston-engine-diagram.html" target="_blank" rel="noopener noreferrer" className="text-tertiary hover:underline">
+              open its full diagram
+            </a>
           </p>
         </section>
 
