@@ -77,7 +77,7 @@ HIGH_THROTTLE_THRESHOLD = 0.7
 MAX_SIM_LIFE_HOURS = 20000.0 / 3600.0   # training MAX_DURATION censoring cutoff
 RPM_FAULT_CONFIDENCE_FLOOR = 0.70       # see run_inference() docstring
 
-MODELS_ROOT = "/Users/harsh/Documents/UAV_Engine/backend/models"
+MODELS_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
 
 # One entry per deployed engine. Adding a new engine means: drop its 4 .keras
 # files + scaler into backend/models/<key>/<key>_{detection,diagnosis,
