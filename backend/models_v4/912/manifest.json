@@ -1,0 +1,395 @@
+{
+  "engine": "912",
+  "engine_model": "Rotax_912_ULS",
+  "model_version": "v4",
+  "tbo_hours": 2000.0,
+  "exported_at": "2026-09-25T13:23:26",
+  "metrics_device": "GPU",
+  "contract": {
+    "window_size": 128,
+    "sample_hz": 1,
+    "feature_cols": [
+      "altitude",
+      "airspeed",
+      "aoa",
+      "throttle",
+      "ambient_temp_c",
+      "air_density",
+      "isa_dev_c",
+      "humidity_frac",
+      "egt",
+      "cht",
+      "coolant_temp",
+      "oil_temp",
+      "oil_pressure",
+      "engine_rpm",
+      "fuel_flow",
+      "manifold_pressure_kpa",
+      "vibx",
+      "viby",
+      "vibz",
+      "battery_voltage",
+      "prop_rpm",
+      "thrust_margin",
+      "lift_weight_margin",
+      "res_egt",
+      "res_cht",
+      "res_oil_temp",
+      "res_oil_pressure",
+      "res_engine_rpm",
+      "res_fuel_flow"
+    ],
+    "rul_aux_order": [
+      "engine_hours_norm",
+      "life_used_norm",
+      "health_index",
+      "margin_min",
+      "mean_fault_severity",
+      "max_fault_severity",
+      "mean_residual_abs",
+      "max_residual_abs",
+      "throttle_mean",
+      "altitude_mean"
+    ],
+    "fault_modes": [
+      "air_filter_fouling",
+      "compression_loss",
+      "valve_leakage",
+      "turbo_degradation",
+      "wastegate_fault",
+      "intercooler_fouling",
+      "injector_fouling",
+      "ignition_degradation",
+      "combustion_instability",
+      "bearing_wear",
+      "oil_pump_degradation",
+      "oil_degradation",
+      "cooling_degradation",
+      "prop_erosion"
+    ],
+    "sensor_channels": [
+      "egt",
+      "cht",
+      "coolant_temp",
+      "oil_temp",
+      "oil_pressure",
+      "engine_rpm",
+      "fuel_flow",
+      "manifold_pressure_kpa",
+      "vibx",
+      "viby",
+      "vibz",
+      "battery_voltage"
+    ],
+    "sensor_fault_types": [
+      "none",
+      "bias",
+      "drift",
+      "stuck",
+      "spike",
+      "noise",
+      "dropout"
+    ],
+    "residual_channels": [
+      "egt",
+      "cht",
+      "oil_temp",
+      "oil_pressure",
+      "engine_rpm",
+      "fuel_flow"
+    ],
+    "fault_present_severity": 0.08,
+    "rul_live_inputs": {
+      "health_index": "health head",
+      "margin_min": "measured sensors",
+      "mean_fault_severity": "severity head (applicable faults)",
+      "max_fault_severity": "severity head (applicable faults)"
+    }
+  },
+  "applicable_faults": [
+    "air_filter_fouling",
+    "compression_loss",
+    "valve_leakage",
+    "injector_fouling",
+    "ignition_degradation",
+    "combustion_instability",
+    "bearing_wear",
+    "oil_pump_degradation",
+    "oil_degradation",
+    "cooling_degradation",
+    "prop_erosion"
+  ],
+  "heads": {
+    "detection": {
+      "file": "detection.keras",
+      "output": "y_detection"
+    },
+    "diagnosis": {
+      "file": "diagnosis.keras",
+      "output": "y_fault_mode"
+    },
+    "severity": {
+      "file": "severity.keras",
+      "output": "y_fault_mode"
+    },
+    "sensor_fault": {
+      "file": "sensor_fault.keras",
+      "output": "y_sensor_fault"
+    },
+    "health": {
+      "file": "health.keras",
+      "output": "y_health"
+    },
+    "rul": {
+      "file": "rul.keras",
+      "output": "y_rul_hours"
+    }
+  },
+  "scalers": {
+    "features": "scaler.pkl",
+    "rul_aux": "aux_scaler.pkl"
+  },
+  "fault_thresholds": {
+    "air_filter_fouling": 0.65,
+    "compression_loss": 0.65,
+    "valve_leakage": 0.95,
+    "turbo_degradation": 0.5,
+    "wastegate_fault": 0.5,
+    "intercooler_fouling": 0.5,
+    "injector_fouling": 0.2,
+    "ignition_degradation": 0.4,
+    "combustion_instability": 0.9,
+    "bearing_wear": 0.95,
+    "oil_pump_degradation": 0.85,
+    "oil_degradation": 0.9,
+    "cooling_degradation": 0.95,
+    "prop_erosion": 0.95
+  },
+  "require_severity": false,
+  "test": {
+    "detection": {
+      "loss": 0.31492191553115845,
+      "auc": 0.9250979423522949,
+      "prec": 0.9895456433296204,
+      "rec": 0.7758511900901794,
+      "y_fault_mode_loss": 1.6816176176071167,
+      "y_health_loss": 0.15415188670158386,
+      "y_rul_hours_loss": 0.006965788081288338,
+      "y_sensor_fault_loss": 6.295522212982178,
+      "y_sensor_sev_loss": 0.3161105513572693,
+      "auc_sklearn": 0.925782803797015,
+      "auc_high_residual": 0.9949263359189832,
+      "n_high_residual": 1936.0
+    },
+    "diagnosis": {
+      "loss": 0.26145631074905396,
+      "y_detection_loss": 2.763674736022949,
+      "macro_f1": 0.6589486002922058,
+      "mae": 0.031118277460336685,
+      "mae_on_fault": 0.25575873255729675,
+      "y_health_loss": 0.2612679898738861,
+      "y_rul_hours_loss": 0.006965788081288338,
+      "y_sensor_fault_loss": 20.642576217651367,
+      "y_sensor_sev_loss": 0.3736867606639862
+    },
+    "severity": {
+      "loss": 0.04638058692216873,
+      "y_detection_loss": 3.9125852584838867,
+      "macro_f1": 0.7299240231513977,
+      "mae": 0.029927613213658333,
+      "mae_on_fault": 0.15634456276893616,
+      "y_health_loss": 0.26806560158729553,
+      "y_rul_hours_loss": 0.006965788081288338,
+      "y_sensor_fault_loss": 4.149267196655273,
+      "y_sensor_sev_loss": 0.38618579506874084
+    },
+    "sensor_fault": {
+      "loss": 0.730381190776825,
+      "y_detection_loss": 0.9445303082466125,
+      "y_fault_mode_loss": 0.15270985662937164,
+      "y_health_loss": 0.17754344642162323,
+      "y_rul_hours_loss": 0.006965788081288338,
+      "acc": 0.9738499522209167,
+      "macro_f1": 0.4102497100830078,
+      "y_sensor_sev_loss": 0.32277143001556396
+    },
+    "health": {
+      "loss": 0.01018628291785717,
+      "y_detection_loss": 2.829850673675537,
+      "y_fault_mode_loss": 0.9423092603683472,
+      "mae": 0.07532928884029388,
+      "y_rul_hours_loss": 0.006965788081288338,
+      "y_sensor_fault_loss": 5.94216251373291,
+      "y_sensor_sev_loss": 0.39636000990867615
+    },
+    "rul": {
+      "loss": 0.0033965029288083315,
+      "y_detection_loss": 2.829850673675537,
+      "y_fault_mode_loss": 0.9423092603683472,
+      "y_health_loss": 0.01018628291785717,
+      "mae": 88.87361145019531,
+      "mae_pct_tbo": 4.443680763244629,
+      "y_sensor_fault_loss": 5.94216251373291,
+      "y_sensor_sev_loss": 0.39636000990867615,
+      "mae_pct_tbo_all": 4.408460235595703,
+      "frac_wear_limited": 0.18238181348488763,
+      "mae_pct_tbo_wear_limited": 12.740037536621093,
+      "mae_pct_tbo_tbo_limited": 2.5499792098999023
+    }
+  },
+  "diagnosis_cutoffs": {
+    "flat_macro_f1": 0.6582259139679837,
+    "tuned_macro_f1": 0.7293272893870444,
+    "val_macro_f1_alone": 0.6925512918027024,
+    "val_macro_f1_with_severity": 0.6622692890427337,
+    "recall_kept": true,
+    "per_fault": {
+      "air_filter_fouling": {
+        "f1": 0.46296296296296297,
+        "recall": 0.8403361344537815,
+        "precision": 0.3194888178913738
+      },
+      "compression_loss": {
+        "f1": 0.7476635514018691,
+        "recall": 1.0,
+        "precision": 0.5970149253731343
+      },
+      "valve_leakage": {
+        "f1": 0.7759197324414716,
+        "recall": 0.7116564417177914,
+        "precision": 0.8529411764705882
+      },
+      "injector_fouling": {
+        "f1": 0.9877049180327869,
+        "recall": 1.0,
+        "precision": 0.9757085020242915
+      },
+      "ignition_degradation": {
+        "f1": 0.5437201907790143,
+        "recall": 0.8260869565217391,
+        "precision": 0.4052132701421801
+      },
+      "combustion_instability": {
+        "f1": 0.7358834244080146,
+        "recall": 0.8744588744588745,
+        "precision": 0.6352201257861635
+      },
+      "bearing_wear": {
+        "f1": 0.8048780487804879,
+        "recall": 1.0,
+        "precision": 0.673469387755102
+      },
+      "oil_pump_degradation": {
+        "f1": 0.6653465346534654,
+        "recall": 0.5833333333333334,
+        "precision": 0.7741935483870968
+      },
+      "oil_degradation": {
+        "f1": 0.5337837837837838,
+        "recall": 0.5064102564102564,
+        "precision": 0.5642857142857143
+      },
+      "cooling_degradation": {
+        "f1": 0.898936170212766,
+        "recall": 0.8666666666666667,
+        "precision": 0.9337016574585635
+      },
+      "prop_erosion": {
+        "f1": 0.8658008658008658,
+        "recall": 0.9009009009009009,
+        "precision": 0.8333333333333334
+      }
+    }
+  },
+  "rul_label_inputs": {
+    "mae_hours": 88.16920471191406,
+    "mae_pct_tbo": 4.408460235595703,
+    "mae_pct_tbo_wear_limited": 12.740037536621093,
+    "wear_limited_mae_hours": 254.80075073242188,
+    "calendar_wear_limited_mae_hours": 529.9214945784012,
+    "frac_wear_limited": 0.18238181348488763,
+    "band_by_life": [
+      {
+        "life_from": 0.0,
+        "life_to": 0.25,
+        "mae_hours": 171.6063995361328,
+        "n": 1620
+      },
+      {
+        "life_from": 0.25,
+        "life_to": 0.5,
+        "mae_hours": 120.0244369506836,
+        "n": 1999
+      },
+      {
+        "life_from": 0.5,
+        "life_to": 0.75,
+        "mae_hours": 73.87100982666016,
+        "n": 1844
+      },
+      {
+        "life_from": 0.75,
+        "life_to": 1.0,
+        "mae_hours": 12.486474990844727,
+        "n": 2279
+      }
+    ]
+  },
+  "rul_live_inputs": {
+    "mae_hours": 104.9892578125,
+    "mae_pct_tbo": 5.249462890625,
+    "mae_pct_tbo_wear_limited": 18.55745086669922,
+    "wear_limited_mae_hours": 371.1490173339844,
+    "calendar_wear_limited_mae_hours": 529.9214945784012,
+    "frac_wear_limited": 0.18238181348488763,
+    "band_by_life": [
+      {
+        "life_from": 0.0,
+        "life_to": 0.25,
+        "mae_hours": 201.64334106445312,
+        "n": 1620
+      },
+      {
+        "life_from": 0.25,
+        "life_to": 0.5,
+        "mae_hours": 147.6344757080078,
+        "n": 1999
+      },
+      {
+        "life_from": 0.5,
+        "life_to": 0.75,
+        "mae_hours": 88.1047134399414,
+        "n": 1844
+      },
+      {
+        "life_from": 0.75,
+        "life_to": 1.0,
+        "mae_hours": 12.539836883544922,
+        "n": 2279
+      }
+    ]
+  },
+  "rul_band_hours": [
+    {
+      "life_from": 0.0,
+      "life_to": 0.25,
+      "mae_hours": 201.64334106445312
+    },
+    {
+      "life_from": 0.25,
+      "life_to": 0.5,
+      "mae_hours": 147.6344757080078
+    },
+    {
+      "life_from": 0.5,
+      "life_to": 0.75,
+      "mae_hours": 88.1047134399414
+    },
+    {
+      "life_from": 0.75,
+      "life_to": 1.0,
+      "mae_hours": 12.539836883544922
+    }
+  ],
+  "sensor_accuracy_check": 0.9737793851717902
+}

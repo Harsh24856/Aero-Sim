@@ -21,6 +21,14 @@ REQUIRED_FINITE = (
     "torque_available_nm", "power_kw", "fuel_flow", "thrust", "lift", "drag",
     "egt", "cht", "oil_pressure", "oil_temp", "vibx", "viby", "vibz", "rpm_fault",
 )
+# Physics v4 (twin_v4.py) reports brake torque and the twelve measured channels
+# instead, plus the life clock every downstream consumer relies on.
+REQUIRED_FINITE_V4 = (
+    "time", "altitude", "throttle", "airspeed", "air_density", "engine_rpm",
+    "torque_nm", "power_kw", "fuel_flow", "thrust", "lift", "drag",
+    "egt", "cht", "coolant_temp", "oil_pressure", "oil_temp", "manifold_pressure_kpa",
+    "vibx", "viby", "vibz", "battery_voltage", "engine_hours", "margin_min",
+)
 
 # Input envelope for /params. Matches the cockpit (components/Simulator.tsx:
 # altitude 0-8000 m, speed floor 35 m/s except during the take-off roll, which
@@ -31,6 +39,15 @@ PARAM_LIMITS = {
     "airspeed": (0.0, 80.0),
     "aoa": (-20.0, 25.0),
     "isa_dev_c": (-30.0, 50.0),
+    # physics v4 installation and fuel inputs: the ranges generate_dataset_v4.py samples,
+    # so the models never see an engine state they were not trained on.
+    "qnh_offset_pa": (-2700.0, 2700.0),
+    "humidity_frac": (0.0, 1.0),
+    "fuel_octane_mon": (91.0, 100.0),
+    "fuel_ethanol_frac": (0.0, 0.10),
+    "cooling_airflow_factor": (0.65, 1.30),
+    "electrical_load_a": (3.0, 34.0),
+    "target_lambda": (0.78, 1.02),
 }
 
 
@@ -54,7 +71,7 @@ def telemetry_problem(out: Any) -> Optional[str]:
     """None if a physics step is usable, otherwise a short reason."""
     if not isinstance(out, dict):
         return f"step returned {type(out).__name__}, not a dict"
-    for key in REQUIRED_FINITE:
+    for key in (REQUIRED_FINITE_V4 if out.get("physics_version") == "v4" else REQUIRED_FINITE):
         v = out.get(key)
         if not isinstance(v, (int, float)) or isinstance(v, bool):
             return f"{key} missing or not numeric ({v!r})"

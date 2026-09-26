@@ -298,3 +298,29 @@ class ResidualMonitor:
         if abs(r[-1]) / sc >= Z_DEVIATION:
             return "deviation", "spike"
         return "ok", None
+
+
+# =============================================================================
+# Physics v4: residuals come from the on-board twin (twin_v4.py), not from the
+# hand-written expected-value formulas above - the twin IS the expected value, run
+# on the same inputs with a perfect engine. This only packages them for the UI and
+# the advisory: each channel in units of that sensor's own noise.
+# =============================================================================
+V4_DEVIATION_Z = 5.0      # |residual| in sensor-noise units that counts as a deviation
+
+
+def twin_residuals_v4(out: dict) -> dict:
+    from sensors_v4 import SENSOR_SPEC
+    from twin_v4 import RESIDUAL_CHANNELS
+    twin = out.get("twin") or {}
+    channels = {}
+    for c in RESIDUAL_CHANNELS:
+        r = out.get(f"res_{c}")
+        if not isinstance(r, (int, float)):
+            continue
+        z = r / SENSOR_SPEC[c]["noise_sd"]
+        channels[c] = {"measured": out.get(c), "twin": twin.get(c), "residual": round(r, 4),
+                       "z": round(z, 2)}
+    return {"enabled": True, "version": "v4", "zeroing": False, "channels": channels,
+            "deviations": [c for c, v in channels.items() if abs(v["z"]) >= V4_DEVIATION_Z],
+            "saturated": []}

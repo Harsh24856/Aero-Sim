@@ -102,6 +102,13 @@ SYSTEM_PROMPT = (
     "  - v3: `final_rul_engine_hours` IS real engine hours remaining against "
     "`tbo_hours`; `rul_percent_of_tbo` is that as a percentage. Report them "
     "directly.\n"
+    "  - v4: the same RUL fields as v3. `engine_hours_start` / `engine_hours_end` are "
+    "the engine's hour meter; engine hours advance `life_scale` times faster than "
+    "flight time by design, so do not compare them with the flight duration. "
+    "`health_percent` is the engine's WEAR CONDITION (100 = as new), not an "
+    "operating margin. `component_faults` counts the rows on which the AI named each "
+    "failing component; `rul_wear_limited_rows` counts rows where wear, not the "
+    "overhaul date, limits the remaining life.\n"
     "- Judge temperatures ONLY against `reference_limits`. Do not call a value "
     "high unless it exceeds its limit there.\n"
     "- If `ai_diagnostics_available` is false, the AI service produced no output "
@@ -189,7 +196,9 @@ def build_digest(sim_row: dict, log_rows: list[dict]) -> dict[str, Any]:
         "channels": {c: _stats(log_rows, c) for c in _NUMERIC_COLS},
     }
     rul = sim_row.get("final_rul_hours")
-    if digest["model_version"] == "v3":
+    if digest["model_version"] == "v4":
+        _v4_digest(digest, sim_row, log_rows)
+    if digest["model_version"] in ("v3", "v4"):
         tbo = sim_row.get("tbo_hours")
         digest["tbo_hours"] = tbo
         digest["final_rul_engine_hours"] = rul
@@ -237,6 +246,32 @@ def build_digest(sim_row: dict, log_rows: list[dict]) -> dict[str, Any]:
     return digest
 
 
+def _v4_digest(digest: dict[str, Any], sim_row: dict, log_rows: list[dict]) -> None:
+    """Physics v4: bar not psi, this engine's own certified limits, both clocks, and
+    the component faults the AI named (dbv4.py rows)."""
+    import physics_v4
+    spec = physics_v4.ENGINE_SPECS_V4.get(sim_row.get("engine_model") or "")
+    digest["units"].update({"oil_pressure": "bar", "coolant_temp": "deg C",
+                            "manifold_pressure_kpa": "kPa", "battery_voltage": "V",
+                            "health_percent": "percent wear condition (100 = new)"})
+    if spec is not None:
+        digest["reference_limits"] = {"cht_max_c": spec.cht_limit_c, "egt_max_c": spec.egt_limit_c,
+                                      "oil_temp_max_c": spec.oil_temp_limit_c,
+                                      "oil_pressure_min_bar": spec.oil_press_min_bar,
+                                      "oil_pressure_min_bar_below_3500_rpm": spec.oil_press_min_low_bar}
+    digest["life_scale"] = sim_row.get("life_scale")
+    digest["engine_hours_start"] = sim_row.get("start_engine_hours")
+    digest["engine_hours_end"] = sim_row.get("end_engine_hours")
+    counts: dict[str, int] = {}
+    for r in log_rows:
+        for name, v in (r.get("fault_modes") or {}).items():
+            if isinstance(v, dict) and v.get("present"):
+                counts[name] = counts.get(name, 0) + 1
+    if counts:
+        digest["component_faults"] = {"rows_flagged_per_fault": counts}
+    digest["rul_wear_limited_rows"] = sum(1 for r in log_rows if r.get("wear_limited"))
+
+
 LOCAL_MODEL_NAME = "local template (offline)"
 
 
@@ -268,7 +303,7 @@ def local_summary(digest: dict[str, Any], reason: str) -> dict[str, Any]:
         findings.append(f"Final engine health {health:.1f}%.")
         raise_risk("high" if health < 50 else "moderate" if health < 80 else "low")
 
-    if digest.get("model_version") == "v3" and isinstance(digest.get("final_rul_engine_hours"), (int, float)):
+    if digest.get("model_version") in ("v3", "v4") and isinstance(digest.get("final_rul_engine_hours"), (int, float)):
         pct = digest.get("rul_percent_of_tbo")
         findings.append(f"Remaining useful life {digest['final_rul_engine_hours']:.0f} engine hours"
                         + (f" ({pct:.1f}% of the {digest.get('tbo_hours'):.0f} h TBO)." if pct is not None else "."))

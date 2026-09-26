@@ -7,6 +7,7 @@ import { ArrowLeft, FileText } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { modelVersionOf } from "@/lib/timeScale";
 import ModelBadge from "@/components/ModelBadge";
+import { missionName } from "@/lib/missionPresets";
 import Navbar from "@/components/Navbar";
 import MissionReplay, { type ReplayRow } from "@/components/MissionReplay";
 
@@ -14,6 +15,11 @@ const REPLAY_COLUMNS =
   "time_offset_s, altitude, throttle, airspeed, aoa, engine_rpm, prop_rpm, power_kw, " +
   "fuel_flow, thrust, lift, drag, egt, cht, oil_pressure, oil_temp, vibx, viby, vibz, " +
   "fault_detected, detection_confidence, health_percent, rul_percent_remaining, rul_hours";
+// physics v4 rows (backend/dbv4.py) carry both clocks, three more instruments, the
+// twin residuals, the AI's component calls and the injected ground truth.
+const V4_REPLAY_COLUMNS =
+  ", engine_hours, coolant_temp, manifold_pressure_kpa, battery_voltage, margin_min, " +
+  "rul_calendar_hours, rul_band_hours, wear_limited, fault_modes, residuals, truth";
 
 type SimMeta = {
   id: number;
@@ -22,6 +28,7 @@ type SimMeta = {
   ended_at: string | null;
   outcome: string | null;
   model_version: string | null;
+  mission?: string | null;
 };
 
 export default function MissionReplayPage() {
@@ -44,7 +51,7 @@ export default function MissionReplayPage() {
       // on, "exists but not yours" and "does not exist" should look identical.
       const { data: simRow, error } = await supabase
         .from("simulations")
-        .select("id, engine_model, started_at, ended_at, outcome, model_version")
+        .select("id, engine_model, started_at, ended_at, outcome, model_version, mission")
         .eq("id", id)
         .single();
       if (cancelled) return;
@@ -54,7 +61,7 @@ export default function MissionReplayPage() {
       // RLS policy "select own telemetry" already scopes this via the parent run.
       const { data: logRows } = await supabase
         .from("telemetry_logs")
-        .select(REPLAY_COLUMNS)
+        .select(simRow.model_version === "v4" ? REPLAY_COLUMNS + V4_REPLAY_COLUMNS : REPLAY_COLUMNS)
         .eq("simulation_id", id)
         .order("time_offset_s", { ascending: true });
       if (cancelled) return;
@@ -88,6 +95,7 @@ export default function MissionReplayPage() {
                     <span className="ml-3 text-[12px] font-mono text-tertiary/70 align-middle">ID #{sim.id}</span>
                   </h1>
                   <div className="text-[12px] text-on-surface-variant mt-1">
+                    {missionName(sim.mission) && <span className="text-tertiary">{missionName(sim.mission)} &middot; </span>}
                     {new Date(sim.started_at).toLocaleString()}
                     {sim.ended_at && <> &rarr; {new Date(sim.ended_at).toLocaleString()}</>}
                     {sim.outcome && <> &middot; {sim.outcome.toUpperCase()}</>}

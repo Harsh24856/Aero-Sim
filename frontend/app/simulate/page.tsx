@@ -8,14 +8,16 @@ import SimulatorDefault, { type SimTelemetry, type ResumeState } from "@/compone
 import Simulator912 from "@/components/Simulator_912";
 import Simulator915 from "@/components/Simulator_915";
 import Simulator916 from "@/components/Simulator_916";
-import Meters, { type RawTelemetry, mpsToKnots } from "@/components/Meters";
+import Meters, { ENGINE_INPUTS, type RawTelemetry, mpsToKnots } from "@/components/Meters";
 import Diagnostics, { failureWindow, type AiResult, type Advisory, type Residuals, type LinkState, type SimStatus } from "@/components/Diagnostics";
-import { getPreset, legAt, presetDuration } from "@/lib/missionPresets";
+import { envAt, eventRequest, eventsFor, getPreset, legAt, presetDuration } from "@/lib/missionPresets";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { engineHoursOfWear, flightHours, formatSimClock } from "@/lib/timeScale";
+import { engineHoursOfWear, flightHours, formatSimClock, usesEngineHours } from "@/lib/timeScale";
 import HealthVignette from "@/components/HealthVignette";
 import SoundToggle from "@/components/SoundToggle";
+import ScenarioPanel from "@/components/ScenarioPanel";
+import type { V4Engine, V4Truth } from "@/lib/v4";
 import { EngineSound } from "@/lib/engineSound";
 
 // Which themed Simulator variant to render, based on the ?engine= query param
@@ -119,12 +121,43 @@ function SimulatePageInner() {
   // when the AI service is down and there is no ai.model_version to read.
   const livePhysicsVersion = (rawTelemetry as { physics_version?: string } | null)?.physics_version;
   const canLive = started && (rawTelemetry as { data_source?: string } | null)?.data_source === "can";
+  // v4 "Inputs to the engine": what the pilot set, shown over the frame's value until the
+  // frame catches up, so a slider doesn't jump back while its /params post is in flight.
+  // Before a flight the values come from the chosen engine (GET /scenarios, via
+  // ScenarioPanel), so the panel is there from page load. A mission's own inputs (its
+  // hot day, say) are preloaded as overrides; /start carries them all to the fresh engine.
+  const [inputOverride, setInputOverride] = useState<RawTelemetry>({});
+  const [preInputs, setPreInputs] = useState<RawTelemetry | null>(null);
+  useEffect(() => {
+    if (!started) setInputOverride(preset ? (envAt(preset, 0) as RawTelemetry) : {});
+  }, [started, preset]);
+  const liveInputs = started && livePhysicsVersion === "v4" && rawTelemetry
+    ? Object.fromEntries([...ENGINE_INPUTS.map((f) => f.key), "oil_thermostat_open"].map((k) => [k, rawTelemetry[k as keyof RawTelemetry]])) as RawTelemetry
+    : null;
+  const baseInputs = liveInputs ?? preInputs;
+  const engineInputs: RawTelemetry | null = baseInputs ? { ...baseInputs, ...inputOverride } : null;
+  const applyInputs = useCallback((inputs: RawTelemetry) => {
+    if (Object.keys(inputs).length === 0) return;
+    setInputOverride((o) => ({ ...o, ...inputs }));
+    fetch(`${API}/params`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(inputs),
+    }).catch(() => {});
+  }, []);
+  const onEngineInputChange = (key: keyof RawTelemetry, value: number | boolean) => applyInputs({ [key]: value });
   // v3 "flight time" is the engine hour meter: wear x TBO, exactly TBO minus the true
   // RUL. A per-session delta was tried first and read 0.0 h - its baseline was taken
   // from the previous flight's last frame (higher wear) before the new twin's first
   // frame arrived. The meter needs no baseline and matches the mission report.
   const liveWear = (rawTelemetry as { wear?: number } | null)?.wear;
   const liveTbo = (rawTelemetry as { tbo_hours?: number } | null)?.tbo_hours;
+  // physics v4: the engine being flown and the injected truth ride in every frame.
+  const liveFrame = rawTelemetry as unknown as Record<string, unknown> | null;
+  const liveTruth = (liveFrame?.truth as V4Truth | undefined) ?? null;
+  const liveEngine = (liveFrame?.engine as V4Engine | undefined) ?? null;
+  // A saved engine chosen in ScenarioPanel: /start continues it from its hour meter.
+  const [savedEngineId, setSavedEngineId] = useState<number | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   // Read by the WebSocket watchdog, which lives in a mount-once effect.
   const flyingRef = useRef(false);
@@ -368,7 +401,7 @@ function SimulatePageInner() {
     }
   }, [preset, started, aiResult?.status, rawTelemetry?.time]);
   useEffect(() => { if (!started) missionT0.current = null; }, [started]);
-  const sessionEngineHours = livePhysicsVersion === "v3" ? engineHoursOfWear(liveWear, liveTbo) : null;
+  const sessionEngineHours = usesEngineHours(livePhysicsVersion) ? engineHoursOfWear(liveWear, liveTbo) : null;
 
   const missionElapsed =
     missionT0.current === null ? 0 : Math.max(0, (rawTelemetry?.time ?? 0) - missionT0.current);
@@ -380,7 +413,31 @@ function SimulatePageInner() {
     setLegIndex(index);
     setThrottle(Math.round(leg.throttle * 100));
     setAirspeedTarget(leg.airspeed);
-  }, [preset, autopilotOn, started, paused, resumePending, missionElapsed, legIndex]);
+    if (leg.env) applyInputs(leg.env as RawTelemetry);
+  }, [preset, autopilotOn, started, paused, resumePending, missionElapsed, legIndex, applyInputs]);
+  useEffect(() => { if (!started) setLegIndex(0); }, [started]);
+
+  // Mission events: faults and sensor failures injected (and repaired) on the mission
+  // clock. They belong to the scenario, not to who is flying, so they fire under manual
+  // control too. Each fires once per flight.
+  const firedEvents = useRef<Set<string>>(new Set());
+  const [lastEvent, setLastEvent] = useState<string | null>(null);
+  useEffect(() => { if (!started) { firedEvents.current = new Set(); setLastEvent(null); } }, [started]);
+  const missionEvents = preset ? eventsFor(preset, engineParam) : [];
+  const nextEvent = missionEvents.find((e) => !firedEvents.current.has(`${e.at}:${e.label}`));
+  useEffect(() => {
+    if (!preset || !started || paused || resumePending || missionT0.current === null) return;
+    for (const e of eventsFor(preset, engineParam)) {
+      const key = `${e.at}:${e.label}`;
+      if (missionElapsed < e.at || firedEvents.current.has(key)) continue;
+      firedEvents.current.add(key);
+      setLastEvent(e.label);
+      const { path, body } = eventRequest(e.action);
+      fetch(`${API}${path}`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      }).catch(() => {});
+    }
+  }, [preset, started, paused, resumePending, missionElapsed, engineParam]);
 
   // Apply the opening leg's setpoints as soon as a profile run starts.
   useEffect(() => {
@@ -410,16 +467,16 @@ function SimulatePageInner() {
         throttle: throttle / 100,
         airspeed: liveTelemetry.speed,
         aoa: liveTelemetry.pitch,
-        // Mission-profile environment. Undefined outside a profile run, and
-        // ParamUpdate leaves the twin's value untouched when it is null, so a
-        // normal flight stays on a standard day.
-        isa_dev_c: (autopilotOn ? activeLeg?.leg.isaDevC : undefined) ?? 0,
+        // What the mission or the pilot set under "Inputs to the engine". Undefined
+        // (dropped from the JSON) leaves the twin's value alone, so a v4 scenario keeps
+        // its own day; v2/v3 twins start on a standard day anyway.
+        isa_dev_c: inputOverride.isa_dev_c,
       }),
     }).catch(() => {
       // Backend not running is not a reason to break the local simulator display -
       // degrade gracefully, same pattern used in ai.py's own error handling.
     });
-  }, [started, paused, liveTelemetry, throttle, resumePending, autopilotOn, activeLeg?.leg.isaDevC]);
+  }, [started, paused, liveTelemetry, throttle, resumePending, inputOverride.isa_dev_c]);
 
   // Simulating now requires being signed in - checked here (the actual
   // enforcement point) rather than only hiding/disabling the button, since a
@@ -438,15 +495,22 @@ function SimulatePageInner() {
     void ensureSound();
     setStarted(true);
     try {
-      await fetch(`${API}/start`, {
+      const res = await fetch(`${API}/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: userId }),
+        body: JSON.stringify({ user_id: userId, ...(savedEngineId != null ? { engine_id: savedEngineId } : {}),
+                               inputs: inputOverride, ...(preset ? { mission: preset.id } : {}) }),
       });
+      const json = await res.json().catch(() => null);
+      if (json?.status === "error") {
+        // v4 refuses an engine it cannot fly (another model, worn out) - say why.
+        setStarted(false);
+        window.alert(json.message ?? "The simulator could not start this engine.");
+      }
     } catch {
       // backend optional for the local game/gauges to work
     }
-  }, [router, ensureSound]);
+  }, [router, ensureSound, savedEngineId, inputOverride, preset]);
 
   // Pause must ACTUALLY stop the backend's physics loop, not just the frontend's
   // own game/display state - main.py's simulation_loop() runs independently once
@@ -613,7 +677,7 @@ function SimulatePageInner() {
 
         {/* Center column: simulator on top, meters (ring gauge + controls) below.
             min-h-0 on each so flex children actually shrink to fit. */}
-        <div className="flex min-h-0 flex-col gap-2">
+        <div className="flex min-h-0 min-w-0 flex-col gap-2">
           {/* Mission strip: which profile is flying, which leg, and who has
               control. Only present on a profile run. */}
           {preset && (
@@ -623,9 +687,16 @@ function SimulatePageInner() {
                 <span className="truncate text-[11px] font-bold text-[#efe0d5] md:text-[13px]">{preset.name}</span>
                 {activeLeg && (
                   <span className="truncate text-[9px] text-[#aa8f7f] md:text-[11px]">
-                    Leg {activeLeg.index + 1}/{preset.legs.length} &middot; {activeLeg.leg.label}
-                    {" \u00b7 "}{Math.round(activeLeg.leg.altitude)} m
-                    {" \u00b7 "}{Math.round(activeLeg.leg.throttle * 100)}%
+                    {missionT0.current === null
+                      ? "Starts when the AI comes online"
+                      : <>T+{formatSimClock(missionElapsed)} / {formatSimClock(presetDuration(preset))} &middot; Leg {activeLeg.index + 1}/{preset.legs.length} &middot; {activeLeg.leg.label}
+                        {" \u00b7 "}{Math.round(activeLeg.leg.altitude)} m
+                        {" \u00b7 "}{Math.round(activeLeg.leg.throttle * 100)}%</>}
+                  </span>
+                )}
+                {started && (nextEvent || lastEvent) && (
+                  <span className="truncate text-[9px] text-[#ffd27a] md:text-[11px]">
+                    {nextEvent ? <>Next: {nextEvent.label} at T+{formatSimClock(nextEvent.at)}</> : <>Event: {lastEvent}</>}
                   </span>
                 )}
               </div>
@@ -641,6 +712,18 @@ function SimulatePageInner() {
                 </button>
               </div>
             </div>
+          )}
+          {!isResume && engineParam && (
+            <ScenarioPanel
+              api={API}
+              engineModel={engineParam}
+              started={started}
+              applicableFaults={(liveFrame?.applicable_faults as string[] | undefined) ?? []}
+              onEngineChoice={setSavedEngineId}
+              truth={liveTruth}
+              onInputs={(i) => setPreInputs(i as RawTelemetry | null)}
+              initialScenario={preset?.scenario}
+            />
           )}
           <div className="relative min-h-0" style={{ flex: '50 1 0%' }}>
             {/* Bottom-right: the top corners carry the HUD's HDG/ALT and TAS/R-C readouts. */}
@@ -688,6 +771,8 @@ function SimulatePageInner() {
               paused={paused}
               onTogglePause={onTogglePause}
               isSignedIn={isSignedIn}
+              engineInputs={engineInputs}
+              onEngineInputChange={onEngineInputChange}
             />
           </div>
         </div>
@@ -696,7 +781,7 @@ function SimulatePageInner() {
             whatever the backend telemetry stream happens to contain (which could
             be leftover/unrelated to this frontend session entirely), showing a
             "moving" flight time even while paused or never started. */}
-        <Diagnostics ai={aiForPanel} advisory={advisory} residuals={residuals} physicsVersion={livePhysicsVersion} link={started && !paused ? link : undefined} engineHours={started ? sessionEngineHours : undefined} simStatus={simStatus} simSeconds={started && !paused ? rawTelemetry?.time : undefined} dataSource={started ? (rawTelemetry as { data_source?: string } | null)?.data_source : undefined} onZeroSensors={started && !paused ? () => { fetch(`${API}/residuals/zero`, { method: "POST" }).catch(() => {}); } : undefined} />
+        <Diagnostics ai={aiForPanel} advisory={advisory} residuals={residuals} physicsVersion={livePhysicsVersion} link={started && !paused ? link : undefined} engineHours={started ? sessionEngineHours : undefined} simStatus={simStatus} simSeconds={started && !paused ? rawTelemetry?.time : undefined} dataSource={started ? (rawTelemetry as { data_source?: string } | null)?.data_source : undefined} onZeroSensors={started && !paused && livePhysicsVersion !== "v4" ? () => { fetch(`${API}/residuals/zero`, { method: "POST" }).catch(() => {}); } : undefined} frame={started ? liveFrame : null} truth={started ? liveTruth : null} engine={started ? liveEngine : null} />
       </div>
 
       <HealthVignette
@@ -715,7 +800,7 @@ function SimulatePageInner() {
                   a 20-second local session is meaningless as "20s" against a
                   2,000h TBO; scaled through the same compression factor as RUL,
                   it correctly reads as ~2 real hours of flight. */}
-              {livePhysicsVersion === "v3"
+              {usesEngineHours(livePhysicsVersion)
                 ? <>Engine hours: {stoppedSummary.engineHours != null ? `${stoppedSummary.engineHours.toFixed(1)} h` : "--"} &middot; sim {formatSimClock(stoppedSummary.simSeconds)}</>
                 : <>Flight time: {flightHours(stoppedSummary.simSeconds, "v2").toFixed(1)}h (real-world equivalent)</>}
             </div>

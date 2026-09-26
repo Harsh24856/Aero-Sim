@@ -1,5 +1,7 @@
 import { AlertTriangle, CheckCircle2, FileText, Wrench } from "lucide-react";
-import { flightHours, formatSimClock } from "@/lib/timeScale";
+import { flightHours, formatLifeScale, formatSimClock } from "@/lib/timeScale";
+import DiagnosticsV4 from "@/components/DiagnosticsV4";
+import type { AiResultV4Fields, V4Engine, V4Truth } from "@/lib/v4";
 
 export type AiDiagnosisChannel = { fault_type: string; confidence: number; reliable?: boolean };
 export type AiResult = {
@@ -34,7 +36,8 @@ export type AiResult = {
   airframe_crashed?: boolean;
   settle_seconds_left?: number;   // countdown to a usable window - a moving target: any
   settle_window_s?: number;       // below-envelope sample pushes the release out again
-};
+  rul_calendar_hours?: number;    // v4 (and see AiResultV4Fields)
+} & Omit<AiResultV4Fields, "rul_calendar_hours">;
 
 // Mirrors backend/advisory.py build_advisory(). Deterministic, computed
 // backend-side every broadcast - no network call of its own.
@@ -62,6 +65,7 @@ export type ResidualChannel = {
 };
 export type Residuals = {
   enabled: boolean;
+  version?: string;                     // "v4": residuals against the on-board twin (twin_v4.py)
   degradation_index?: number;
   deviations?: string[];
   saturated?: string[];
@@ -111,6 +115,10 @@ export type DiagnosticsProps = {
   simSeconds?: number;   // live elapsed simulated flight time (rawTelemetry.time)
   dataSource?: string;   // "can" when sensors arrive from the aircraft over CAN (main.py /measured)
   onZeroSensors?: () => void;   // POST /residuals/zero - only offered while a flight is running
+  // physics v4: the live frame (for the twin chart), the injected truth and the engine flown
+  frame?: Record<string, unknown> | null;
+  truth?: V4Truth | null;
+  engine?: V4Engine | null;
 };
 
 // Cockpit palette per severity. Kept local to this file on purpose: the
@@ -138,9 +146,42 @@ const AI_CHANNELS = [
 // were removed since Sensr's "All Sensors" list already shows the real
 // telemetry, and this panel's actual job is the AI's diagnosis, not duplicating
 // raw sensor readouts.
-export default function Diagnostics({ ai = null, advisory = null, residuals = null, physicsVersion, link, engineHours, simStatus = null, simSeconds, dataSource, onZeroSensors }: DiagnosticsProps) {
-  const v3 = ai?.model_version === "v3" || physicsVersion === "v3";
+export default function Diagnostics({ ai = null, advisory = null, residuals = null, physicsVersion, link, engineHours, simStatus = null, simSeconds, dataSource, onZeroSensors, frame = null, truth = null, engine = null }: DiagnosticsProps) {
+  const v4 = ai?.model_version === "v4" || physicsVersion === "v4";
+  const v3 = !v4 && (ai?.model_version === "v3" || physicsVersion === "v3");
   const labelOf = (c: string) => residuals?.channels?.[c]?.label ?? c;
+  const advisoryCard = (
+    <>
+            {advisory && !advisory.insufficient_data && (
+              <article className={`border p-2 ${ADVISORY_STYLE[advisory.severity].box}`}>
+                <div className="flex items-center justify-between text-[7px] uppercase tracking-[0.11em] text-[#bca18e] md:text-[9px]">
+                  <span className="flex items-center gap-1">
+                    <Wrench className="h-3 w-3" /> Maintenance Advisory
+                  </span>
+                  <span className={ADVISORY_STYLE[advisory.severity].text}>
+                    {ADVISORY_STYLE[advisory.severity].label}
+                  </span>
+                </div>
+                <div className={`mt-1 text-[9px] font-normal md:text-[11px] ${ADVISORY_STYLE[advisory.severity].text}`}>
+                  {advisory.headline}
+                </div>
+                {(advisory.items ?? []).slice(0, 3).map((item) => (
+                  <div key={item.code} className="mt-1.5 border-t border-[#2a201b] pt-1.5">
+                    <div className="text-[8px] text-[#d9c4b4] md:text-[9px]">{item.message}</div>
+                    <div className="mt-0.5 text-[8px] text-[#aa8f7f] md:text-[9px]">
+                      <span className="text-[#e68450]">&#8594;</span> {item.action}
+                    </div>
+                  </div>
+                ))}
+                {(advisory.items ?? []).length > 3 && (
+                  <div className="mt-1 text-[7px] uppercase tracking-[0.1em] text-[#aa8f7f] md:text-[8px]">
+                    +{(advisory.items ?? []).length - 3} more
+                  </div>
+                )}
+              </article>
+            )}
+    </>
+  );
   return (
     <aside className="panel-shell flex h-full min-h-0 flex-col overflow-hidden p-2.5 md:p-3.5">
       <h2 className="panel-heading flex items-center justify-between">
@@ -164,7 +205,20 @@ export default function Diagnostics({ ai = null, advisory = null, residuals = nu
           instead of a static value only visible after stopping. */}
       {simSeconds !== undefined && (
         <div className="mt-2 flex items-center justify-between border border-[#352722] bg-[#0d0e0d] px-2 py-1.5 text-[8px] uppercase tracking-[0.1em] text-[#bca18e] md:text-[9px]">
-          {v3 ? (
+          {v4 ? (
+            <>
+              {/* v4: two clocks (backend/timescale_v4.py). Flight time is real seconds;
+                  engine hours advance life_scale times faster by design. */}
+              <span title="Flight clock: real seconds, the timescale the AI's 128 s window is measured in.">
+                Flight <span className="font-mono text-[#efe0d5]">{formatSimClock(simSeconds)}</span>
+              </span>
+              <span className="text-right font-mono text-[#efe0d5]"
+                    title="Life clock: the engine hour meter. Each flight second ages the engine life_scale seconds, so a demo flight shows wear accumulating.">
+                {engineHours != null ? `${engineHours.toFixed(1)} engine h` : "--"}
+                <span className="ml-1.5 text-[#aa8f7f]">{formatLifeScale(engine?.life_scale)}</span>
+              </span>
+            </>
+          ) : v3 ? (
             <>
               {/* v3: engine hours are the clock RUL counts down on; the simulated
                   clock is shown beside them for reference. */}
@@ -229,15 +283,15 @@ export default function Diagnostics({ ai = null, advisory = null, residuals = nu
           </div>
         )}
 
-        {ai?.status === "ok" && ai.settling && (
+        {ai?.status === "ok" && ai.settling && !v4 && (
           <div role="status" className="border border-[#4c3025] bg-[#0d0e0d] p-2 text-[8px] text-[#d9c0ae] md:text-[9px]">
-            AI settling after takeoff - fault alerts are held until the last 128 s of flight are above 32 m/s.
+            AI settling after takeoff - fault alerts are held until the last 128 s of flight are above {v4 ? 28 : 32} m/s.
           </div>
         )}
 
         {ai?.status === "ai_unsupported_engine" && (
           <div className="border border-[#4c3025] bg-[#14100d] p-2 text-[8px] text-[#e8c9a0] md:text-[9px]">
-            No AI model for this engine on physics v3 yet. Physics, residuals and the advisory keep working.
+            No AI model for this engine yet. Physics, residuals and the advisory keep working.
           </div>
         )}
 
@@ -247,7 +301,7 @@ export default function Diagnostics({ ai = null, advisory = null, residuals = nu
           </div>
         )}
 
-        {residuals?.enabled && (
+        {residuals?.enabled && residuals.version !== "v4" && (
           <article className="border border-[#352722] bg-[#0d0e0d] p-2">
             <div className="flex items-center justify-between text-[7px] uppercase tracking-[0.11em] text-[#bca18e] md:text-[9px]">
               <span>Physics Residuals</span>
@@ -308,7 +362,9 @@ export default function Diagnostics({ ai = null, advisory = null, residuals = nu
           </article>
         )}
 
-        {ai?.status === "ok" && (
+        {v4 && <DiagnosticsV4 ai={ai} truth={truth} engine={engine} frame={frame} advisoryCard={advisoryCard} />}
+
+        {ai?.status === "ok" && !v4 && (
           <>
             <article className={`border p-2 ${ai.fault_detected ? "border-[#84432c] bg-[#21130f]" : "border-[#2f4a30] bg-[#0d150e]"}`}>
               <div className="flex items-center justify-between text-[7px] uppercase tracking-[0.11em] text-[#bca18e] md:text-[9px]">
@@ -406,34 +462,7 @@ export default function Diagnostics({ ai = null, advisory = null, residuals = nu
               </article>
             )}
 
-            {advisory && !advisory.insufficient_data && (
-              <article className={`border p-2 ${ADVISORY_STYLE[advisory.severity].box}`}>
-                <div className="flex items-center justify-between text-[7px] uppercase tracking-[0.11em] text-[#bca18e] md:text-[9px]">
-                  <span className="flex items-center gap-1">
-                    <Wrench className="h-3 w-3" /> Maintenance Advisory
-                  </span>
-                  <span className={ADVISORY_STYLE[advisory.severity].text}>
-                    {ADVISORY_STYLE[advisory.severity].label}
-                  </span>
-                </div>
-                <div className={`mt-1 text-[9px] font-normal md:text-[11px] ${ADVISORY_STYLE[advisory.severity].text}`}>
-                  {advisory.headline}
-                </div>
-                {(advisory.items ?? []).slice(0, 3).map((item) => (
-                  <div key={item.code} className="mt-1.5 border-t border-[#2a201b] pt-1.5">
-                    <div className="text-[8px] text-[#d9c4b4] md:text-[9px]">{item.message}</div>
-                    <div className="mt-0.5 text-[8px] text-[#aa8f7f] md:text-[9px]">
-                      <span className="text-[#e68450]">&#8594;</span> {item.action}
-                    </div>
-                  </div>
-                ))}
-                {(advisory.items ?? []).length > 3 && (
-                  <div className="mt-1 text-[7px] uppercase tracking-[0.1em] text-[#aa8f7f] md:text-[8px]">
-                    +{(advisory.items ?? []).length - 3} more
-                  </div>
-                )}
-              </article>
-            )}
+            {advisoryCard}
 
             <div className="space-y-1.5">
               {AI_CHANNELS.map((ch) => {
