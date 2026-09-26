@@ -1,99 +1,80 @@
-# UAV Digital Twin Frontend
+# AERO-SIM Frontend
 
-Next.js interface for controlling the live UAV Digital Twin and viewing real-time telemetry and automatically detected fault risk.
+Next.js 16 (App Router) + React 19 cockpit for the UAV engine digital twin: live telemetry, 3D engine models, AI diagnostics, mission replay and reports.
 
-## Requirements
+**Stack:** Next.js 16 · React 19 · TypeScript · Tailwind CSS 4 · Recharts · three.js / @react-three/fiber · Supabase JS · EmailJS
 
+---
 
-Check your Node version with:
+## Setup
 
-```bash
-node --version
-npm --version
-```
-
-## Install
-
-From this directory:
+Requires Node.js ≥ 20.9.
 
 ```bash
-cd /Users/harsh/Documents/UAV_Engine/frontend
+cd frontend
 npm ci
+cp .env.example .env.local   # then fill in values
+npm run dev                  # http://localhost:3000
 ```
 
-Use `npm install` if you intentionally need to regenerate or update the lockfile.
+Start the backend (`:8000`) first — pages open their WebSocket on load.
 
-## Development
+| Script | Does |
+|---|---|
+| `npm run dev` | Dev server with hot reload |
+| `npm run build` | Production build |
+| `npm start` | Serve the production build |
 
-Start the Next.js development server:
+### Environment (`.env.local`, never committed)
 
-```bash
-npm run dev
-```
+| Variable | Required for | Where to get it |
+|---|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Login, run history | Supabase → Settings → API |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Login, run history | Supabase → Settings → API (anon/publishable) |
+| `NEXT_PUBLIC_EMAILJS_SERVICE_ID` | `/about_us` contact form | EmailJS → Email Services |
+| `NEXT_PUBLIC_EMAILJS_TEMPLATE_ID` | `/about_us` contact form | EmailJS → Email Templates |
+| `NEXT_PUBLIC_EMAILJS_PUBLIC_KEY` | `/about_us` contact form | EmailJS → Account |
 
-Open [http://localhost:3000](http://localhost:3000) in a browser. Start the backend first so the page can establish its WebSocket connection.
+EmailJS template variables: `{{title}}`, `{{name}}`, `{{email}}`, `{{message}}`, `{{time}}`; set *Reply To* to `{{email}}`. Restart `npm run dev` after editing `.env.local`.
 
-The page connects to:
+---
 
+## Routes (`app/`)
 
-## Production build
+| Route | Page |
+|---|---|
+| `/` | Landing |
+| `/login` | Supabase sign-in |
+| `/home` | Home / engine picker |
+| `/dashboard` | Run history |
+| `/simulate?engine=<key>` | Live simulator: controls, telemetry, AI diagnostics |
+| `/engine`, `/engine_info` | 3D engine viewer and engine specs |
+| `/mission` | Mission presets |
+| `/mission/replay/[id]` | Replay a recorded mission |
+| `/mission/report/[id]` | Post-flight report + AI summary |
+| `/telemetry`, `/telemetry/[id]` | Telemetry browser / single run |
+| `/about_us` | Team + contact form |
 
-Build and serve the application locally:
+## Code layout
 
-```bash
-npm run build
-npm start
-```
+| Path | Contents |
+|---|---|
+| `components/Simulator*.tsx` | Per-engine simulator panels (914 default, 912/915/916 variants) |
+| `components/EngineViewer*.tsx` | three.js engine models (GLBs in `public/models/`) |
+| `components/Diagnostics.tsx`, `Meters.tsx`, `Sensr.tsx`, `HealthVignette.tsx` | Instrument + AI panels |
+| `components/MissionReplay.tsx` | Replay timeline |
+| `components/*Plane.tsx`, `*Illustration.tsx` | Decorative / explanatory graphics |
+| `lib/supabase.ts` | Supabase client |
+| `lib/engineSound.ts` | Web-Audio engine sound |
+| `lib/missionPresets.ts`, `timeScale.ts`, `units.ts` | Mission data, sim-time scaling, unit conversion |
+| `public/` | Logos, favicon source, GLB models |
 
-The production server is available at [http://localhost:3000](http://localhost:3000) by default.
+## Backend URLs
 
-## Using the interface
-
-
-Faults are not manually selected in the UI. Hold a high throttle/RPM condition or reduce airspeed to observe stress and automatic fault detection change over time.
-
-## Configuration and deployment
-
-The application uses the App Router under `app/`. Supabase authentication and history require these variables in `frontend/.env.local`:
-
-```dotenv
-NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-publishable-or-anon-key
-```
-
-### EmailJS contact form
-
-The About Us contact form sends through EmailJS. Copy `.env.example` to `.env.local` and fill in the three values from your EmailJS dashboard:
-
-```dotenv
-NEXT_PUBLIC_EMAILJS_SERVICE_ID=service_xxxxxxx
-NEXT_PUBLIC_EMAILJS_TEMPLATE_ID=template_xxxxxxx
-NEXT_PUBLIC_EMAILJS_PUBLIC_KEY=your_public_key
-```
-
-In EmailJS, set the template recipient (`To Email`) to the address that should receive enquiries. The template variables used by the form are `{{title}}`, `{{name}}`, `{{email}}`, `{{message}}`, and `{{time}}`. Set `Reply To` to `{{email}}` so replies go directly to the sender. Restart `npm run dev` after changing `.env.local`; Next.js loads public environment variables at startup.
-
-The backend and WebSocket currently use local URLs (`http://localhost:8000` and `ws://localhost:8000/ws`) in the simulation components. For a non-local deployment, update those client URLs and configure the backend CORS policy and network access for the frontend origin. The backend currently allows all origins for MVP use; restrict that policy before production deployment.
+`http://localhost:8000` and `ws://localhost:8000/ws` are hard-coded as `API` / `WS_URL` constants at the top of the pages that use them (e.g. `app/simulate/page.tsx`). For a non-local deploy, change those and restrict the backend CORS policy to your origin.
 
 ## Troubleshooting
 
-### The page shows no telemetry
-
-Confirm that the backend is running and that `http://localhost:8000/docs` opens. Then reload the frontend page. The browser opens the WebSocket as soon as the page loads.
-
-### The browser reports a WebSocket error
-
-Check that the backend is listening on port `8000` and that the URL is `ws://localhost:8000/ws`. If the backend is running on another host or port, update the API and WebSocket URLs in the simulation client components under `app/` and `components/`.
-
-### Dependency or build errors
-
-Verify Node.js is at least `20.9.0`, remove an incomplete installation if necessary, and reinstall from the lockfile:
-
-```bash
-rm -rf node_modules .next
-npm ci
-npm run build
-```
-
-## Project files
-
+- **No telemetry** — check <http://localhost:8000/docs> opens, then reload.
+- **WebSocket error** — backend must listen on `:8000`; otherwise update `WS_URL`.
+- **Build errors** — `rm -rf node_modules .next && npm ci && npm run build`.

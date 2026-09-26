@@ -152,7 +152,7 @@ def save_chunks(df: pd.DataFrame, output_dir: str, engine_model: str):
 
 if __name__ == "__main__":
     NEW_ENGINES = ["Rotax_912_ULS", "Rotax_915_iS", "Rotax_916_iS"]
-    BASE_DIR = "/Users/harsh/Documents/UAV_Engine/validation"
+    BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "validation")
 
     for i, engine in enumerate(NEW_ENGINES):
         print(f"=== Generating {engine} ({i+1}/{len(NEW_ENGINES)}) - CORRECTED with RUL labels ===")

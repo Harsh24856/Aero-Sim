@@ -1,275 +1,165 @@
-# UAV Digital Twin Backend
+# AERO-SIM Backend
 
-FastAPI service for the real-time UAV physics twin. It runs the simulation loop in the background and publishes telemetry to connected frontend clients over WebSocket.
+Two Python services plus the offline data generators:
 
-## Requirements
+| Process | File | Port | Environment |
+|---|---|---|---|
+| Physics API | `main.py` | 8000 | `backend/.venv` (`requirements.txt`) |
+| AI inference (physics v3, default) | `aiv3.py` | 8100 | `validation/venv` (`requirements_ai.txt`) |
+| AI inference (legacy v2) | `ai.py` | 8100 | `validation/venv` — run **either** `ai.py` or `aiv3.py` |
 
+The physics API runs standalone. If the AI service is down, telemetry keeps streaming and the AI fields stop updating.
 
-## Install
+---
 
-From this directory:
+## Module map
+
+| File | Role |
+|---|---|
+| `main.py` | FastAPI app: simulation loop, REST endpoints, `/ws` telemetry stream, AI + DB wiring |
+| `physics.py` | `UAVEngineTwin` — engine, propeller, aero, thermal, oil, vibration, wear and fault models (v3 default, `physics_version="v2"` for legacy) |
+| `failure_modes.py` | Engine failure modes: misfire, injector fouling, cooling, combustion |
+| `residual.py` | Model-free residuals: measured − expected, with sensor zeroing (`/residuals/zero`) |
+| `advisory.py` | Deterministic maintenance advisories over AI + residual outputs |
+| `safety.py` | Simulation safety limits / crash handling |
+| `summary.py` | Post-flight natural-language summary via Groq (`/summarize/{sim_id}`) |
+| `aiv3.py` / `ai.py` | AI services — 128-step rolling window → detection, diagnosis, severity, failure modes (v3), RUL |
+| `db.py` / `dbv3.py` | Optional Supabase persistence (v2 / v3 runs) |
+| `can_bus.py`, `aircraft_sim.py`, `can_ingest.py` | CAN plant → bridge → `/params` + `/measured` |
+| `bench.py` | Bench-test helpers used by `main.py` and tests |
+| `generate_dataset_v3.py` | v3 scenario dataset generator |
+| `generate_rul_dataset.py` | v3 RUL probe dataset (one engine, one frozen life stage, one window) |
+| `generate_training_data.py`, `generate_unified_database.py`, `generate_multi_engine_data_v2.py` | Legacy v2 dataset generators |
+| `models_v3/<key>/` | Deployed v3 heads, scaler, `manifest.json`; `legacy_rul/` keeps the superseded RUL head |
+| `models/<key>/` | Deployed v2 heads + scaler |
+| `tests/` | Pytest suites |
+
+Engine keys: `912`, `914`, `915`, `916` (Rotax 912 ULS, 914 ULF, 915 iS, 916 iS).
+
+---
+
+## 1. Physics API
 
 ```bash
-cd /Users/harsh/Documents/UAV_Engine/backend
+cd backend
 python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-```
-
-On Windows PowerShell, activate the environment with:
-
-```powershell
-.venv\Scripts\Activate.ps1
-```
-
-## Run the API
-
-Start the development server from `backend/`:
-
-```bash
-source .venv/bin/activate
+source .venv/bin/activate            # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-The API is available at `http://localhost:8000`. Interactive API documentation is available at:
+Interactive docs: <http://localhost:8000/docs>
 
+### Environment variables (`backend/.env`, never committed)
 
-The frontend expects this service on port `8000`, so start it before opening the frontend.
+| Variable | Default | Purpose |
+|---|---|---|
+| `SUPABASE_URL` | — | Run persistence (optional) |
+| `SUPABASE_SERVICE_ROLE_KEY` | — | Server-side Supabase key — never expose to the browser |
+| `GROQ_API_KEY` | — | Post-flight summaries (optional) |
+| `GROQ_MODEL` | `openai/gpt-oss-120b` | Summary model |
+| `AERO_PHYSICS_VERSION` | `v3` | `v2` runs the legacy physics + expects `ai.py` |
+| `AERO_AI_URL` | `http://127.0.0.1:8100` | Where the AI service lives |
+| `AERO_HEALTH_FAILURE_HOLD_S` | `20` | Seconds a failure verdict is held in the health display |
 
-## Run the AI inference service (`ai.py`)
+Without Supabase/Groq the simulator runs fully; only persistence and summaries are off.
 
-`ai.py` is a **separate process** from `main.py`. It listens on port `8100`,
-holds the four trained model sets in memory, and answers one inference request
-per simulated second. `main.py` calls it over HTTP and degrades gracefully if it
-is down - telemetry keeps streaming, the AI fields just stop updating.
+### Endpoints (port 8000)
 
-It runs under its **own** Python environment, not `backend/.venv`.
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/select_engine` | Choose engine; clears the session |
+| `POST` | `/start` | Start / resume the loop |
+| `POST` | `/stop` | `{"final": true}` stop, `{"final": false}` pause |
+| `POST` | `/reset` | Fresh twin + clear AI window |
+| `POST` | `/params` | Any subset of `altitude`, `throttle`, `airspeed`, `aoa` |
+| `POST` | `/resume` | Restore a saved run for its owner |
+| `POST` | `/measured` | Feed real sensor values (CAN bridge) |
+| `POST` | `/residuals/zero` | Re-zero residual offsets |
+| `POST` | `/summarize/{sim_id}` | Generate the post-flight summary |
+| `GET` | `/state` | Params, telemetry, latest AI result, `physics_version`, `ai_model_version` |
+| `GET` | `/engines` | Engine list + AI readiness |
+| `GET` | `/health` | Liveness |
+| `WS` | `/ws` | Telemetry at ~20 Hz |
 
-### Which environment (read this before changing anything)
+```bash
+curl -X POST localhost:8000/params -H 'Content-Type: application/json' \
+  -d '{"altitude": 2000, "throttle": 0.65, "airspeed": 40, "aoa": 5}'
+```
 
-Use `validation/venv`. Not `backend/.venv` (no working TensorFlow - it will
-segfault or fail on import), and not a separate conda environment.
+Faults emerge from operating conditions (sustained high power/RPM, poor cooling) — there is no manual fault-injection endpoint.
 
-This is not a style preference. All four model sets were trained, saved and
-validated under `validation/venv`, whose TensorFlow uses the **Metal GPU**
-backend (`tensorflow-metal`). Loading the identical `.keras` files under a
-CPU-only TensorFlow gives you the same weights and a different answer. Scored
-against real `rul_true` labels on byte-identical validation windows:
+---
 
-| engine | RUL MAE (`validation/venv`) | RUL MAE (CPU-only env) | correlation (venv / CPU) |
-| ------ | --------------------------- | ---------------------- | ------------------------ |
-| 914    | 0.89 h                      | 235.99 h               | 0.42 / 0.21              |
-| 912    | 0.35 h                      | 12.28 h                | 0.89 / 0.05              |
-| 915    | 1.07 h                      | 513.21 h               | 0.94 / 0.81              |
-| 916    | 0.57 h                      | 0.75 h                 | 0.58 / 0.74              |
+## 2. AI inference service
 
-True RUL never exceeds ~5.3 h in that data; the CPU-only path predicts up to
-572 h. Launching this service from a CPU-only conda environment was the
-confirmed cause of a real incident in which every "RUL and health look wrong"
-symptom - 915 reporting ~515 h remaining, 914 flipping between 0 h and 21 h in
-consecutive seconds, health jittering roughly 8x more than it should - traced
-back to that and nothing else. Note 916 barely differs between the two, which is
-exactly why its numbers looked plausible while 915's did not: a spot-check of one
-engine will not catch this.
-
-### Set the environment up
-
-If `validation/venv` already exists, skip to *Start it*.
+**Must run from `validation/venv`** (Python 3.11, TensorFlow 2.16.2 + `tensorflow-metal`, Apple Silicon). The heads were trained and validated on the Metal GPU backend; the same `.keras` files under CPU-only TensorFlow give materially wrong RUL (e.g. 915: 1.07 h MAE vs 513 h). See the root README for the full table.
 
 ```bash
 cd validation
 python3.11 -m venv venv
-./venv/bin/python -m pip install --upgrade pip
 ./venv/bin/python -m pip install -r ../backend/requirements_ai.txt
+./venv/bin/python -c "import tensorflow as tf; print([d.device_type for d in tf.config.list_physical_devices()])"
+# expect ['CPU', 'GPU']
 ```
 
-Python **3.11** on Apple Silicon (arm64) macOS. `tensorflow-metal` has no wheel
-for Intel Macs, Linux or Windows; on those platforms this service cannot
-currently reproduce the validated numbers at all (see *Not on a Mac?* below).
-
-Confirm the GPU backend is actually present before going further:
-
-```bash
-validation/venv/bin/python -c \
-  "import tensorflow as tf; print([d.device_type for d in tf.config.list_physical_devices()])"
-```
-
-Expected: `['CPU', 'GPU']`. If you get `['CPU']`, `tensorflow-metal` is missing
-or failed to load - fix that first, because nothing downstream will be correct.
-
-### Start it
-
-From the `backend/` directory (the module is imported as `ai`, so the working
-directory matters):
+Start it from `backend/` (module import path matters), before `main.py`:
 
 ```bash
 cd backend
-../validation/venv/bin/uvicorn ai:app --host 127.0.0.1 --port 8100
+../validation/venv/bin/uvicorn aiv3:app --host 127.0.0.1 --port 8100
 ```
 
-Add `--reload` while developing. Start it **before** `main.py`, so the first
-simulated second already has somewhere to send telemetry.
+`curl localhost:8100/health` must show `"backend_validated": true`. The models need 128 simulated seconds of history; until then `/step` returns `{"status": "warming_up"}` (`main.py` fast-forwards this).
 
-Startup takes a few seconds - all four engines' models are loaded eagerly, on
-purpose, so no request ever pays a cold-load cost mid-flight. You should see:
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/step` | One telemetry timestep in, latest prediction out |
+| `POST` | `/reset` | Clear the rolling window |
+| `POST` | `/select_engine` | Switch engine (also resets) |
+| `GET` | `/health` | Active engine, `buffer_fill`, `tf_devices`, `backend_validated` |
 
-```
-Loading models for all registered engines...
-  Rotax_914_ULF: loaded
-  ...
-All 4 engines loaded.
-```
-
-If instead you see a boxed `WARNING: TensorFlow sees no GPU backend`, stop: the
-service will answer requests, but its RUL and severity numbers are not
-trustworthy. Fix the environment.
-
-### Check it
+Stale processes on a port answer with orphaned state — check first:
 
 ```bash
-curl http://localhost:8100/health
+lsof -ti:8100 -sTCP:LISTEN
 ```
 
-```json
-{
-  "status": "alive",
-  "active_engine": "Rotax_914_ULF",
-  "available_engines": ["Rotax_914_ULF", "Rotax_912_ULS", "Rotax_915_iS", "Rotax_916_iS"],
-  "buffer_fill": 0,
-  "tf_devices": ["CPU", "GPU"],
-  "backend_validated": true
-}
-```
+Always use `-sTCP:LISTEN`; a bare `lsof -ti:8100` also lists `main.py` as a client.
 
-`backend_validated` must be `true`. If it is `false`, you are in the wrong
-environment and the diagnostics you are looking at are meaningless.
+---
 
-`buffer_fill` counts how much of the 128-step rolling window is filled. The
-models need a full **128 simulated seconds** of history before they can predict
-at all; until then `/step` returns `{"status": "warming_up"}`. `main.py`
-fast-forwards through that during warmup rather than waiting 128 real seconds.
+## 3. CAN bus flight
 
-### Endpoints
-
-| method | path             | purpose                                                     |
-| ------ | ---------------- | ----------------------------------------------------------- |
-| POST   | `/step`          | One raw telemetry timestep in, one inference result out.      |
-| POST   | `/reset`         | Clear the rolling window. Call when a new flight starts.      |
-| POST   | `/select_engine` | Switch active engine. Resets the window too.                  |
-| GET    | `/health`        | Liveness, active engine, buffer fill, backend validity.       |
+With the stack running and a flight started on `/simulate?engine=Rotax_914_ULF`:
 
 ```bash
-curl -X POST http://localhost:8100/select_engine \
-  -H 'Content-Type: application/json' \
-  -d '{"engine_model": "Rotax_915_iS"}'
-
-curl -X POST http://localhost:8100/reset
+./.venv/bin/python can_ingest.py --bus udp
+./.venv/bin/python aircraft_sim.py --engine Rotax_914_ULF --profile mission --mismatch none
 ```
 
-`/step` expects every column in `ai.py`'s `FEATURE_COLS` plus `time`; that is
-exactly what `main.py` sends, so it is rarely called by hand.
+`--mismatch calibration | engine_spread | noisy_sensors | sensor_drift | v2_plant` flies an engine that differs from the twin. Real hardware: `--bus socketcan:can0` (needs `python-can`).
 
-### Stopping and restarting
+---
 
-Stale processes holding port `8100` have caused real debugging dead-ends in this
-project - an old process answers new requests with orphaned state. Always check:
+## 4. Datasets (write into `../validation/`, which is git-ignored)
 
 ```bash
-lsof -ti:8100 -sTCP:LISTEN          # expect nothing before starting
-kill $(lsof -ti:8100 -sTCP:LISTEN)  # if something is there
+# v3 scenario data (detection / diagnosis / severity / failure modes)
+../validation/venv/bin/python3 generate_dataset_v3.py --help
+
+# v3 RUL probes, ~36 min for all four engines
+../validation/venv/bin/python3 generate_rul_dataset.py --all --parallel --probes 32000
 ```
 
-The same applies to `main.py` on port `8000`.
+Training, head export and scoring live in `validation/` — see the root README, *Validation and Training*.
 
-### Not on a Mac?
+---
 
-`tensorflow-metal` is Apple-Silicon-only, so the validated environment cannot be
-reproduced elsewhere as-is. The models would need to be re-validated (and quite
-possibly retrained) against whatever backend you deploy on, using real
-`rul_true` labels - do not assume the weights transfer. `ai.py`'s startup guard
-and `/health` will tell you honestly that the backend is unvalidated; treat that
-as a blocker for trusting RUL and health, not a cosmetic warning.
-
-## API
-
-### Simulation controls
+## 5. Tests
 
 ```bash
-curl -X POST http://localhost:8000/start
-curl -X POST http://localhost:8000/stop
-curl -X POST http://localhost:8000/reset
-curl http://localhost:8000/state
-```
-
-`/start` begins the real-time loop. `/stop` stops it. `/reset` creates a fresh twin and preserves the running state if the simulation was running.
-
-### Update parameters
-
-Send any subset of the following JSON fields:
-
-
-Example:
-
-```bash
-curl -X POST http://localhost:8000/params \
-  -H 'Content-Type: application/json' \
-  -d '{"altitude": 2000, "throttle": 0.65, "airspeed": 40, "aoa": 5}'
-```
-
-### Live telemetry
-
-Connect to `ws://localhost:8000/ws` to receive JSON telemetry at approximately 20 Hz while the simulation is running. The first message contains the latest telemetry when one is already available.
-
-Telemetry includes engine and propeller RPM, power, torque, fuel flow, thrust, lift, drag, margins, temperatures, oil readings, vibration channels, fault flags, and fault stress values.
-
-Faults are derived automatically from operating conditions. There is no manual fault-trigger endpoint. Sustained high power/RPM or poor cooling can increase fault stress.
-
-## Generate datasets
-
-These jobs are optional and write output into `../validation/`.
-
-Generate the approximately one-million-row training dataset:
-
-```bash
-python generate_training_data.py
-```
-
-Generate the unified Detection, Diagnosis, and RUL database:
-
-```bash
-python generate_unified_database.py
-```
-
-The unified database can be very large and may take a substantial amount of time. Both scripts use fixed random seeds for repeatable generation.
-
-## Validation and preprocessing
-
-Validation dependencies are separate from the API dependencies:
-
-```bash
-cd ../validation
-python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+pip install pytest
+pytest tests/
 ```
-
-Run the physics comparison against `validation/simulink_ground_truth.csv`:
-
-```bash
-python validate.py
-```
-
-After generating the database, use the validation scripts that are present in `validation/` as needed:
-
-```bash
-cd ../validation
-python validate.py
-python name_check.py
-```
-
-Training and evaluation notebooks in `validation/` cover preprocessing, model training, and Phase 8 evaluation. Some scripts and notebooks contain absolute paths beginning with `/Users/harsh/Documents/UAV_Engine`; update those paths before running the workflow on another machine.
-
-## Project files
-
