@@ -378,8 +378,38 @@ AERO_PHYSICS_VERSION=v2 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
 `GET /state` on port 8000 reports `physics_version` and `ai_model_version`; they must match.
 v3 responses carry `model_version`, `rul_hours` / `tbo_hours` (engine hours) and `failure_modes`,
-and have no `rul_hours_internal`. v3 runs persist through `backend/dbv3.py`; the database has no
-`model_version` column yet, so do not run v3 against production data.
+and have no `rul_hours_internal`. v3 runs persist through `backend/dbv3.py` with
+`simulations.model_version = 'v3'`.
+
+#### Physics v4 (opt-in until its end-to-end check passes)
+
+Physics v4 (`backend/physics_v4.py`) runs a flown engine plus a healthy on-board twin, 12 instruments with
+their own faults, component-level degradation, and two clocks: flight time in real seconds and engine
+hours at x180 (`backend/timescale_v4.py`). Its AI service is `backend/aiv4.py`, serving `backend/models_v4/`.
+Engines that have no export yet run on the 914's models and say so (`placeholder_models`). Plan and status:
+[docs/v4_integration_plan.md](docs/v4_integration_plan.md); results: [docs/model_cards_v4.md](docs/model_cards_v4.md).
+
+```bash
+AERO_PHYSICS_VERSION=v4 scripts/start_stack.sh          # aiv4 :8100, physics :8000, frontend :3000
+```
+
+The v4 weights must run on the Metal GPU they were trained on (`validation/venv`); the CPU gives different
+answers. Extra endpoints on port 8000: `GET /scenarios` (demo presets), `POST /scenario {name}`,
+`POST /inject {kind: fault|sensor, ...}`; `/start` accepts `engine_id` to continue a saved engine from its
+hour meter. v4 runs persist through `backend/dbv4.py` (tables `engines`, `maintenance_events`, and v4
+columns on `simulations` / `telemetry_logs`).
+
+Finalising an engine after its training (from `validation_v4/`, GPU):
+
+```bash
+../validation/venv/bin/python3 export_deployable_v4.py --engine 912 --gpu   # cut-offs, live-input RUL score, export
+../validation/venv/bin/python3 retrain_rul_live_v4.py --engine 912          # RUL head on live inputs
+../validation/venv/bin/python3 export_deployable_v4.py --engine 912 --gpu   # export again with it
+../validation/venv/bin/python3 parity_ai_v4.py --engine 912                 # live window == training
+cd ../backend && ../validation/venv/bin/python3 ../scripts/e2e_v4.py --engines 912
+```
+
+Backend tests for v4 (from `backend/`): `.venv/bin/python -m unittest tests.test_twin_v4 tests.test_timescale_v4 tests.test_dbv4 tests.test_ai_v4_contract`.
 
 ---
 
@@ -453,5 +483,7 @@ Before deploying:
 - [backend/README.md](backend/README.md) — module map, env vars, endpoints, datasets, tests
 - [frontend/README.md](frontend/README.md) — routes, components, env vars
 - [docs/architecture.md](docs/architecture.md) · [docs/model_cards.md](docs/model_cards.md) · [docs/deployment_roadmap.md](docs/deployment_roadmap.md) · [docs/demo_script.md](docs/demo_script.md)
+- [docs/v4_integration_plan.md](docs/v4_integration_plan.md) — physics v4: plan, time model, database, status
+- [docs/model_cards_v4.md](docs/model_cards_v4.md) — physics v4 model results
 - <http://localhost:8000/docs> — live FastAPI docs (physics API)
 - <http://localhost:8100/health> — AI service health check

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
+import { missionName } from "@/lib/missionPresets";
 import Navbar from "@/components/Navbar";
 import { supabase } from "@/lib/supabase";
 import { ArrowLeft, Play, Gauge, Thermometer, Activity, Fuel } from "lucide-react";
@@ -10,7 +11,7 @@ import { modelVersionOf, rulPercentOf, tboHoursOf } from "@/lib/timeScale";
 import ModelBadge from "@/components/ModelBadge";
 import { formatAirspeed, formatAirspeedSecondary, formatAltitude, formatAltitudeFeet, formatRul, isRulOutOfRange } from "@/lib/units";
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceArea,
 } from "recharts";
 
 const API = "http://localhost:8000";
@@ -27,6 +28,7 @@ type Simulation = {
   final_telemetry: Record<string, unknown> | null;
   model_version: string | null;
   tbo_hours: number | null;
+  mission?: string | null;
   groq_result: {
     status?: string; headline?: string; summary?: string; risk?: string; model?: string;
     findings?: string[]; recommendations?: string[];
@@ -67,7 +69,7 @@ export default function TelemetryDetailPage() {
       // rather than leaking whether the id exists at all.
       const { data, error } = await supabase
         .from("simulations")
-        .select("id, user_id, engine_model, started_at, ended_at, outcome, final_health_percent, final_rul_hours, final_telemetry, groq_result, model_version, tbo_hours")
+        .select("id, user_id, engine_model, started_at, ended_at, outcome, final_health_percent, final_rul_hours, final_telemetry, groq_result, model_version, tbo_hours, mission")
         .eq("id", id)
         .single();
       if (cancelled) return;
@@ -145,9 +147,33 @@ export default function TelemetryDetailPage() {
   const chartData = logs.map((l) => ({
     t: Math.round(l.time_offset_s),
     altitude: l.altitude ?? undefined,
+    egt: l.egt ?? undefined,
+    cht: l.cht ?? undefined,
     health: l.health_percent ?? undefined,
     rul: l.rul_percent_remaining ?? undefined,
   }));
+  // The AI answers only once its 128 s window is full, so its chart starts at the
+  // first answer rather than opening on two minutes of nothing. A later gap (a resume
+  // restarts the window) is shaded and labelled instead of left blank.
+  const firstAi = chartData.findIndex((d) => d.health !== undefined);
+  const aiData = firstAi < 0 ? [] : chartData.slice(firstAi);
+  const aiGaps: { x1: number; x2: number }[] = [];
+  aiData.forEach((d, i) => {
+    if (d.health !== undefined) return;
+    const prev = aiData[i - 1];
+    const last = aiGaps[aiGaps.length - 1];
+    if (last && prev && prev.health === undefined) last.x2 = d.t;
+    else aiGaps.push({ x1: prev ? prev.t : d.t, x2: d.t });
+  });
+  aiGaps.forEach((g) => {
+    const next = aiData.find((d) => d.t > g.x2 && d.health !== undefined);
+    if (next) g.x2 = next.t;
+  });
+  const axis = { stroke: "#8a7f6a", fontSize: 11 };
+  const tooltip = {
+    contentStyle: { background: "#0d0e0d", border: "1px solid #352722", borderRadius: 6, fontSize: 12 },
+    labelFormatter: (v: unknown) => `t = ${v}s`,
+  };
 
   return (
     <>
@@ -180,6 +206,7 @@ export default function TelemetryDetailPage() {
                     </span>
                   </div>
                   <p className="text-on-surface-variant text-[13px]">
+                    {missionName(sim.mission) && <span className="text-tertiary">{missionName(sim.mission)} &middot; </span>}
                     {new Date(sim.started_at).toLocaleString()}
                     {sim.ended_at && ` -> ${new Date(sim.ended_at).toLocaleString()}`}
                     {" - "}<span className="uppercase">{sim.outcome ?? "in progress"}</span>
@@ -254,37 +281,56 @@ export default function TelemetryDetailPage() {
                 </div>
               )}
 
-              {/* The health/RUL traces below break wherever the AI produced no
-                  output. That happens for the first 128 simulated seconds of a
-                  flight while the model's window fills, and again after every
-                  resume, because continuing a flight restarts that window. The
-                  gaps are real absences of data, not dropouts - so the lines are
-                  drawn broken rather than interpolated across them. */}
-              {chartData.length > 1 && chartData.some((d) => d.health === undefined) && (
-                <div className="mb-4 text-[11px] text-on-surface-variant/80 leading-relaxed">
-                  Gaps in the health and RUL traces are the AI&rsquo;s 128-second window fill &mdash;
-                  at the start of the flight, and again after each resume. No diagnosis exists
-                  for those stretches, so the lines are broken rather than interpolated.
+              {chartData.length > 1 && (
+                <div className="mb-4 bg-surface/80 border border-outline-variant/30 rounded-lg p-5">
+                  <h2 className="text-sm font-bold text-primary uppercase tracking-[0.1em] mb-4">Flight Profile</h2>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <LineChart data={chartData} margin={{ top: 5, right: 0, left: -10, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#352722" />
+                      <XAxis dataKey="t" type="number" domain={["dataMin", "dataMax"]} {...axis} tickFormatter={(v) => `${v}s`} />
+                      <YAxis yAxisId="alt" {...axis} tickFormatter={(v) => `${v} m`} />
+                      <YAxis yAxisId="temp" orientation="right" {...axis} tickFormatter={(v) => `${v}°`} />
+                      <Tooltip {...tooltip} />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Line yAxisId="alt" type="monotone" dataKey="altitude" name="Altitude (m)" stroke="#8ab4d8" dot={false} strokeWidth={2} />
+                      <Line yAxisId="temp" type="monotone" dataKey="egt" name="EGT (°C)" stroke="#ff6a4d" dot={false} strokeWidth={1.5} />
+                      <Line yAxisId="temp" type="monotone" dataKey="cht" name="CHT (°C)" stroke="#e0a040" dot={false} strokeWidth={1.5} />
+                    </LineChart>
+                  </ResponsiveContainer>
                 </div>
               )}
 
               {chartData.length > 1 && (
                 <div className="mb-8 bg-surface/80 border border-outline-variant/30 rounded-lg p-5">
-                  <h2 className="text-sm font-bold text-primary uppercase tracking-[0.1em] mb-4">Flight Profile</h2>
-                  <ResponsiveContainer width="100%" height={260}>
-                    <LineChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#352722" />
-                      <XAxis dataKey="t" stroke="#8a7f6a" fontSize={11} tickFormatter={(v) => `${v}s`} />
-                      <YAxis stroke="#8a7f6a" fontSize={11} domain={[0, 100]} />
-                      <Tooltip
-                        contentStyle={{ background: "#0d0e0d", border: "1px solid #352722", borderRadius: 6, fontSize: 12 }}
-                        labelFormatter={(v) => `t = ${v}s`}
-                      />
-                      <Legend wrapperStyle={{ fontSize: 11 }} />
-                      <Line type="monotone" dataKey="health" name="Health %" stroke="#7fc87f" dot={false} strokeWidth={2} />
-                      <Line type="monotone" dataKey="rul" name="RUL %" stroke="#ff9f42" dot={false} strokeWidth={2} />
-                    </LineChart>
-                  </ResponsiveContainer>
+                  <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+                    <h2 className="text-sm font-bold text-primary uppercase tracking-[0.1em]">Engine Health (AI)</h2>
+                    {firstAi > 0 && (
+                      <span className="text-[11px] text-on-surface-variant/70">
+                        from t = {aiData[0].t}s &middot; the AI answers once its 128 s window is full
+                      </span>
+                    )}
+                  </div>
+                  {aiData.length === 0 ? (
+                    <div className="py-10 text-center text-[12px] text-on-surface-variant/80">
+                      This flight ended before the AI&rsquo;s first answer - it needs 128 s of flight to fill its window.
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={240}>
+                      <LineChart data={aiData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#352722" />
+                        <XAxis dataKey="t" type="number" domain={["dataMin", "dataMax"]} {...axis} tickFormatter={(v) => `${v}s`} />
+                        <YAxis {...axis} domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
+                        <Tooltip {...tooltip} />
+                        <Legend wrapperStyle={{ fontSize: 11 }} />
+                        {aiGaps.map((g) => (
+                          <ReferenceArea key={g.x1} x1={g.x1} x2={g.x2} fill="#352722" fillOpacity={0.5}
+                                         label={{ value: "AI refilling after resume", fill: "#8a7f6a", fontSize: 10 }} />
+                        ))}
+                        <Line type="monotone" dataKey="health" name="Health %" stroke="#7fc87f" dot={aiData.length < 4} strokeWidth={2} />
+                        <Line type="monotone" dataKey="rul" name="RUL %" stroke="#ff9f42" dot={aiData.length < 4} strokeWidth={2} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  )}
                 </div>
               )}
 

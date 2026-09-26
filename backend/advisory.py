@@ -136,7 +136,7 @@ ALT_MIN_OUTPUT_A = 5.0
 
 SIGNATURE_WORDS = {
     "bias": "a steady offset", "drift": "a growing drift", "spike": "a transient spike",
-    "stuck": "a frozen reading", "noise": "excess noise",
+    "stuck": "a frozen reading", "noise": "excess noise", "dropout": "readings dropping out",
 }
 
 
@@ -157,6 +157,8 @@ def build_advisory(ai_result: Optional[dict], telemetry: Optional[dict],
     `items` entries are {code, channel, subsystem, severity, message, action}.
     Ordering is most-severe-first so a UI can render the top N and be right.
     """
+    if (telemetry or {}).get("physics_version") == "v4" or (ai_result or {}).get("model_version") == "v4":
+        return build_advisory_v4(ai_result, telemetry)
     items: list[dict[str, Any]] = []
     ai_ok = (ai_result or {}).get("status") == "ok"
 
@@ -533,3 +535,148 @@ def _headline(overall: str, items: list) -> str:
     if n == 1:
         return f"{subsystem} requires attention"
     return f"{subsystem} requires attention (+{n - 1} more)"
+
+
+# =============================================================================
+# Physics v4 (twin_v4.py + aiv4.py)
+# =============================================================================
+# The v4 models name the COMPONENT that is failing, so the advisory is a direct
+# maintenance action per component, in Rotax terms. `channels` are the instruments a
+# fault shows on: when every one of them is itself diagnosed as a faulty sensor, the
+# engine fault is downgraded - a broken sender must not ground a healthy engine.
+FAULT_ADVICE_V4 = {
+    "air_filter_fouling": ("Induction", "air filter fouling", {"manifold_pressure_kpa", "engine_rpm"},
+                           "Inspect and replace the air filter at next service.",
+                           "Expect reduced power at altitude; replace the air filter before the next sortie."),
+    "compression_loss": ("Cylinders", "compression loss", {"engine_rpm", "egt", "fuel_flow"},
+                         "Schedule a differential compression test.",
+                         "Reduce power; ground for a differential compression test after recovery."),
+    "valve_leakage": ("Cylinders", "valve leakage", {"egt", "engine_rpm"},
+                      "Schedule a leak-down test and valve inspection.",
+                      "Reduce power; ground for a leak-down test and valve inspection after recovery."),
+    "turbo_degradation": ("Turbocharger", "turbocharger degradation", {"manifold_pressure_kpa", "engine_rpm"},
+                          "Inspect the turbocharger and check boost against the manifold-pressure schedule.",
+                          "Stay below the critical altitude; inspect the turbocharger after recovery."),
+    "wastegate_fault": ("Turbocharger", "wastegate / boost control fault", {"manifold_pressure_kpa"},
+                        "Check the wastegate actuator and boost control (observable above the critical altitude).",
+                        "Avoid full boost; check the wastegate actuator and boost control after recovery."),
+    "intercooler_fouling": ("Intercooler", "intercooler fouling", {"egt", "cht"},
+                            "Inspect and clean the intercooler.",
+                            "Reduce sustained high power; clean the intercooler after recovery."),
+    "injector_fouling": ("Fuel metering", "fuel metering fouling", {"fuel_flow", "egt"},
+                         "Clean and synchronise the carburettors / flow-test the injectors at next service.",
+                         "Watch EGT; clean or flow-test the fuel metering after recovery."),
+    "ignition_degradation": ("Ignition", "ignition degradation", {"egt", "engine_rpm"},
+                             "Inspect spark plugs and the ignition modules at next service.",
+                             "Reduce load and prepare for power loss; inspect plugs and ignition after recovery."),
+    "combustion_instability": ("Combustion", "combustion instability", {"engine_rpm", "egt", "vibz"},
+                               "Check plugs, mixture and induction for leaks at next service.",
+                               "Avoid rapid throttle changes; check plugs and mixture after recovery."),
+    "bearing_wear": ("Lubrication / bearings", "bearing wear", {"oil_pressure", "oil_temp", "vibx", "vibz"},
+                     "Take an oil sample for analysis and inspect the oil filter for metal.",
+                     "Reduce power and land when practicable; inspect the oil filter for metal."),
+    "oil_pump_degradation": ("Lubrication", "oil pump degradation", {"oil_pressure"},
+                             "Check oil pressure against the Rotax limits and inspect the pump.",
+                             "Land as soon as practicable; low oil pressure risks the bearings."),
+    "oil_degradation": ("Lubrication", "oil degradation", {"oil_pressure", "oil_temp"},
+                        "Change the oil and filter.",
+                        "Change the oil and filter before the next flight."),
+    "cooling_degradation": ("Cooling system", "cooling degradation", {"cht", "oil_temp", "coolant_temp"},
+                            "Check coolant level, radiator, hoses and cooling airflow at next service.",
+                            "Increase airspeed and reduce power now; inspect the cooling system after recovery."),
+    "prop_erosion": ("Propeller", "propeller erosion", {"engine_rpm"},
+                     "Inspect the propeller and have it balanced.",
+                     "Avoid high-rpm operation; inspect the propeller after recovery."),
+}
+SENSOR_LABEL_V4 = {"egt": "EGT", "cht": "CHT", "coolant_temp": "coolant temperature", "oil_temp": "oil temperature",
+                   "oil_pressure": "oil pressure", "engine_rpm": "rpm", "fuel_flow": "fuel flow",
+                   "manifold_pressure_kpa": "manifold pressure", "vibx": "vibration X", "viby": "vibration Y",
+                   "vibz": "vibration Z", "battery_voltage": "battery voltage"}
+MARGIN_LABEL_V4 = {"cht": ("CHT", "cht", "\u00b0C", 0), "egt": ("EGT", "egt", "\u00b0C", 0),
+                   "oil_temp": ("Oil temperature", "oil_temp", "\u00b0C", 0),
+                   "oil_press": ("Oil pressure", "oil_pressure", "bar", 2)}
+SEVERITY_CAUTION_V4 = 0.30        # fault severity (0-1) at which a present fault is a caution
+SEVERITY_WARNING_V4 = 0.60
+MARGIN_CAUTION_V4 = 0.15          # operating margin (1 nominal .. 0 at the certified limit)
+
+
+def build_advisory_v4(ai: Optional[dict], telemetry: Optional[dict]) -> dict[str, Any]:
+    items: list[dict[str, Any]] = []
+    ai = ai or {}
+    ai_ok = ai.get("status") == "ok" and not ai.get("settling")
+
+    suspect = set()
+    if ai_ok:
+        for ch, s in (ai.get("sensors") or {}).items():
+            cond = s.get("condition", "none")
+            if cond == "none" or (_f(s, "confidence") or 0.0) < CONFIDENCE_FLOOR:
+                continue
+            suspect.add(ch)
+            label = SENSOR_LABEL_V4.get(ch, ch)
+            items.append({"code": f"SENSOR_{ch.upper()}", "channel": ch, "subsystem": "Instrumentation",
+                          "severity": "caution",
+                          "message": f"{label} sensor: {SIGNATURE_WORDS.get(cond, cond)} "
+                                     f"({_f(s, 'confidence') * 100:.0f}% confidence). The engine reading on this channel is not trusted.",
+                          "action": _sensor_action(label, cond)})
+
+        for name, fm in (ai.get("fault_modes") or {}).items():
+            advice = FAULT_ADVICE_V4.get(name)
+            if advice is None or not fm.get("present"):
+                continue
+            subsystem, label, channels, routine, urgent = advice
+            sev = _f(fm, "severity") or 0.0
+            level = "warning" if sev >= SEVERITY_WARNING_V4 else "caution" if sev >= SEVERITY_CAUTION_V4 else "advisory"
+            msg = f"{subsystem}: {label} indicated ({sev * 100:.0f}% estimated severity)."
+            if channels and channels <= suspect:
+                level, msg = "advisory", msg + " Every instrument it shows on is itself suspect - check the sensors first."
+            items.append({"code": f"FAULT_{name.upper()}", "channel": None, "subsystem": subsystem,
+                          "severity": level, "message": msg, "action": urgent if level == "warning" else routine})
+
+        wear = _f(ai, "wear_condition")
+        if wear is not None and wear * 100.0 < HEALTH_CAUTION:
+            items.append({"code": "WEAR_LOW" if wear * 100.0 < HEALTH_WARNING else "WEAR_DEGRADED",
+                          "channel": None, "subsystem": "Powerplant",
+                          "severity": "warning" if wear * 100.0 < HEALTH_WARNING else "caution",
+                          "message": f"Engine wear condition {wear * 100:.0f}% (100% = as new).",
+                          "action": ("Plan removal for inspection; restrict to short sorties."
+                                     if wear * 100.0 < HEALTH_WARNING else
+                                     "Increase inspection frequency; trend oil analysis and compression.")})
+
+        rul, cal, band = _f(ai, "rul_hours"), _f(ai, "rul_calendar_hours"), _f(ai, "rul_mae_hours")
+        tbo = _f(ai, "tbo_hours")
+        if rul is not None and tbo:
+            pct = 100.0 * rul / tbo
+            life = f"Estimated {rul:.0f} engine hours remaining" + (f" (±{band:.0f} h)" if band else "") + \
+                   (f"; the overhaul date alone would give {cal:.0f} h." if cal is not None else ".")
+            if ai.get("wear_limited"):
+                items.append({"code": "RUL_WEAR_LIMITED", "channel": None, "subsystem": "Life management",
+                              "severity": "warning" if pct < 15.0 else "caution",
+                              "message": "Wear will end this engine's life before its scheduled overhaul. " + life,
+                              "action": "Bring the overhaul forward; plan the removal around the predicted hours."})
+            elif pct < 15.0:
+                items.append({"code": "RUL_LOW", "channel": None, "subsystem": "Life management",
+                              "severity": "caution", "message": life,
+                              "action": "Overhaul is due soon; plan the engine change."})
+
+    # Certified limits, from the MEASURED margins - independent of the model, but a
+    # limit read on a sensor the AI has flagged is reported as a sensor issue instead.
+    margins = (telemetry or {}).get("margins") or {}
+    for key, (label, ch, unit, digits) in MARGIN_LABEL_V4.items():
+        m = margins.get(key)
+        if not isinstance(m, (int, float)) or m >= MARGIN_CAUTION_V4:
+            continue
+        if ch in suspect:
+            continue
+        at_limit = m <= 0.0
+        items.append({"code": f"LIMIT_{key.upper()}", "channel": ch, "subsystem": "Operating limits",
+                      "severity": "warning" if at_limit else "caution",
+                      "message": f"{label} {'at its certified limit' if at_limit else 'approaching its certified limit'} "
+                                 f"({(telemetry or {}).get(ch, float('nan')):.{digits}f} {unit}).",
+                      "action": ("Reduce power and increase cooling airflow now."
+                                 if key in ("cht", "egt", "oil_temp") else
+                                 "Reduce power; land as soon as practicable if it does not recover.")})
+
+    if not items and not ai_ok:
+        return {"severity": "nominal", "headline": "Awaiting diagnostic data",
+                "insufficient_data": True, "items": []}
+    return _finish(items, ai_pending=not ai_ok)

@@ -1,0 +1,101 @@
+{
+  "windows": 29338,
+  "flights": 600,
+  "detection": {
+    "v5 visible": {
+      "auc": 0.9535901009320467,
+      "recall_at_p95": 0.668417104276069,
+      "positive_rate": 0.1820789509629832
+    },
+    "v4 severity": {
+      "auc": 0.943100418707117,
+      "recall_at_p95": 0.6389918458117124,
+      "positive_rate": 0.18426444474798526
+    }
+  },
+  "diagnosis": {
+    "v5 visible": {
+      "macro_f1": 0.43527334707429177,
+      "family_f1": 0.4393189317389677,
+      "per_fault_f1": {
+        "compression_loss": 0.0,
+        "valve_leakage": 0.0,
+        "turbo_degradation": 0.741,
+        "wastegate_fault": 0.942,
+        "injector_fouling": 0.857,
+        "ignition_degradation": 0.975,
+        "combustion_instability": 0.664,
+        "bearing_wear": 0.119,
+        "oil_pump_degradation": 0.0,
+        "oil_degradation": 0.0,
+        "cooling_degradation": 0.157,
+        "prop_erosion": 0.768
+      }
+    },
+    "v4 severity": {
+      "macro_f1": 0.43527334707429177,
+      "family_f1": 0.4391197662423984,
+      "per_fault_f1": {
+        "compression_loss": 0.0,
+        "valve_leakage": 0.0,
+        "turbo_degradation": 0.741,
+        "wastegate_fault": 0.942,
+        "injector_fouling": 0.857,
+        "ignition_degradation": 0.975,
+        "combustion_instability": 0.664,
+        "bearing_wear": 0.119,
+        "oil_pump_degradation": 0.0,
+        "oil_degradation": 0.0,
+        "cooling_degradation": 0.157,
+        "prop_erosion": 0.768
+      }
+    }
+  },
+  "sensor": {
+    "v5 visible": {
+      "macro_f1": 0.7129591444510476,
+      "per_kind": {
+        "none": 0.964,
+        "bias": 0.319,
+        "drift": 0.55,
+        "stuck": 0.992,
+        "spike": 0.772,
+        "noise": 0.882,
+        "dropout": 0.957
+      },
+      "false_alarm_rate": 0.03567208620852633,
+      "detected_faulty": 0.843167701863354
+    },
+    "v4 onset": {
+      "macro_f1": 0.6899610441193609,
+      "per_kind": {
+        "none": 0.95,
+        "bias": 0.315,
+        "drift": 0.513,
+        "stuck": 0.994,
+        "spike": 0.72,
+        "noise": 0.888,
+        "dropout": 0.953
+      },
+      "false_alarm_rate": 0.05017213027481693,
+      "detected_faulty": 0.832982244959374
+    }
+  },
+  "rul": {
+    "v5 known faults": {
+      "wear_limited_mae_pct": 12.729857447709861,
+      "tbo_limited_mae_pct": 3.942872389098624,
+      "calendar_wear_limited_mae_pct": 27.41948788248081,
+      "all_mae_pct": 7.256745595877156,
+      "gain_vs_calendar": 0.5357368634210204
+    },
+    "v4 oracle": {
+      "wear_limited_mae_pct": 11.149173280129723,
+      "tbo_limited_mae_pct": 6.337030566757382,
+      "calendar_wear_limited_mae_pct": 25.800566943473406,
+      "all_mae_pct": 8.725025987831241,
+      "gain_vs_calendar": 0.5678709966119542
+    }
+  },
+  "elapsed_s": 1296.8
+}

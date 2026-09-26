@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { missionName } from "@/lib/missionPresets";
 import Navbar from "@/components/Navbar";
 import { supabase } from "@/lib/supabase";
 import { ChevronRight, TrendingUp, Activity, ListChecks } from "lucide-react";
@@ -20,6 +21,7 @@ type SimulationRow = {
   final_telemetry: Record<string, unknown> | null;
   model_version: string | null;
   tbo_hours: number | null;
+  mission?: string | null;
 };
 
 function outcomeBadgeClass(outcome: string | null): string {
@@ -49,7 +51,7 @@ export default function TelemetryListPage() {
       // an explicit .eq("user_id", ...) filter, the policy enforces it either way.
       const { data, error } = await supabase
         .from("simulations")
-        .select("id, engine_model, started_at, ended_at, outcome, final_health_percent, final_rul_hours, final_telemetry, model_version, tbo_hours")
+        .select("id, engine_model, started_at, ended_at, outcome, final_health_percent, final_rul_hours, final_telemetry, model_version, tbo_hours, mission")
         .order("started_at", { ascending: false });
       if (!cancelled) {
         if (!error && data) setSimulations(data);
@@ -151,7 +153,10 @@ export default function TelemetryListPage() {
                   >
                     <div>
                       <div className="text-[13px] text-primary font-medium">{sim.engine_model.replace(/_/g, " ")}<ModelBadge version={modelVersionOf(sim)} /></div>
-                      <div className="text-[11px] text-on-surface-variant">{new Date(sim.started_at).toLocaleString()}</div>
+                      <div className="text-[11px] text-on-surface-variant">
+                        {missionName(sim.mission) && <span className="text-tertiary">{missionName(sim.mission)} &middot; </span>}
+                        {new Date(sim.started_at).toLocaleString()}
+                      </div>
                     </div>
                     <span className={`w-24 justify-self-end text-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.05em] ${outcomeBadgeClass(sim.outcome)}`}>
                       {sim.outcome ?? "active"}
