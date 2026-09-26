@@ -12,8 +12,9 @@ Browser  ─── Next.js (port 3000)
          FastAPI Physics API (port 8000)  ──── Supabase (optional)
                 │  one feature window per simulated second
          FastAPI AI Service (port 8100)
-                │  TensorFlow/Keras 4-head multi-task model
-              backend/models/
+                │  TensorFlow/Keras heads (detection, diagnosis, severity,
+                │  failure modes, RUL)
+              backend/models_v3/   (legacy v2: backend/models/)
 ```
 
 > **Key design principle**: the Physics API (`:8000`) runs standalone. The AI service (`:8100`) is optional and separated because its Keras checkpoints require **Python 3.11 + TensorFlow 2.16.2 with the Metal GPU backend**. If the AI service is offline, simulation and telemetry continue uninterrupted.
@@ -26,7 +27,7 @@ Browser  ─── Next.js (port 3000)
 
 | Path | Purpose |
 |---|---|
-| `frontend/` | Next.js 14 App Router cockpit dashboard |
+| `frontend/` | Next.js 16 App Router cockpit dashboard — see [frontend/README.md](frontend/README.md) |
 | `backend/main.py` | FastAPI physics API — simulation loop, REST endpoints, WebSocket stream |
 | `backend/physics.py` | Engine, propeller, aerodynamics, thermal, oil, vibration, wear, and fault models |
 | `backend/aiv3.py` | FastAPI AI inference service for physics v3 (port 8100) — five heads |
@@ -44,7 +45,8 @@ Browser  ─── Next.js (port 3000)
 | `backend/requirements.txt` | Physics API runtime dependencies |
 | `backend/requirements_ai.txt` | AI inference runtime — **must match validation environment** |
 | `scripts/` | `start_stack.sh`, `demo_can.sh`, `train_rul_v3.sh`, `rul_live_ab.py` |
-| `validation/` | Training datasets, notebooks and validation tools (local-only, gitignored) |
+| `validation/` | Training/eval code and notebooks are committed; datasets, logs and trained artifacts stay local (gitignored) |
+| `docs/` | Architecture, model cards, demo script, deployment roadmap, Q&A prep |
 
 ---
 
@@ -53,7 +55,7 @@ Browser  ─── Next.js (port 3000)
 | Environment | Python | Manager | Location | Purpose |
 |---|---|---|---|---|
 | `backend/.venv` | 3.x | `python -m venv` | `backend/` | Physics API (`main.py`, `db.py`) |
-| `validation/venv` | **3.11 + Metal** | `python3.11 -m venv` | `validation/` | AI inference service (`ai.py`) **and** all validation/training work |
+| `validation/venv` | **3.11 + Metal** | `python3.11 -m venv` | `validation/` | AI inference service (`aiv3.py` / `ai.py`) **and** all validation/training work |
 | Node.js | 18+ | `npm` | `frontend/` | Next.js dashboard |
 
 The AI service and the validation notebooks deliberately share **one** environment.
@@ -90,7 +92,10 @@ Create `backend/.env` (never commit this file):
 ```dotenv
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+GROQ_API_KEY=your-groq-key        # optional: post-flight summaries
 ```
+
+Full variable list (incl. `AERO_PHYSICS_VERSION`, `AERO_AI_URL`): [backend/README.md](backend/README.md).
 
 Without these variables the simulator still runs in full — only run history persistence is disabled.
 
@@ -165,7 +170,7 @@ failed to load — fix that first, because nothing downstream will be correct.
 
 ### Start the AI service
 
-From `backend/` (the module is imported as `ai`, so the working directory matters):
+From `backend/` (the module is imported as `aiv3`, so the working directory matters):
 
 ```bash
 cd backend
@@ -317,6 +322,10 @@ Then open <http://localhost:3000>.
 | `GET` | `/state` | Current parameters, telemetry, and latest AI result |
 | `GET` | `/engines` | Engine list and AI-ready status |
 | `POST` | `/resume` | Restore a saved simulation for its owner |
+| `POST` | `/measured` | Real sensor values from the CAN bridge |
+| `POST` | `/residuals/zero` | Re-zero residual offsets |
+| `POST` | `/summarize/{sim_id}` | Post-flight summary (needs `GROQ_API_KEY`) |
+| `GET` | `/health` | Liveness |
 | `WS` | `/ws` | Live telemetry stream at ~20 Hz |
 
 ```bash
@@ -376,14 +385,14 @@ and have no `rul_hours_internal`. v3 runs persist through `backend/dbv3.py`; the
 
 ## Validation and Training
 
-Training assets (datasets, notebooks, scripts) live in `validation/` and are **excluded from the repository** (see `.gitignore`). They run in the *same* `validation/venv` that serves `ai.py` — that shared environment is what keeps live inference numerically identical to the validated numbers.
+Training code and notebooks live in `validation/`; datasets, logs and trained artifacts there are **excluded from the repository** (see `.gitignore`). They run in the *same* `validation/venv` that serves `ai.py` — that shared environment is what keeps live inference numerically identical to the validated numbers.
 
 ```bash
 cd validation
 ./venv/bin/python -m pip install -r requirements.txt  # notebook/plot deps on top of the AI runtime
 ```
 
-Anything that imports `ai.py` — including one-off scripts — must be run with
+Anything that imports `ai.py` / `aiv3.py` — including one-off scripts — must be run with
 `validation/venv/bin/python3`, never `backend/.venv/bin/python3`, which will
 segfault or fail on a missing TensorFlow in a way that looks unrelated to your
 actual change.
@@ -441,7 +450,8 @@ Before deploying:
 
 ## Further Reading
 
-- [backend/README.md](backend/README.md) — data generation commands and backend notes
-- [frontend/README.md](frontend/README.md) — frontend component notes
+- [backend/README.md](backend/README.md) — module map, env vars, endpoints, datasets, tests
+- [frontend/README.md](frontend/README.md) — routes, components, env vars
+- [docs/architecture.md](docs/architecture.md) · [docs/model_cards.md](docs/model_cards.md) · [docs/deployment_roadmap.md](docs/deployment_roadmap.md) · [docs/demo_script.md](docs/demo_script.md)
 - <http://localhost:8000/docs> — live FastAPI docs (physics API)
 - <http://localhost:8100/health> — AI service health check
