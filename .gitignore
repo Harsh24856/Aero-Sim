@@ -118,3 +118,40 @@ pip-delete-this-directory.txt
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# ─── Secrets (repo-wide guard) ────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials*.json
+service-account*.json
+
+# ─── Node (repo-wide fallback) ────────────────────────────────────────────────
+node_modules/
+.next/
+.turbo/
+.vercel/
+.eslintcache
+pnpm-debug.log*
+
+# ─── Test / coverage caches (repo-wide) ───────────────────────────────────────
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage/
+
+# ─── Backups, local tooling, generated output ─────────────────────────────────
+*.bak
+*.orig
+*.rej
+*~
+.claude/worktrees/
+.claude/settings.local.json
+graphify-out/
+Thumbs.db
+desktop.ini

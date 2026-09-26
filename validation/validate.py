@@ -1,4 +1,4 @@
-"""Validate the Python physics twin against real Simu/Users/harsh/.Trash/simulink_ground_truth.csvdel output."""
+"""Validate the Python physics twin against real Simulink model output."""
 import numpy as np
 import pandas as pd
 import sys, os
