@@ -67,10 +67,15 @@ export function simSecondsToRealHours(simSeconds: number): number {
 // above applies to them. Every page decides through these helpers, never by
 // calling the v2 functions directly on a row whose version it has not checked.
 // Rows written before the v3 migration default to 'v2' and render as legacy.
-export type ModelVersion = "v2" | "v3";
+export type ModelVersion = "v2" | "v3" | "v4";
 
 export function modelVersionOf(row: { model_version?: string | null } | null | undefined): ModelVersion {
-  return row?.model_version === "v3" ? "v3" : "v2";
+  return row?.model_version === "v4" ? "v4" : row?.model_version === "v3" ? "v3" : "v2";
+}
+
+/** v3 and v4 both count RUL and wear in REAL engine hours; only v2 is compressed. */
+export function usesEngineHours(version: ModelVersion | string | null | undefined): boolean {
+  return version === "v3" || version === "v4";
 }
 
 /** TBO for a v3 run: the column, else the physics snapshot that carries it. */
@@ -116,7 +121,7 @@ export function formatSimClock(simSeconds: number | null | undefined): string {
 /** Flight hours from simulated seconds, on the run's own timescale. v3 callers should
  *  prefer engine hours (engineHoursOfWear / engineHoursOf). */
 export function flightHours(simSeconds: number, version: ModelVersion): number {
-  return version === "v3" ? simSeconds / 3600 : simSecondsToRealHours(simSeconds);
+  return usesEngineHours(version) ? simSeconds / 3600 : simSecondsToRealHours(simSeconds);
 }
 
 /** RUL percent for display. v3: percent of TBO. v2: the self-normalising legacy formula. */
@@ -126,8 +131,36 @@ export function rulPercentOf(
   elapsedSimSeconds?: number,
   tboHours?: number | null,
 ): number | null {
-  if (version === "v3") {
+  if (usesEngineHours(version)) {
     return tboHours ? Math.max(0, Math.min(100, (100 * rulHours) / tboHours)) : null;
   }
   return Math.min(100, simRulHoursToPercent(rulHours, elapsedSimSeconds));
+}
+
+// ---- Physics v4 -------------------------------------------------------------
+// Two clocks, one constant (backend/timescale_v4.py). The FLIGHT clock is real
+// seconds - the models were trained on 1 Hz samples, so it is never compressed.
+// The LIFE clock is engine hours: each flight second ages the engine `life_scale`
+// seconds (180 at introduction: 3 engine hours per real minute). The scale is read
+// from the run (simulations.life_scale) or from the backend's /state - never
+// hard-coded here - so a replay always uses the scale it was recorded with.
+export type TimeModel = { life_scale: number; flight_hz?: number; physics_hz?: number };
+
+/** A v4 run's life scale, from its row; null for v2/v3 or rows written before it existed. */
+export function lifeScaleOf(row: { life_scale?: number | null } | null | undefined): number | null {
+  return typeof row?.life_scale === "number" ? row.life_scale : null;
+}
+
+/** "x180 life" - shown beside engine hours so nobody reads them as flight time. */
+export function formatLifeScale(scale: number | null | undefined): string {
+  return typeof scale === "number" && Number.isFinite(scale) ? `\u00d7${Math.round(scale)} life` : "";
+}
+
+/** Engine hours a v4 run added: end minus start, both stored on the row. */
+export function engineHoursFlown(row: {
+  start_engine_hours?: number | null;
+  end_engine_hours?: number | null;
+} | null | undefined): number | null {
+  const a = row?.start_engine_hours, b = row?.end_engine_hours;
+  return typeof a === "number" && typeof b === "number" ? Math.max(0, b - a) : null;
 }

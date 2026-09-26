@@ -28,6 +28,7 @@ import {
 const ENGINE_SPECS = [
   {
     id: "Rotax_912_ULS",
+    v4: { idle: "1,400", critAlt: "n/a (no turbo)", tbo: "2,000 h", egtLimit: "880 \u00b0C", faultTypes: 11, ai: "training" as "trained" | "training" },
     code: "01",
     name: "ROTAX 912 ULS",
     role: "Naturally Aspirated Baseline",
@@ -55,6 +56,7 @@ const ENGINE_SPECS = [
   },
   {
     id: "Rotax_914_ULF",
+    v4: { idle: "1,400", critAlt: "15,000 ft", tbo: "2,000 h", egtLimit: "950 \u00b0C", faultTypes: 13, ai: "trained" as "trained" | "training" },
     code: "02",
     name: "ROTAX 914 F/UL",
     role: "Turbocharged Baseline",
@@ -82,6 +84,7 @@ const ENGINE_SPECS = [
   },
   {
     id: "Rotax_915_iS",
+    v4: { idle: "1,400", critAlt: "15,000 ft", tbo: "1,200 h", egtLimit: "950 \u00b0C", faultTypes: 14, ai: "training" as "trained" | "training" },
     code: "03",
     name: "ROTAX 915 iS",
     role: "Advanced Turbocharged / EFI Model",
@@ -109,6 +112,7 @@ const ENGINE_SPECS = [
   },
   {
     id: "Rotax_916_iS",
+    v4: { idle: "1,400", critAlt: "15,000 ft", tbo: "2,000 h", egtLimit: "950 \u00b0C", faultTypes: 14, ai: "training" as "trained" | "training" },
     code: "04",
     name: "ROTAX 916 iS",
     role: "High-Performance Flagship Model",
@@ -148,11 +152,14 @@ const SECTIONS = [
   { id: "sources",      label: "Sources" },
 ];
 
+// Physics-v4 models, scored on test flights they never saw (validation_v4, models_v4
+// manifests). RUL is quoted on the inputs a real aircraft has - predicted wear and
+// severity, measured margin - not on simulator labels.
 const STAGES = [
-  { label: "912 ULS", desc: "Five heads deployed. RUL 11.6 h MAE (0.58% of a 2,000 h TBO), near-new bias −0.04% — the band a fresh engine is actually read against." },
-  { label: "914 F/UL — reference twin", desc: "The engine this simulator was built around. RUL 11.4 h (0.57% of TBO), detection AUC 0.984, and the head reproduces its own ridge floor before training begins." },
-  { label: "915 iS", desc: "Shorter 1,200 h TBO, so errors are judged against a tighter budget: 7.1 h MAE (0.59% of TBO), near-new bias +0.01%." },
-  { label: "916 iS", desc: "12.5 h MAE (0.63% of TBO). All four engines share one inference pipeline, one feature contract, and one set of acceptance gates." },
+  { label: "914 F/UL \u2014 reference twin", desc: "Six models deployed. Detection AUC 0.879 (0.952 where the engine has drifted from its twin), fault naming F1 0.612 over 13 fault types, severity error 0.22 on real faults, sensor-condition F1 0.417, wear error 0.063. RUL 4.6% of TBO overall; on engines that wear out early 387 h against 462 h for counting down to overhaul." },
+  { label: "912 ULS", desc: "11 fault types (no turbo). Training on the v4 data; results appear here once all six models pass their gates." },
+  { label: "915 iS", desc: "14 fault types and a shorter 1,200 h TBO. Training on the v4 data; the 914's models stand in until it finishes." },
+  { label: "916 iS", desc: "14 fault types. Training on the v4 data. All four engines share one twin, one 29-input contract and one set of gates." },
 ];
 
 const PHYSICS_FORMULAS = [
@@ -178,9 +185,9 @@ const VALIDATION_LEVELS = [
   { lvl: "L2", title: "Physics Validation", desc: "Verify P = T·ω conservation, ideal gas density lapse, and thermal dissipation rates in steady-state operation." },
   { lvl: "L3", title: "Map Validation", desc: "Compare predicted torque and brake specific fuel consumption (BSFC) against trusted dynamometer operating points." },
   { lvl: "L4", title: "Dynamic Validation", desc: "Test throttle transients, turbocharger spool-up lag, and cylinder thermal inertia where time-series test records exist." },
-  { lvl: "L5", title: "AI Validation", desc: "Every head ships only through its gates: MAE as a percentage of TBO, near-new bias within ±2%, correlation across life stages, no decile inversions, and a beat over the linear baseline." },
-  { lvl: "L6", title: "Ablation", desc: "A head that leans on one convenient feature has not learned the window. RUL is re-scored with the fuel-flow ratio zeroed, and must still hold its error." },
-  { lvl: "L7", title: "Cross-implementation", desc: "The Simulink plant model is compared step for step with the Python twin: four engines, 47 channels, 600 steps, worst relative error 4e-10." },
+  { lvl: "L5", title: "AI Validation", desc: "Every model ships only through its gates on flights it never saw, scored on the number that matters: detection where the engine has drifted, fault naming across every fault type, severity where a fault exists, sensor condition with every kind weighted equally, and RUL on engines that wear out early." },
+  { lvl: "L6", title: "Live-input honesty", desc: "The live window is proven identical to training (zero difference on real test flights), and RUL is re-scored on predicted wear and severity instead of simulator labels - the number an aircraft would actually get." },
+  { lvl: "L7", title: "Cross-implementation", desc: "The Simulink Rotax 914 v4 model is compared step for step with the Python twin: four reference flights, about 26,000 steps, every channel, worst relative error 2e-15." },
 ];
 
 /* ─── Section divider ───────────────────────────────────────────────────────── */
@@ -456,6 +463,11 @@ export default function EngineInfoPage() {
                       { label: "RATED SPEED", value: selectedEngine.maxRpm, sub: "RPM", hi: false },
                       { label: "DRY MASS", value: `${selectedEngine.massKg} kg`, sub: selectedEngine.powerToMass, hi: true },
                       { label: "MAX TORQUE", value: selectedEngine.torque.split(" @")[0], sub: "@ 5,800 RPM", hi: false },
+                      // physics_v4, the model the twin and the AI run on
+                      { label: "IDLE", value: selectedEngine.v4.idle, sub: "RPM", hi: false },
+                      { label: "CRITICAL ALT", value: selectedEngine.v4.critAlt, sub: "full boost held to", hi: false },
+                      { label: "TBO", value: selectedEngine.v4.tbo, sub: "scheduled overhaul", hi: true },
+                      { label: "FAULT TYPES", value: String(selectedEngine.v4.faultTypes), sub: "the AI can name", hi: true },
                     ].map((spec) => (
                       <div key={spec.label} className="border border-outline-variant/25 bg-surface-container-highest/60 p-3 rounded-lg">
                         <span className="text-[9px] text-on-surface-variant/50 block uppercase tracking-wider">{spec.label}</span>
@@ -470,6 +482,12 @@ export default function EngineInfoPage() {
                     <div className="border-l-2 border-tertiary bg-white/[0.02] p-3 pl-4 rounded-r-lg">
                       <span className="text-tertiary font-bold uppercase tracking-wider block text-[9px] mb-1">RECOMMENDED SIMULATION MODEL</span>
                       <p className="text-on-surface-variant leading-relaxed text-[12px]">{selectedEngine.simulationModel}</p>
+                    </div>
+                    <div className="border-l-2 border-outline-variant/50 bg-white/[0.02] p-3 pl-4 rounded-r-lg">
+                      <span className="text-on-surface-variant/50 font-bold uppercase tracking-wider block text-[9px] mb-1">CERTIFIED LIMITS (PHYSICS V4)</span>
+                      <div className="text-on-surface-variant text-[11px]">
+                        CHT 135 &deg;C &middot; EGT {selectedEngine.v4.egtLimit} &middot; oil temp 130 &deg;C &middot; oil pressure min 0.8 bar below 3,500 RPM, 2.0 bar above
+                      </div>
                     </div>
                     <div className="border-l-2 border-outline-variant/50 bg-white/[0.02] p-3 pl-4 rounded-r-lg">
                       <span className="text-on-surface-variant/50 font-bold uppercase tracking-wider block text-[9px] mb-1">SIGNAL CHAIN</span>
@@ -535,8 +553,8 @@ export default function EngineInfoPage() {
                       <td className="p-4 font-bold text-tertiary">{eng.relativePower}</td>
                       <td className="p-4 text-primary font-bold">{eng.powerToMass}</td>
                       <td className="p-4">
-                        <span className="px-2 py-0.5 rounded text-[9px] font-bold bg-tertiary/15 text-tertiary border border-tertiary/30">
-                          TRAINED
+                        <span className={`px-2 py-0.5 rounded text-[9px] font-bold border ${eng.v4.ai === "trained" ? "bg-tertiary/15 text-tertiary border-tertiary/30" : "bg-black/30 text-on-surface-variant border-outline-variant/40"}`}>
+                          {eng.v4.ai === "trained" ? "V4 TRAINED" : "V4 TRAINING"}
                         </span>
                       </td>
                     </tr>

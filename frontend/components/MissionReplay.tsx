@@ -7,6 +7,7 @@ import {
 } from "recharts";
 import { Play, Pause, SkipBack, SkipForward, AlertTriangle } from "lucide-react";
 import { flightHours, formatSimClock, type ModelVersion } from "@/lib/timeScale";
+import { faultLabel } from "@/lib/v4";
 import { formatAirspeed, formatAirspeedSecondary, formatAltitude, formatAltitudeFeet } from "@/lib/units";
 
 /**
@@ -47,6 +48,19 @@ export type ReplayRow = {
   health_percent: number | null;
   rul_percent_remaining: number | null;
   rul_hours: number | null;
+  // physics v4 (backend/dbv4.py) - absent on v2/v3 rows
+  engine_hours?: number | null;
+  coolant_temp?: number | null;
+  manifold_pressure_kpa?: number | null;
+  battery_voltage?: number | null;
+  margin_min?: number | null;
+  rul_calendar_hours?: number | null;
+  rul_band_hours?: number | null;
+  wear_limited?: boolean | null;
+  fault_modes?: Record<string, { probability: number | null; present: boolean; severity: number | null }> | null;
+  residuals?: Record<string, number | null> | null;
+  truth?: { faults_present?: string[] | null; sensor_faults?: Record<string, string> | null;
+            wear_condition?: number | null; rul_hours?: number | null } | null;
 };
 
 const SPEEDS = [1, 2, 4, 8];
@@ -57,6 +71,7 @@ function fmt(v: number | null | undefined, digits = 1, suffix = ""): string {
 }
 
 export default function MissionReplay({ rows, modelVersion = "v2" }: { rows: ReplayRow[]; modelVersion?: ModelVersion }) {
+  const v4 = modelVersion === "v4";
   const [idx, setIdx] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
@@ -112,12 +127,15 @@ export default function MissionReplay({ rows, modelVersion = "v2" }: { rows: Rep
       ["Prop RPM", fmt(cur.prop_rpm, 0)],
       ["Power (kW)", fmt(cur.power_kw, 1)],
       ["Fuel Flow", fmt(cur.fuel_flow, 2)],
+      ...(v4 ? [["Manifold", fmt(cur.manifold_pressure_kpa, 1, " kPa")] as [string, string]] : []),
     ]},
     { title: "Thermal & Oil", items: [
       ["EGT", cur.egt === null ? "--" : `${cur.egt.toFixed(0)} \u00b0C`],
       ["CHT", cur.cht === null ? "--" : `${cur.cht.toFixed(0)} \u00b0C`],
-      ["Oil Press", fmt(cur.oil_pressure, 1)],
+      ["Oil Press", v4 ? fmt(cur.oil_pressure, 2, " bar") : fmt(cur.oil_pressure, 1)],
       ["Oil Temp", cur.oil_temp === null ? "--" : `${cur.oil_temp.toFixed(0)} \u00b0C`],
+      ...(v4 ? [["Coolant", fmt(cur.coolant_temp, 0, " \u00b0C")] as [string, string],
+                ["Battery", fmt(cur.battery_voltage, 2, " V")] as [string, string]] : []),
     ]},
     { title: "Aero & Vibration", items: [
       ["Thrust (N)", fmt(cur.thrust, 0)],
@@ -190,7 +208,9 @@ export default function MissionReplay({ rows, modelVersion = "v2" }: { rows: Rep
             <span className="text-on-surface-variant ml-2">
               {/* v3 replay rows carry no wear, so show the simulated clock rather than
                   pretending seconds are engine hours. */}
-              {modelVersion === "v3"
+              {v4
+                ? `(flight ${formatSimClock(cur.time_offset_s)} \u00b7 ${fmt(cur.engine_hours, 1)} engine h)`
+                : modelVersion === "v3"
                 ? `(sim ${formatSimClock(cur.time_offset_s)})`
                 : `(${flightHours(cur.time_offset_s, modelVersion).toFixed(2)} h real)`}
             </span>
@@ -204,12 +224,19 @@ export default function MissionReplay({ rows, modelVersion = "v2" }: { rows: Rep
       {/* health / rul at scrub position */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-surface/80 border border-outline-variant/30 rounded-lg p-5">
-          <div className="text-[11px] uppercase tracking-[0.1em] text-on-surface-variant">Health at T</div>
+          <div className="text-[11px] uppercase tracking-[0.1em] text-on-surface-variant">{v4 ? "Wear condition at T" : "Health at T"}</div>
           <div className="text-3xl font-bold text-primary">{fmt(cur.health_percent, 1, "%")}</div>
         </div>
         <div className="bg-surface/80 border border-outline-variant/30 rounded-lg p-5">
           <div className="text-[11px] uppercase tracking-[0.1em] text-on-surface-variant">RUL at T</div>
           <div className="text-3xl font-bold text-primary">{fmt(cur.rul_percent_remaining, 1, "%")}</div>
+          {v4 && cur.rul_hours != null && (
+            <div className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mt-1">
+              {cur.rul_hours.toFixed(0)}{cur.rul_band_hours != null ? ` \u00b1${cur.rul_band_hours.toFixed(0)}` : ""} h
+              {cur.rul_calendar_hours != null ? ` \u00b7 calendar ${cur.rul_calendar_hours.toFixed(0)} h` : ""}
+              {cur.wear_limited ? " \u00b7 wear-limited" : ""}
+            </div>
+          )}
         </div>
         <div className="bg-surface/80 border border-outline-variant/30 rounded-lg p-5">
           <div className="text-[11px] uppercase tracking-[0.1em] text-on-surface-variant">Fault Status</div>
@@ -223,6 +250,48 @@ export default function MissionReplay({ rows, modelVersion = "v2" }: { rows: Rep
           )}
         </div>
       </div>
+
+      {v4 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="bg-surface/80 border border-outline-variant/30 rounded-lg p-5">
+            <div className="text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-2">AI named at T</div>
+            {(() => {
+              const named = Object.entries(cur.fault_modes ?? {}).filter(([, f]) => f.present);
+              return named.length === 0
+                ? <div className="text-[13px] text-[#7fc87f]">{cur.fault_modes ? "No component fault" : "--"}</div>
+                : named.map(([n, f]) => (
+                    <div key={n} className="flex justify-between text-[13px] text-[#ff9a72]">
+                      <span>{faultLabel(n)}</span>
+                      <span className="font-mono">{f.severity != null ? `${(f.severity * 100).toFixed(0)}%` : ""}</span>
+                    </div>));
+            })()}
+            {cur.margin_min != null && (
+              <div className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mt-2">
+                operating margin {(cur.margin_min * 100).toFixed(0)}%
+              </div>
+            )}
+          </div>
+          <div className="bg-surface/80 border border-outline-variant/30 rounded-lg p-5">
+            <div className="text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-2">Ground truth at T (injected)</div>
+            <div className="text-[13px] text-primary">
+              {(cur.truth?.faults_present ?? []).length > 0
+                ? (cur.truth?.faults_present ?? []).map(faultLabel).join(", ")
+                : "No engine fault"}
+            </div>
+            {Object.keys(cur.truth?.sensor_faults ?? {}).length > 0 && (
+              <div className="text-[12px] text-[#ffd27a] mt-1">
+                Sensor: {Object.entries(cur.truth?.sensor_faults ?? {}).map(([c, k]) => `${c} ${k}`).join(", ")}
+              </div>
+            )}
+            {cur.truth?.wear_condition != null && (
+              <div className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mt-2">
+                true wear condition {(cur.truth.wear_condition * 100).toFixed(0)}%
+                {cur.truth.rul_hours != null ? ` \u00b7 true RUL ${cur.truth.rul_hours.toFixed(0)} h` : ""}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {aiPending && (
         <div className="bg-surface/60 border border-outline-variant/30 rounded-lg p-3 flex items-start gap-2.5">
@@ -246,7 +315,7 @@ export default function MissionReplay({ rows, modelVersion = "v2" }: { rows: Rep
               <YAxis stroke="#8a7f6a" fontSize={11} domain={[0, 100]} />
               <Tooltip contentStyle={{ background: "#0d0e0d", border: "1px solid #352722", borderRadius: 6, fontSize: 12 }} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Line type="monotone" dataKey="health" name="Health %" stroke="#7fc87f" dot={false} strokeWidth={2} connectNulls={false} />
+              <Line type="monotone" dataKey="health" name={v4 ? "Wear condition %" : "Health %"} stroke="#7fc87f" dot={false} strokeWidth={2} connectNulls={false} />
               <Line type="monotone" dataKey="rul" name="RUL %" stroke="#ff9f42" dot={false} strokeWidth={2} connectNulls={false} />
               <ReferenceLine x={cur.time_offset_s} stroke="#ff6a22" strokeWidth={2} />
             </LineChart>

@@ -20,6 +20,9 @@ FRAME LAYOUT - 11-bit standard IDs, little-endian, one signal per frame
     0x207  viby           uint16  2e-5     g       0 .. 1            sensor
     0x208  vibz           uint16  2e-5     g       0 .. 1            sensor
     0x209  fuel_flow      uint16  0.01     L/h     0 .. 200          sensor
+    0x20A  coolant_temp   uint16  0.1      C       0 .. 200          sensor (physics v4)
+    0x20B  manifold_pressure_kpa uint16 0.01 kPa  0 .. 250          sensor (physics v4)
+    0x20C  battery_voltage uint16 0.001   V       0 .. 20           sensor (physics v4)
     0x2FF  heartbeat      uint32  1        seq     0 .. 2^32-1       meta
 Sensor ranges are the physics v3 sensor stops. The sender clamps to them (a sensor pinned
 at its stop is still a valid reading); the receiver drops anything outside them, so a
@@ -69,6 +72,11 @@ SIGNALS = {
     0x207: Signal("viby", "<H", 2e-5, 0.0, 1.0, "sensor"),
     0x208: Signal("vibz", "<H", 2e-5, 0.0, 1.0, "sensor"),
     0x209: Signal("fuel_flow", "<H", 0.01, 0.0, 200.0, "sensor"),
+    # Physics v4 measures three more channels. Oil pressure stays in psi on the bus
+    # (the physical spec); main.py converts to bar for v4 at ingest.
+    0x20A: Signal("coolant_temp", "<H", 0.1, 0.0, 200.0, "sensor"),
+    0x20B: Signal("manifold_pressure_kpa", "<H", 0.01, 0.0, 250.0, "sensor"),
+    0x20C: Signal("battery_voltage", "<H", 0.001, 0.0, 20.0, "sensor"),
     0x2FF: Signal("heartbeat", "<I", 1.0, 0.0, float(2**32 - 1), "meta"),
 }
 BY_NAME = {s.name: (can_id, s) for can_id, s in SIGNALS.items()}
