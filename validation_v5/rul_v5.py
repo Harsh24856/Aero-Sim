@@ -13,7 +13,11 @@ TBO on labels, 19-21% live. v5 trains RUL ONLY on inputs an aircraft has:
 
 Target: RUL as a fraction of TBO (rul_hours has no future faults, Phase 2).
 Candidates: gradient-boosted trees (absolute-error loss, monotone non-increasing
-in engine hours) and a small MLP; the better on the VALIDATION flights ships.
+in engine hours), a small MLP, and the GBT behind a wear-limited classifier (below
+its threshold the calendar, TBO - hours, is returned: exactly right for an engine
+that reaches TBO, where 914b's GBT still under-predicted by 5.1% of TBO against a
+4% gate). The one furthest inside BOTH error gates on the VALIDATION flights ships:
+max(wear-limited error / 12%, TBO-limited error / 4%).
 Test flights are not touched here.
 
 In service RUL may only fall within a flight (smooth_within_flight).
@@ -26,7 +30,7 @@ import pickle
 import sys
 
 import numpy as np
-from sklearn.ensemble import HistGradientBoostingRegressor
+from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
 from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import make_pipeline
@@ -85,10 +89,13 @@ def features(trainer, ids: np.ndarray, bs: int = 512):
             np.concatenate(fl), np.concatenate(tt), hours_col)
 
 
-def fit_rul(trainer, out_dir: str | None = None) -> dict:
+def fit_rul(trainer, out_dir: str | None = None, cal_ids: np.ndarray | None = None) -> dict:
+    """cal_ids: the calibration windows to fit on (default: all of them)."""
     cache = trainer.cache
     tbo = cache.contract["tbo_hours"]
-    Xc, yc, _, _, _, _, hc = features(trainer, cache.end_ids(["cal"], jitter=False))
+    if cal_ids is None:
+        cal_ids = cache.end_ids(["cal"], jitter=False)
+    Xc, yc, wlc, _, _, _, hc = features(trainer, cal_ids)
     Xv, yv, wlv, calv, flv, tv, _ = features(trainer, cache.end_ids(["val"], jitter=False))
     mono = np.zeros(Xc.shape[1], int)
     mono[hc] = -1                                   # more hours -> never more life
@@ -102,10 +109,19 @@ def fit_rul(trainer, out_dir: str | None = None) -> dict:
     res = {}
     for name, m in cands.items():
         m.fit(Xc, yc)
-        pv = np.clip(m.predict(Xv), 0, None) * tbo
-        pv = np.minimum(pv, calv)                   # never beyond the calendar
-        res[name] = E.rul_report(yv * tbo, pv, calv, tbo, wlv, flv, tv)
-    best = min(res, key=lambda k: res[k]["wear_limited_mae_pct"])
+    clf = HistGradientBoostingClassifier(max_iter=400, learning_rate=0.05, max_leaf_nodes=31,
+                                         l2_regularization=1.0, random_state=0).fit(Xc, wlc)
+    pwl = clf.predict_proba(Xv)[:, 1]
+    report = lambda pred: E.rul_report(yv * tbo, np.minimum(np.clip(pred, 0, None) * tbo, calv),  # noqa: E731
+                                       calv, tbo, wlv, flv, tv)
+    score = lambda r: max(r["wear_limited_mae_pct"] / 12.0, r["tbo_limited_mae_pct"] / 4.0)  # noqa: E731
+    thr = min(np.linspace(0.05, 0.95, 19),
+              key=lambda t: score(report(GatedRUL(cands["gbt"], clf, t).predict(Xv, pwl))))
+    cands["gated_gbt"] = GatedRUL(cands["gbt"], clf, float(thr))
+    for name, m in cands.items():
+        res[name] = report(m.predict(Xv))
+    res["gated_gbt"]["threshold"] = float(thr)
+    best = min(res, key=lambda k: score(res[k]))
     out = {"candidates": res, "chosen": best}
     if out_dir:
         with open(os.path.join(out_dir, "rul_v5.pkl"), "wb") as fh:
@@ -113,6 +129,19 @@ def fit_rul(trainer, out_dir: str | None = None) -> dict:
         with open(os.path.join(out_dir, "rul_v5.json"), "w") as fh:
             json.dump(out, fh, indent=1, default=float)
     return out
+
+
+class GatedRUL:
+    """RUL from `reg` only where `clf` thinks the engine is wear-limited; elsewhere
+    a value above any calendar, which the caller's min(pred, calendar) turns into
+    TBO - hours."""
+
+    def __init__(self, reg, clf, threshold: float):
+        self.reg, self.clf, self.threshold = reg, clf, threshold
+
+    def predict(self, X, p_wear_limited=None):
+        p = self.clf.predict_proba(X)[:, 1] if p_wear_limited is None else p_wear_limited
+        return np.where(p >= self.threshold, self.reg.predict(X), 1e3)
 
 
 def smooth_within_flight(pred_h: np.ndarray, hours: np.ndarray, alpha: float = 0.2) -> np.ndarray:
