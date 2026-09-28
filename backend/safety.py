@@ -71,7 +71,7 @@ def telemetry_problem(out: Any) -> Optional[str]:
     """None if a physics step is usable, otherwise a short reason."""
     if not isinstance(out, dict):
         return f"step returned {type(out).__name__}, not a dict"
-    for key in (REQUIRED_FINITE_V4 if out.get("physics_version") == "v4" else REQUIRED_FINITE):
+    for key in (REQUIRED_FINITE_V4 if out.get("physics_version") in ("v4", "v5") else REQUIRED_FINITE):
         v = out.get(key)
         if not isinstance(v, (int, float)) or isinstance(v, bool):
             return f"{key} missing or not numeric ({v!r})"

@@ -157,7 +157,7 @@ def build_advisory(ai_result: Optional[dict], telemetry: Optional[dict],
     `items` entries are {code, channel, subsystem, severity, message, action}.
     Ordering is most-severe-first so a UI can render the top N and be right.
     """
-    if (telemetry or {}).get("physics_version") == "v4" or (ai_result or {}).get("model_version") == "v4":
+    if (telemetry or {}).get("physics_version") in ("v4", "v5") or (ai_result or {}).get("model_version") in ("v4", "v5"):
         return build_advisory_v4(ai_result, telemetry)
     items: list[dict[str, Any]] = []
     ai_ok = (ai_result or {}).get("status") == "ok"

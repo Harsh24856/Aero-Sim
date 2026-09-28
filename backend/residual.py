@@ -309,12 +309,14 @@ class ResidualMonitor:
 V4_DEVIATION_Z = 5.0      # |residual| in sensor-noise units that counts as a deviation
 
 
-def twin_residuals_v4(out: dict) -> dict:
-    from sensors_v4 import SENSOR_SPEC
+def twin_residuals_v4(out: dict, channels_: list | None = None) -> dict:
+    """v4 / v5: residuals against the on-board twin, in noise sigmas. channels_: the
+    twin's residual channels (v5 has 14); default the v4 six."""
+    from sensors_v5 import SENSOR_SPEC          # v4's instruments plus the two turbo ones
     from twin_v4 import RESIDUAL_CHANNELS
     twin = out.get("twin") or {}
     channels = {}
-    for c in RESIDUAL_CHANNELS:
+    for c in channels_ or RESIDUAL_CHANNELS:
         r = out.get(f"res_{c}")
         if not isinstance(r, (int, float)):
             continue

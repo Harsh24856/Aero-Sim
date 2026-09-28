@@ -8,7 +8,7 @@ import sys
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from rul_v5 import smooth_within_flight  # noqa: E402
+from rul_v5 import RulSmoother, smooth_within_flight  # noqa: E402
 
 rng = np.random.default_rng(0)
 raw_err, sm_err = [], []
@@ -18,6 +18,8 @@ for _ in range(300):
     p = true + rng.normal(0, 80, 40)
     s = smooth_within_flight(p, h)
     assert (np.diff(s) <= 1e-9).all() and (s >= 0).all()
+    live = RulSmoother()
+    np.testing.assert_allclose([live.update(a, b) for a, b in zip(p, h)], s, atol=1e-9)   # live == offline
     raw_err.append(np.abs(p - true).mean())
     sm_err.append(np.abs(s - true).mean())
 assert np.mean(sm_err) < np.mean(raw_err), (np.mean(sm_err), np.mean(raw_err))
