@@ -1,0 +1,141 @@
+{
+ "engine_model": "Rotax_914_ULF",
+ "key": "914",
+ "model_version": "v5",
+ "labels": "v5b",
+ "run": "914b",
+ "git_sha": "6b27123",
+ "exported": "2026-09-28T10:49:50",
+ "tbo_hours": 2000.0,
+ "window": 128,
+ "feature_cols": [
+  "altitude",
+  "airspeed",
+  "aoa",
+  "throttle",
+  "ambient_temp_c",
+  "air_density",
+  "isa_dev_c",
+  "humidity_frac",
+  "egt",
+  "cht",
+  "coolant_temp",
+  "oil_temp",
+  "oil_pressure",
+  "engine_rpm",
+  "fuel_flow",
+  "manifold_pressure_kpa",
+  "vibx",
+  "viby",
+  "vibz",
+  "battery_voltage",
+  "airbox_temp_c",
+  "wastegate_position",
+  "prop_rpm",
+  "thrust_margin",
+  "lift_weight_margin",
+  "res_egt",
+  "res_cht",
+  "res_coolant_temp",
+  "res_oil_temp",
+  "res_oil_pressure",
+  "res_engine_rpm",
+  "res_fuel_flow",
+  "res_manifold_pressure_kpa",
+  "res_vibx",
+  "res_viby",
+  "res_vibz",
+  "res_battery_voltage",
+  "res_airbox_temp_c",
+  "res_wastegate_position"
+ ],
+ "ctx_cols": [
+  "lh_egt_ema10m",
+  "lh_egt_ema60m",
+  "lh_egt_trend",
+  "lh_cht_ema10m",
+  "lh_cht_ema60m",
+  "lh_cht_trend",
+  "lh_coolant_temp_ema10m",
+  "lh_coolant_temp_ema60m",
+  "lh_coolant_temp_trend",
+  "lh_oil_temp_ema10m",
+  "lh_oil_temp_ema60m",
+  "lh_oil_temp_trend",
+  "lh_oil_pressure_ema10m",
+  "lh_oil_pressure_ema60m",
+  "lh_oil_pressure_trend",
+  "lh_engine_rpm_ema10m",
+  "lh_engine_rpm_ema60m",
+  "lh_engine_rpm_trend",
+  "lh_fuel_flow_ema10m",
+  "lh_fuel_flow_ema60m",
+  "lh_fuel_flow_trend",
+  "lh_manifold_pressure_kpa_ema10m",
+  "lh_manifold_pressure_kpa_ema60m",
+  "lh_manifold_pressure_kpa_trend",
+  "lh_vibx_ema10m",
+  "lh_vibx_ema60m",
+  "lh_vibx_trend",
+  "lh_viby_ema10m",
+  "lh_viby_ema60m",
+  "lh_viby_trend",
+  "lh_vibz_ema10m",
+  "lh_vibz_ema60m",
+  "lh_vibz_trend",
+  "lh_battery_voltage_ema10m",
+  "lh_battery_voltage_ema60m",
+  "lh_battery_voltage_trend",
+  "lh_airbox_temp_c_ema10m",
+  "lh_airbox_temp_c_ema60m",
+  "lh_airbox_temp_c_trend",
+  "lh_wastegate_position_ema10m",
+  "lh_wastegate_position_ema60m",
+  "lh_wastegate_position_trend",
+  "hours_frac",
+  "life_used_hours",
+  "life_scale_180"
+ ],
+ "specialists": {
+  "detection": [
+   "detection"
+  ],
+  "diagnosis": [
+   "diagnosis",
+   "family"
+  ],
+  "severity": [
+   "severity"
+  ],
+  "sensor": [
+   "sensor"
+  ],
+  "health": [
+   "health"
+  ]
+ },
+ "versions": {
+  "tensorflow": "2.16.2",
+  "sklearn": "1.9.0"
+ },
+ "test": {
+  "flights": 900,
+  "windows": 43321,
+  "primary": {
+   "detection": 0.9574411561553584,
+   "diagnosis": 0.8094972821275355,
+   "severity": 0.082465760409832,
+   "sensor_fault": 0.8889899695620238,
+   "health": 0.03345747977266085,
+   "rul": 11.090253674695825
+  },
+  "gates": {
+   "detection": true,
+   "diagnosis": false,
+   "severity": false,
+   "sensor_fault": true,
+   "health": true,
+   "rul": false
+  }
+ }
+}
