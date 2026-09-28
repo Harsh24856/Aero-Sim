@@ -47,19 +47,25 @@ from pipeline_v5 import CTX_COLS, Cache  # noqa: E402
 MARGIN_CH = ["cht", "egt", "oil_temp", "oil_pressure", "engine_rpm"]
 
 
-def unscale_last(cache: Cache, seq: np.ndarray) -> dict:
-    """Instrument readings (engineering units) at the window's last second."""
-    sc = cache.contract["scaler"]
-    mean, std = np.array(sc["mean"]), np.array(sc["std"])
-    last = seq[:, -1, :].astype(np.float64) * std + mean
-    return {c: last[:, F.FEATURE_COLS.index(c)] for c in MARGIN_CH}
-
-
-def measured_margin(cache: Cache, seq: np.ndarray) -> np.ndarray:
-    eng = P.PistonEngineV5(cache.contract["engine_model"], dt=1.0)
-    v = unscale_last(cache, seq)
-    return np.array([eng.margins({c: float(v[c][i]) for c in MARGIN_CH})["health_index"]
+def measured_margin(contract: dict, seq: np.ndarray) -> np.ndarray:
+    """Operating margin from the MEASURED instruments at each window's last second
+    (seq scaled as the cache stores it)."""
+    sc = contract["scaler"]
+    last = seq[:, -1, :].astype(np.float64) * np.array(sc["std"]) + np.array(sc["mean"])
+    eng = P.PistonEngineV5(contract["engine_model"], dt=1.0)
+    idx = {c: F.FEATURE_COLS.index(c) for c in MARGIN_CH}
+    return np.array([eng.margins({c: float(last[i, idx[c]]) for c in MARGIN_CH})["health_index"]
                      for i in range(len(seq))])
+
+
+def rul_inputs(o: dict, seq: np.ndarray, ctx: np.ndarray, contract: dict) -> np.ndarray:
+    """RUL model inputs from the assembled outputs `o` and the scaled window/context
+    - one definition for fitting, scoring and serving."""
+    marg = measured_margin(contract, seq)
+    thr_mean = seq[:, :, F.FEATURE_COLS.index("throttle")].mean(1)
+    return np.concatenate([np.asarray(o["health"]), np.asarray(o["severity"]),
+                           np.asarray(o["detection"]), np.asarray(o["family"]),
+                           marg[:, None], thr_mean[:, None], ctx], 1)
 
 
 def features(trainer, ids: np.ndarray, bs: int = 512):
@@ -71,12 +77,7 @@ def features(trainer, ids: np.ndarray, bs: int = 512):
     for i in range(0, len(ids), bs):
         seq, ctx, Er = cache.batch(ids[i:i + bs])
         o = trainer.model({"seq": seq, "ctx": ctx}, training=False)
-        marg = measured_margin(cache, seq)
-        thr_mean = seq[:, :, F.FEATURE_COLS.index("throttle")].mean(1)
-        X = np.concatenate([np.asarray(o["health"]), np.asarray(o["severity"]),
-                            np.asarray(o["detection"]), np.asarray(o["family"]),
-                            marg[:, None], thr_mean[:, None], ctx], 1)
-        Xs.append(X)
+        Xs.append(rul_inputs(o, seq, ctx, cache.contract))
         rul = cache.labels(Er, "rul_hours")
         calh = cache.labels(Er, "rul_calendar_hours")
         ys.append(rul / tbo)

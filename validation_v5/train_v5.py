@@ -55,6 +55,7 @@ if not tf.config.list_physical_devices("GPU"):
     raise SystemExit("No GPU visible to TensorFlow (tensorflow-metal) - v5 trains on the GPU only.")
 
 import evaluate as E  # noqa: E402
+from assembly_v5 import apply_temperature  # noqa: E402,F401  (re-exported: score_v5 imports it from here)
 import model_architectures_v5 as M  # noqa: E402
 from pipeline_v5 import Cache  # noqa: E402
 from seed import set_random_seed  # noqa: E402
@@ -362,12 +363,6 @@ class WarmUp(tf.keras.optimizers.schedules.LearningRateSchedule):
 
     def get_config(self):
         return {"lr": self.lr, "steps": self.steps, "decay_steps": self.decay_steps}
-
-
-def apply_temperature(p: np.ndarray, temps) -> np.ndarray:
-    p = np.clip(p, 1e-6, 1 - 1e-6)
-    z = np.log(p / (1 - p)) / np.asarray(temps)[None, :]
-    return 1 / (1 + np.exp(-z))
 
 
 DEFAULT_CFG = {"channels": 64, "layers": 6, "dropout": 0.2, "input_dropout": 0.03, "head_hidden": 96,
