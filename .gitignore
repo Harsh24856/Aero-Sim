@@ -161,7 +161,11 @@ CMAPSSData/
 data/cmapss/
 
 # ─── v4/v5 datasets & training caches (local-only, multi-GB) ──────────────────
+/data
 /data/
 /validation_v4/logs/
 /validation_v5/cache/
 /validation_v5/logs/
+# v5 training artifacts are committed (small: ~15 MB per run); scratch runs stay local
+/validation_v5/artifacts/smoke*/
+/validation_v5/artifacts/*_before_*/
