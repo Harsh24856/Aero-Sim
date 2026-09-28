@@ -145,6 +145,27 @@ class GatedRUL:
         return np.where(p >= self.threshold, self.reg.predict(X), 1e3)
 
 
+class RulSmoother:
+    """smooth_within_flight one prediction at a time, for the live service. Same
+    EMA on the removal time and the same non-increasing clamp; `update` with the
+    same sequence returns exactly the array version's values."""
+
+    def __init__(self, alpha: float = 0.2):
+        self.alpha = alpha
+        self.s = None          # smoothed removal time (engine hours)
+        self.out = None        # last output (hours left)
+        self.hours = None
+
+    def update(self, pred_h: float, hours: float) -> float:
+        removal = float(hours) + float(pred_h)
+        self.s = removal if self.s is None else self.s + self.alpha * (removal - self.s)
+        out = self.s - float(hours)
+        if self.out is not None:
+            out = min(out, self.out - max(0.0, float(hours) - self.hours))
+        self.out, self.hours = out, float(hours)
+        return max(out, 0.0)
+
+
 def smooth_within_flight(pred_h: np.ndarray, hours: np.ndarray, alpha: float = 0.2) -> np.ndarray:
     """Serving rule, one call per scored window (every 64 s): remaining life never
     rises within a flight and falls at least as fast as the engine ages.

@@ -15,6 +15,7 @@ What v4 adds:
     output (fault modes, sensor conditions, wear condition, RUL against the
     calendar) and the injected ground truth.
 """
+import os
 from datetime import datetime, timezone
 
 import db
@@ -27,7 +28,8 @@ from db import (                                   # noqa: F401  re-exported unc
 )
 import timescale_v4 as TS
 
-MODEL_VERSION = "v4"
+# v5 flights use this module too (main.py); each run records the version it flew.
+MODEL_VERSION = "v5" if os.environ.get("AERO_PHYSICS_VERSION", "").strip().lower() == "v5" else "v4"
 RESIDUAL_CHANNELS = ["egt", "cht", "oil_temp", "oil_pressure", "engine_rpm", "fuel_flow"]
 
 

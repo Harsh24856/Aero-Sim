@@ -196,9 +196,9 @@ def build_digest(sim_row: dict, log_rows: list[dict]) -> dict[str, Any]:
         "channels": {c: _stats(log_rows, c) for c in _NUMERIC_COLS},
     }
     rul = sim_row.get("final_rul_hours")
-    if digest["model_version"] == "v4":
+    if digest["model_version"] in ("v4", "v5"):
         _v4_digest(digest, sim_row, log_rows)
-    if digest["model_version"] in ("v3", "v4"):
+    if digest["model_version"] in ("v3", "v4", "v5"):
         tbo = sim_row.get("tbo_hours")
         digest["tbo_hours"] = tbo
         digest["final_rul_engine_hours"] = rul
@@ -303,7 +303,7 @@ def local_summary(digest: dict[str, Any], reason: str) -> dict[str, Any]:
         findings.append(f"Final engine health {health:.1f}%.")
         raise_risk("high" if health < 50 else "moderate" if health < 80 else "low")
 
-    if digest.get("model_version") in ("v3", "v4") and isinstance(digest.get("final_rul_engine_hours"), (int, float)):
+    if digest.get("model_version") in ("v3", "v4", "v5") and isinstance(digest.get("final_rul_engine_hours"), (int, float)):
         pct = digest.get("rul_percent_of_tbo")
         findings.append(f"Remaining useful life {digest['final_rul_engine_hours']:.0f} engine hours"
                         + (f" ({pct:.1f}% of the {digest.get('tbo_hours'):.0f} h TBO)." if pct is not None else "."))
