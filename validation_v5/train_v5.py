@@ -16,6 +16,11 @@ LOSSES, ONE MODEL
     health      |pred - true|
     Balanced by learned uncertainty weights (Kendall, Gal & Cipolla 2018):
     total = sum_i exp(-s_i) L_i + s_i.
+SPECIALISTS (specialists_v5.py)
+    cfg "heads" restricts the loss to some heads, "select" picks the epoch on that
+    head's own validation metric, "linear" gives severity/health linear outputs with
+    a Huber loss, and "lr_schedule": "cosine" decays stage 1's learning rate. All
+    default to the joint model's behaviour.
 SELECTION
     Each epoch is scored on the validation flights with the honest metrics
     (evaluate.py); the best epoch by a composite of them is kept, with early
@@ -93,7 +98,10 @@ class Trainer:
         self.applicable = [n for n in FAULT_NAMES if n in app]
         self.model = M.build_model(channels=cfg["channels"], num_layers=cfg["layers"],
                                    dropout=cfg["dropout"], input_dropout=cfg["input_dropout"],
-                                   head_hidden=cfg["head_hidden"])
+                                   head_hidden=cfg["head_hidden"],
+                                   linear_regression=cfg.get("linear", False),
+                                   enc_norm=cfg.get("enc_norm", False))
+        self.head_w = tf.constant([1.0 if h in cfg.get("heads", HEADS) else 0.0 for h in HEADS])
         self.log_vars = tf.Variable(tf.zeros(len(HEADS)), name="log_vars")
         self.set_stage(cfg["lr"], freeze_encoder=False)
         # sensor class weights from a sample of training windows
@@ -110,28 +118,43 @@ class Trainer:
         l_diag = tf.reduce_sum(per) / (tf.reduce_sum(self.fault_mask) * tf.cast(tf.shape(per)[0], tf.float32))
         l_fam = tf.reduce_mean(bce(y["family"], out["family"]))
         t, p = y["severity"], out["severity"]
-        err = tf.abs(p - t)
+        err = self._err(p - t)
 
         def mean_over(mask):
             mask = mask * self.fault_mask
             return tf.reduce_sum(mask * err) / tf.maximum(tf.reduce_sum(mask), 1.0)
         # Each group averaged on its own: fault cells are ~2% of cells, so a single
         # mean over all cells is won by predicting zero everywhere.
-        l_sev = (mean_over(tf.cast(t >= 0.08, tf.float32)) + 0.5 * mean_over(tf.cast(t <= 1e-6, tf.float32))
-                 + 0.2 * mean_over(tf.cast((t > 1e-6) & (t < 0.08), tf.float32)))
+        if self.cfg.get("sev_fault_only", False):
+            # Conditional severity: "if this fault is present, how bad". The clean-cell
+            # term pulls every uncertain severity to 0 - the 914 specialist then
+            # under-predicted real faults by 0.28. Absent faults are zeroed at serving
+            # time by the diagnosis head (specialists_v5.assemble).
+            l_sev = mean_over(tf.cast(t >= 0.08, tf.float32))
+        else:
+            l_sev = (mean_over(tf.cast(t >= 0.08, tf.float32)) + 0.5 * mean_over(tf.cast(t <= 1e-6, tf.float32))
+                     + 0.2 * mean_over(tf.cast((t > 1e-6) & (t < 0.08), tf.float32)))
         ce = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=y["sensor"], logits=out["sensor"])
         cw = tf.gather(self.sf_w, y["sensor"])
         l_sf = tf.reduce_sum(ce * cw) / tf.reduce_sum(cw)
-        l_h = tf.reduce_mean(tf.abs(out["health"] - y["health"]))
+        l_h = tf.reduce_mean(self._err(out["health"] - y["health"]))
         return [l_det, l_diag, l_fam, l_sev, l_sf, l_h]
 
-    def set_stage(self, lr: float, freeze_encoder: bool, warmup_steps: int = 0) -> None:
+    def _err(self, d):
+        """|d| for the joint model; Huber (delta 0.05) for linear outputs, whose
+        gradient then shrinks near the target instead of flipping sign at it."""
+        a = tf.abs(d)
+        if not self.cfg.get("linear", False):
+            return a
+        return tf.where(a < 0.05, 0.5 * a * a / 0.05, a - 0.025)
+
+    def set_stage(self, lr: float, freeze_encoder: bool, warmup_steps: int = 0, decay_steps: int = 0) -> None:
         """New optimizer and a freshly traced step: the trainable set and the
         optimizer's variables must match, so both are rebuilt per stage."""
         for layer in self.model.layers:
             if layer.name.startswith(ENCODER_PREFIXES):
                 layer.trainable = not freeze_encoder
-        sched = lr if not warmup_steps else WarmUp(lr, warmup_steps)
+        sched = lr if not warmup_steps else WarmUp(lr, warmup_steps, decay_steps)
         self.opt = tf.keras.optimizers.AdamW(learning_rate=sched, weight_decay=self.cfg["weight_decay"],
                                              clipnorm=1.0)
         self.train_step = tf.function(self._train_step, reduce_retracing=True)
@@ -141,9 +164,9 @@ class Trainer:
             out = self.model({"seq": seq, "ctx": ctx}, training=True)
             ls = tf.stack(self.losses(out, y))
             if self.cfg["balance"] == "uncertainty":
-                total = tf.reduce_sum(tf.exp(-self.log_vars) * ls + self.log_vars)
+                total = tf.reduce_sum(self.head_w * (tf.exp(-self.log_vars) * ls + self.log_vars))
             else:
-                total = tf.reduce_sum(ls)
+                total = tf.reduce_sum(self.head_w * ls)
         vars_ = self.model.trainable_variables + ([self.log_vars] if self.cfg["balance"] == "uncertainty" else [])
         grads = tape.gradient(total, vars_)
         self.opt.apply_gradients(zip(grads, vars_))
@@ -158,7 +181,8 @@ class Trainer:
             o = self.model({"seq": seq, "ctx": ctx}, training=False)
             y = targets(self.cache, Er)
             for h in HEADS:
-                outs[h].append(np.asarray(o[h]))
+                v = np.asarray(o[h])
+                outs[h].append(np.clip(v, 0.0, 1.0) if h in ("severity", "health") else v)
                 ys[h].append(y[h])
             ends.append(Er)
         return ({h: np.concatenate(v) for h, v in outs.items()},
@@ -181,6 +205,8 @@ class Trainer:
         # tuned after training, so F1 at a fixed 0.5 would select on the wrong thing.
         s["composite"] = (s["det_auc"] + s["diag_macro_ap"] + 0.5 * s["family_f1"] + s["sensor_macro_f1"]
                           - s["sev_on_fault_mae"] - 2.0 * s["health_mae"])
+        sel = self.cfg.get("select")
+        s["select"] = float(sum(w * s[k] for k, w in sel.items())) if sel else s["composite"]
         return s
 
     # ------------------------------------------------------------------
@@ -208,7 +234,7 @@ class Trainer:
         best, best_ep, hist, wait = -np.inf, -1, [], 0
         best_w = None
         if keep_current:
-            best, best_w = self.score(*self.predict(val_ids)[:2])["composite"], self.model.get_weights()
+            best, best_w = self.score(*self.predict(val_ids)[:2])["select"], self.model.get_weights()
         for ep in range(epochs):
             t0 = time.time()
             ids = self.cache.end_ids(["train"], seed=self.cfg["seed"], epoch=epoch0 + ep)
@@ -229,8 +255,8 @@ class Trainer:
             if verbose:
                 print(f"ep {ep:2d} {rec['seconds']:6.1f}s  " + "  ".join(f"{k} {v:.3f}" for k, v in rec["val"].items()),
                       flush=True)
-            if sc["composite"] > best + 1e-4:
-                best, best_ep, wait = sc["composite"], ep, 0
+            if sc["select"] > best + 1e-4:
+                best, best_ep, wait = sc["select"], ep, 0
                 best_w = self.model.get_weights()
             else:
                 wait += 1
@@ -246,6 +272,9 @@ class Trainer:
         at 1e-3 on the whole encoder). Each later stage keeps its result only if it
         beats the validation composite so far."""
         kw = dict(max_train_windows=max_train_windows, verbose=verbose)
+        steps = (max_train_windows or len(self.cache.end_ids(["train"], jitter=False))) // bs
+        if self.cfg.get("lr_schedule") == "cosine":
+            self.set_stage(self.cfg["lr"], freeze_encoder=False, warmup_steps=steps, decay_steps=epochs * steps)
         out = {"joint": self.fit(epochs, patience, bs, **kw)}
         n = out["joint"]["history"][-1]["epoch"] + 1
         short = max(2, epochs // 4)
@@ -256,7 +285,6 @@ class Trainer:
         n += len(out["heads_only"]["history"])
         if verbose:
             print("-- stage 3: all layers, low LR with warm-up", flush=True)
-        steps = (max_train_windows or len(self.cache.end_ids(["train"], jitter=False))) // bs
         self.set_stage(min(1e-4, self.cfg["lr"] / 5), freeze_encoder=False, warmup_steps=max(1, steps // 2))
         out["unfrozen"] = self.fit(short, 3, bs, keep_current=True, epoch0=n, **kw)
         out["best_composite"] = out["unfrozen"]["best_composite"]
@@ -318,16 +346,22 @@ ENCODER_PREFIXES = ("in_drop", "tcn", "ctx_d")
 
 
 class WarmUp(tf.keras.optimizers.schedules.LearningRateSchedule):
-    """Linear warm-up to `lr` over `steps`, then flat."""
+    """Linear warm-up to `lr` over `steps`, then flat - or, with `decay_steps`,
+    cosine decay to 5% of `lr` by step `decay_steps`."""
 
-    def __init__(self, lr: float, steps: int):
-        self.lr, self.steps = lr, steps
+    def __init__(self, lr: float, steps: int, decay_steps: int = 0):
+        self.lr, self.steps, self.decay_steps = lr, steps, decay_steps
 
     def __call__(self, step):
-        return self.lr * tf.minimum(1.0, tf.cast(step + 1, tf.float32) / self.steps)
+        s = tf.cast(step + 1, tf.float32)
+        lr = self.lr * tf.minimum(1.0, s / self.steps)
+        if self.decay_steps:
+            frac = tf.clip_by_value((s - self.steps) / max(self.decay_steps - self.steps, 1), 0.0, 1.0)
+            lr *= 0.05 + 0.95 * 0.5 * (1.0 + tf.cos(np.pi * frac))
+        return lr
 
     def get_config(self):
-        return {"lr": self.lr, "steps": self.steps}
+        return {"lr": self.lr, "steps": self.steps, "decay_steps": self.decay_steps}
 
 
 def apply_temperature(p: np.ndarray, temps) -> np.ndarray:
