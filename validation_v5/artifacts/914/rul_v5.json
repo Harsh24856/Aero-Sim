@@ -1,0 +1,21 @@
+{
+ "candidates": {
+  "gbt": {
+   "wear_limited_mae_pct": 12.614973988153993,
+   "tbo_limited_mae_pct": 3.7886826153436246,
+   "calendar_wear_limited_mae_pct": 26.889206193524522,
+   "all_mae_pct": 6.430118334536109,
+   "gain_vs_calendar": 0.530853611022852,
+   "within_flight_rises_gt_2pct": 1006
+  },
+  "mlp": {
+   "wear_limited_mae_pct": 12.266836408648432,
+   "tbo_limited_mae_pct": 4.693097003575988,
+   "calendar_wear_limited_mae_pct": 26.889206193524522,
+   "all_mae_pct": 6.959682701623713,
+   "gain_vs_calendar": 0.5438007235928541,
+   "within_flight_rises_gt_2pct": 2763
+  }
+ },
+ "chosen": "mlp"
+}

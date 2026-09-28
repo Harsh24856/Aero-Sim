@@ -55,17 +55,26 @@ LH_IDX = [F.LONG_COLS.index(f"lh_{c}_{k}") for c in FAULTABLE_CHANNELS for k in 
 FAMILY_MATRIX = [[1.0 if FAMILY_OF[f] == fam else 0.0 for fam in FAMILY_NAMES] for f in FAULT_NAMES]
 
 
+def relu(z):
+    """ReLU as max(z, 0) - same function, same weights. tensorflow-metal computes
+    ReLU after a matmul WRONGLY inside a tf.function (up to 3.2 off; eager and CPU
+    exact), and every training step is a tf.function while predict() is eager: the
+    v5 models were trained on a different network from the one they were scored and
+    served as. max(z, 0) is exact in both (tests/test_graph_parity_v5.py)."""
+    return tf.maximum(z, 0.0)
+
+
 def tcn_block(x, channels, kernel_size, dilation, dropout, name):
     res = x
     h = layers.Conv1D(channels, kernel_size, padding="causal", dilation_rate=dilation,
-                      activation="relu", name=f"{name}_c1")(x)
+                      activation=relu, name=f"{name}_c1")(x)
     h = layers.SpatialDropout1D(dropout, name=f"{name}_d1")(h)
     h = layers.Conv1D(channels, kernel_size, padding="causal", dilation_rate=dilation,
-                      activation="relu", name=f"{name}_c2")(h)
+                      activation=relu, name=f"{name}_c2")(h)
     h = layers.SpatialDropout1D(dropout, name=f"{name}_d2")(h)
     if res.shape[-1] != channels:
         res = layers.Conv1D(channels, 1, name=f"{name}_proj")(res)
-    return layers.ReLU(name=f"{name}_relu")(layers.Add(name=f"{name}_add")([h, res]))
+    return layers.Activation(relu, name=f"{name}_relu")(layers.Add(name=f"{name}_add")([h, res]))
 
 
 class ChannelDropout(layers.Layer):
@@ -123,7 +132,13 @@ class SensorChannelFeatures(layers.Layer):
 
 def build_model(channels: int = 64, num_layers: int = 6, kernel_size: int = 3,
                 dropout: float = 0.2, input_dropout: float = 0.03, head_hidden: int = 96,
-                ctx_hidden: int = 64) -> keras.Model:
+                ctx_hidden: int = 64, linear_regression: bool = False, enc_norm: bool = False) -> keras.Model:
+    """linear_regression: severity and health end in a linear unit (clipped to 0..1
+    at prediction time) instead of a sigmoid. The joint model's sigmoid severities
+    saturated at 0 or 1 under the L1 loss, where their gradient vanishes.
+    enc_norm: LayerNormalization on the encoder output. Without it the trained joint
+    914 encoder reached |h| = 258 (20 at init): sigmoid heads saturate, linear heads
+    blew up (health's training loss hit 36,499 in epoch 2)."""
     seq = layers.Input((F.WINDOW, F.N_FEATURES), name="seq")
     ctx = layers.Input((N_CTX,), name="ctx")
 
@@ -133,21 +148,24 @@ def build_model(channels: int = 64, num_layers: int = 6, kernel_size: int = 3,
     last = layers.Lambda(lambda t: t[:, -1, :], name="enc_last")(x)
     avg = layers.GlobalAveragePooling1D(name="enc_avg")(x)
     mx = layers.GlobalMaxPooling1D(name="enc_max")(x)
-    c = layers.Dense(ctx_hidden, activation="relu", name="ctx_d1")(ctx)
-    c = layers.Dense(ctx_hidden, activation="relu", name="ctx_d2")(c)
+    c = layers.Dense(ctx_hidden, activation=relu, name="ctx_d1")(ctx)
+    c = layers.Dense(ctx_hidden, activation=relu, name="ctx_d2")(c)
     enc = layers.Concatenate(name="enc")([last, avg, mx, c])
+    if enc_norm:
+        enc = layers.LayerNormalization(name="enc_norm")(enc)
     enc = layers.Dropout(dropout, name="enc_drop")(enc)
 
     def head(name, units, act, hidden=head_hidden):
-        h = layers.Dense(hidden, activation="relu", name=f"{name}_h")(enc)
+        h = layers.Dense(hidden, activation=relu, name=f"{name}_h")(enc)
         h = layers.Dropout(dropout / 2, name=f"{name}_hd")(h)
         return layers.Dense(units, activation=act, name=name)(h)
 
     det = head("detection", 1, "sigmoid", 48)
     diag = head("diagnosis", N_FAULTS, "sigmoid")
     fam = head("family", N_FAMILIES, "sigmoid", 48)
-    sev = head("severity", N_FAULTS, "sigmoid")
-    health = head("health", 1, "sigmoid", 48)
+    reg_act = "linear" if linear_regression else "sigmoid"
+    sev = head("severity", N_FAULTS, reg_act)
+    health = head("health", 1, reg_act, 48)
 
     # -- sensor: one classifier shared across channels --------------------------
     stats = SensorChannelFeatures(name="sf_stats")(seq)                          # [B,12,13]
@@ -156,20 +174,20 @@ def build_model(channels: int = 64, num_layers: int = 6, kernel_size: int = 3,
                                              tf.gather(s, RES_IDX, axis=-1)], axis=-1),
                          name="sf_pair")(seq)                                    # [B,T,12,2]
     pair = layers.Permute((2, 1, 3), name="sf_perm")(pair)                       # [B,12,T,2]
-    pc = layers.Conv2D(16, (1, 5), padding="same", activation="relu", name="sf_conv1")(pair)
-    pc = layers.Conv2D(16, (1, 5), padding="same", dilation_rate=(1, 4), activation="relu", name="sf_conv2")(pc)
+    pc = layers.Conv2D(16, (1, 5), padding="same", activation=relu, name="sf_conv1")(pair)
+    pc = layers.Conv2D(16, (1, 5), padding="same", dilation_rate=(1, 4), activation=relu, name="sf_conv2")(pc)
     pc_max = layers.Lambda(lambda z: tf.reduce_max(z, axis=2), name="sf_cmax")(pc)   # [B,12,16]
     pc_avg = layers.Lambda(lambda z: tf.reduce_mean(z, axis=2), name="sf_cavg")(pc)
     lh = layers.Lambda(lambda z: tf.reshape(tf.gather(z, LH_IDX, axis=-1), [-1, N_CH, 3]),
                        name="sf_lh")(ctx)                                        # [B,12,3]
     emb = layers.Embedding(N_CH, 8, name="sf_chan_emb")(
         layers.Lambda(lambda z: tf.tile(tf.range(N_CH)[None, :], [tf.shape(z)[0], 1]), name="sf_ids")(seq))
-    ctxv = layers.Dense(32, activation="relu", name="sf_enc_proj")(enc)
+    ctxv = layers.Dense(32, activation=relu, name="sf_enc_proj")(enc)
     ctxv = layers.Lambda(lambda z: tf.tile(z[:, None, :], [1, N_CH, 1]), name="sf_enc_tile")(ctxv)
     s = layers.Concatenate(axis=-1, name="sf_cat")([stats, pc_max, pc_avg, lh, emb, ctxv])
-    s = layers.Dense(64, activation="relu", name="sf_d1")(s)
+    s = layers.Dense(64, activation=relu, name="sf_d1")(s)
     s = layers.Dropout(dropout / 2, name="sf_dd")(s)
-    s = layers.Dense(64, activation="relu", name="sf_d2")(s)
+    s = layers.Dense(64, activation=relu, name="sf_d2")(s)
     sensor = layers.Dense(N_KINDS, name="sensor")(s)                               # logits [B,12,7]
 
     return keras.Model({"seq": seq, "ctx": ctx},
