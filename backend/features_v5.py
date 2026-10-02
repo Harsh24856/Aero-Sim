@@ -37,6 +37,10 @@ from scipy.signal import lfilter
 from sensors_v5 import FAULTABLE_CHANNELS, SENSOR_CHANNELS, TURBO_CHANNELS  # noqa: F401
 
 CONTRACT_VERSION = "v5.0"
+# The on-board twin residuals are taken against: degradation_v5.fleet_wear_health
+# at the engine's hours. Exports without this key were trained against a
+# brand-new engine ("new_engine"); twin_v5 serves each model the twin it learnt.
+TWIN = "fleet_wear"
 
 FLIGHT_COLS = ["altitude", "airspeed", "aoa", "throttle",
                "ambient_temp_c", "air_density", "isa_dev_c", "humidity_frac"]
@@ -114,7 +118,7 @@ def residuals(measured: dict, twin_truth: dict, turbocharged: bool) -> list:
 def contract() -> dict:
     """The contract as data (written to contract_v5.json by the pipeline)."""
     return {
-        "version": CONTRACT_VERSION, "window": WINDOW, "dt_s": 1.0,
+        "version": CONTRACT_VERSION, "window": WINDOW, "dt_s": 1.0, "twin": TWIN,
         "feature_cols": FEATURE_COLS, "n_features": N_FEATURES,
         "flight_cols": FLIGHT_COLS, "measured_cols": MEASURED_COLS,
         "derived_cols": DERIVED_COLS, "residual_channels": RESIDUAL_CHANNELS,

@@ -114,6 +114,34 @@ For each of 912, 915 and 916: `relabel_v5b.py <key>`, then `specialists_v5.py <k
 | 5 914 gaps | done in code | severity isotonic calibration, RUL without the sensor-fault signal, cut-offs with a 0.55 recall floor; generator stores per-channel fault effects (`eff_<channel>`) and `relabel_v5b.py --per-channel-faults` uses them |
 | 6 Default switch | not switched | `e2e_v5` vs `e2e_v4`, same flights: 914 v5 8/8 vs v4 6/8; but 915/916 on placeholders flag healthy engines - by this plan's own rule the default waits for Phase 7 |
 
-Still to run (long jobs, commands ready):
-- Regenerate the 914 with per-channel effects (~9 h CPU), relabel with `--per-channel-faults`, retrain detection and diagnosis (~5 h GPU).
-- Phase 7: `relabel_v5b.py <key>` then `specialists_v5.py <key>b` (~8 h GPU each) and `export_v5.py` for 912, 915 and 916; then switch the default.
+### 2026-10-03: the per-channel relabel hid faults; root cause was the twin
+
+The 914 was regenerated with `eff_<channel>` (identical data plus 14 columns) and
+relabelled with `--per-channel-faults`. That made valve leakage 6 test windows and
+oil degradation 0: the gate would pass by deleting the fault. It was reverted; the
+deployed 914b models re-score to an identical card.
+
+Root cause: the on-board twin was a brand-new engine (`P.Health()`), while every
+simulated engine ages normally. In-limit wear alone put a healthy engine's rpm
+residual at -5 to -13 sigma and oil pressure at -7 to -16 by mid-life, so faults that
+show on rpm and oil pressure (valve leakage, compression loss, oil and bearing
+faults) drowned in a wear clock.
+
+Fix: the twin runs `degradation_v5.fleet_wear_health(hours, tbo)` - fleet-average
+wear at the engine's logged hours, never the engine's own wear rate. On 120
+regenerated flights, healthy q99 drops from 16.2 to 5.8 sigma on rpm, 31 to 8.1 on oil
+pressure, 9.4 to 3.7 on fuel flow; medians go to ~0. The contract carries
+`twin: fleet_wear`; `twin_v5` serves each export the twin it learnt (exports
+without the key keep the new-engine twin, so the live 914b is unchanged until it
+is retrained). Tests: `backend/tests/test_fleet_wear_v5.py`.
+
+Every engine's residual inputs change, so all four must be regenerated and
+retrained once. Use the standard v5b labels (no `--per-channel-faults`: it still
+hides oil degradation).
+
+Still to run (long jobs):
+- Regenerate all four engines with the fleet-wear twin (~2 h CPU each).
+- For each engine, 914 first: `run_v5.py <key> --steps checks,cache --force checks`,
+  `relabel_v5b.py <key>`, `specialists_v5.py <key>b --force detection,diagnosis,severity,sensor,health`
+  (~8 h GPU), `export_v5.py <key>b`, parity test, `e2e_v5.py`.
+- Then switch the default (Phase 6).

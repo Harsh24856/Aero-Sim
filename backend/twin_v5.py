@@ -3,7 +3,8 @@
 twin_v4.UAVEngineTwinV4 with the v5 engine, instruments and inputs - the same
 three things backend/generate_dataset_v5.py runs for every training row:
   the ENGINE being flown   physics_v5.PistonEngineV5 with its DegradationStateV5 health
-  the ON-BOARD TWIN        PistonEngineV5 with a perfect Health, same inputs
+  the ON-BOARD TWIN        PistonEngineV5 with fleet-average wear for the engine's hours
+                           (a brand-new engine for exports older than contract `twin`), same inputs
   the SENSORS              sensors_v5.SensorBank: 14 instruments (12 can fault)
 
 Once per flight second it emits the 39 model inputs (features_v5.FEATURE_COLS) and
@@ -22,6 +23,9 @@ Interface: identical to UAVEngineTwinV4, so main.py drives either.
 """
 from __future__ import annotations
 
+import json
+import os
+
 import numpy as np
 
 import features_v5 as F
@@ -29,7 +33,7 @@ import physics_v5 as P
 import scenarios_v4
 import timescale_v4 as TS
 from degradation_v4 import FAULT_MODES
-from degradation_v5 import DegradationStateV5, FaultEvent, applicable_faults
+from degradation_v5 import DegradationStateV5, FaultEvent, applicable_faults, fleet_wear_health
 from sensors_v5 import FAULTABLE_CHANNELS, SENSOR_CHANNELS, SENSOR_FAULT_TYPES, SENSOR_SPEC, SensorBank, SensorFault
 from twin_v4 import DEFAULT_ENV, STATE_FIELDS, WARM_INPUTS, WARM_SETTLE_S
 
@@ -38,6 +42,19 @@ FEATURE_COLS = list(F.FEATURE_COLS)                    # the 39 model inputs, in
 RES_SIGMA = np.array([SENSOR_SPEC[c]["noise_sd"] for c in RESIDUAL_CHANNELS])
 FAULT_PRESENT_SEV = 0.08
 HEALTHY = P.Health()
+MODELS_V5 = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models_v5")
+PLACEHOLDER_KEY = "914"                                # aiv5: engines without their own export
+
+
+def twin_mode(engine_model: str, models_root: str = MODELS_V5) -> str:
+    """The twin the model serving this engine was trained against (its contract's
+    `twin`). Exports from before the key existed learnt a brand-new engine."""
+    for key in (engine_model.split("_")[1], PLACEHOLDER_KEY):
+        p = os.path.join(models_root, key, "contract_v5.json")
+        if os.path.exists(p):
+            with open(p) as fh:
+                return json.load(fh).get("twin", "new_engine")
+    return F.TWIN
 
 
 def degradation_from_record(rec: dict) -> DegradationStateV5:
@@ -57,8 +74,9 @@ class UAVEngineTwinV5:
     RESIDUAL_CHANNELS = RESIDUAL_CHANNELS
 
     def __init__(self, dt: float = 0.01, engine_model: str = "Rotax_914_ULF",
-                 engine: dict | None = None, seed: int | None = None):
+                 engine: dict | None = None, seed: int | None = None, models_root: str = MODELS_V5):
         self.dt = float(dt)
+        self.fleet_wear = twin_mode(engine_model, models_root) == "fleet_wear"
         self.engine_model = engine_model
         self.spec = P.ENGINE_SPECS[engine_model]
         self.turbo = bool(self.spec.turbocharged)
@@ -91,6 +109,9 @@ class UAVEngineTwinV5:
         self.lh = F.LongHorizon()
         self.t, self._n, self._sample = 0.0, 0, None
 
+    def twin_health(self, hours: float):
+        return fleet_wear_health(hours, self.TBO_HOURS) if self.fleet_wear else HEALTHY
+
     @staticmethod
     def _sensor_fault(channel: str, kind: str, onset_s: float, severity: float) -> SensorFault:
         return SensorFault(channel=channel, kind=kind, onset_s=onset_s, severity=severity,
@@ -99,7 +120,7 @@ class UAVEngineTwinV5:
     def _warm(self) -> None:
         """generate_dataset_v5.py's warm start (1 Hz, 300 s), handed to the 100 Hz pair."""
         w = P.Inputs(isa_dev_c=self.isa_dev_c, **WARM_INPUTS, **self.env)
-        for fine, h in ((self.eng, self.health), (self.ref, HEALTHY)):
+        for fine, h in ((self.eng, self.health), (self.ref, self.twin_health(self.start_engine_hours))):
             coarse = P.PistonEngineV5(self.engine_model, dt=1.0)
             coarse.warm_start(w, h)
             for _ in range(WARM_SETTLE_S):
@@ -162,7 +183,8 @@ class UAVEngineTwinV5:
     def step(self) -> dict:
         u = self._inputs()
         o = self.eng.step(u, self.health)
-        r = self.ref.step(u, HEALTHY)
+        hours = self.engine_hours
+        r = self.ref.step(u, self.twin_health(hours))
         self._n += 1
         self.t = self._n * self.dt
         hours = self.engine_hours
