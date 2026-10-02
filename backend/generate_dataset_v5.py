@@ -7,8 +7,9 @@ PHYSICS    physics_v5 (separable ignition / oil / turbo signatures, load-depende
            EGT, certified-envelope knock reference) and sensors_v5 (airbox
            temperature and wastegate position on turbo engines).
 FEATURES   features_v5: 39 per-second inputs, a residual for every instrument.
-THREE ENGINES PER ROW. The engine under test, its healthy twin (residuals, as the
-           aircraft computes them) and a WEAR-ONLY engine - the same engine with
+THREE ENGINES PER ROW. The engine under test, its on-board twin (residuals, as the
+           aircraft computes them: fleet-average wear for the engine's hours, so
+           normal ageing is not a residual) and a WEAR-ONLY engine - the same engine with
            its baseline wear but none of its faults. A fault is labelled PRESENT
            only when its noise-free effect (faulty minus wear-only) on some
            instrument reaches 1 sigma of that instrument's noise, so a fault the
@@ -57,7 +58,7 @@ import features_v5 as F  # noqa: E402
 import physics_v5 as P  # noqa: E402
 import timescale_v4 as TS  # noqa: E402
 from degradation_v5 import (  # noqa: E402
-    DegradationStateV5, FAULT_NAMES, REMOVAL_CONDITION, applicable_faults,
+    DegradationStateV5, FAULT_NAMES, REMOVAL_CONDITION, applicable_faults, fleet_wear_health,
 )
 from generate_dataset_v4 import (  # noqa: E402  unchanged v4 helpers
     MISSIONS, MISSION_NAMES, mission_target, sample_environment, sample_start_hours,
@@ -175,7 +176,6 @@ def run_scenario(engine_model: str, scen_id: int, rng: np.random.Generator):
     eng = P.PistonEngineV5(engine_model, dt=DT)
     twin = P.PistonEngineV5(engine_model, dt=DT)
     wear = P.PistonEngineV5(engine_model, dt=DT)
-    healthy = P.Health()
 
     sensors = SensorBank(rng=rng, dt=DT, turbocharged=turbo)
     # Deterministic schedule: 3 flights in every 5 carry sensor faults, and those
@@ -190,11 +190,11 @@ def run_scenario(engine_model: str, scen_id: int, rng: np.random.Generator):
     h0, _ = deg.health_at(start_h)
     hw0 = deg.health_wear_only(start_h)
     eng.warm_start(warm_u, h0)
-    twin.warm_start(warm_u, healthy)
+    twin.warm_start(warm_u, fleet_wear_health(start_h, tbo))
     wear.warm_start(warm_u, hw0)
     for _ in range(300):
         eng.step(warm_u, h0)
-        twin.step(warm_u, healthy)
+        twin.step(warm_u, fleet_wear_health(start_h, tbo))
         wear.step(warm_u, hw0)
 
     wear_out_oracle = deg.wear_out_hours()
@@ -226,7 +226,7 @@ def run_scenario(engine_model: str, scen_id: int, rng: np.random.Generator):
         hw = deg.health_wear_only(hours)
 
         o = eng.step(u, h)
-        ref = twin.step(u, healthy)
+        ref = twin.step(u, fleet_wear_health(hours, tbo))
         w = wear.step(u, hw)
         meas, sf_flag, sf_sev, sf_active = sensors.read(o, t)
         res = F.residuals(meas, ref, turbo)

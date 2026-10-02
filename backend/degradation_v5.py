@@ -48,7 +48,7 @@ import math
 import numpy as np
 
 from degradation_v4 import (  # noqa: F401  re-exported
-    A_RANGE, B_RANGE, BASELINE_MODS, FAULT_MODES, FAULT_NAMES, N_FAULTS,
+    A_RANGE, B_RANGE, BASE_SCALE_RANGE, BASELINE_MODS, FAULT_MODES, FAULT_NAMES, N_FAULTS,
     DegradationState, FaultEvent, applicable_faults,
 )
 from physics_v4 import Health
@@ -63,6 +63,34 @@ BASELINE_MODS_V5 = {
     "volumetric_eff_mod": 0.05,
     "prop_eff_mod": 0.05,
 }
+
+
+
+def baseline_health(hours: float, tbo_hours: float, a: float, b: float, scale: float) -> Health:
+    """Health after baseline wear alone, for a wear curve (a, b, scale)."""
+    h = Health()
+    frac = min(DegradationState._progress(hours / max(tbo_hours, 1.0) * 100.0, a, b) * scale, 1.0)
+    for mod, depth in BASELINE_MODS_V5.items():
+        cur = getattr(h, mod)
+        setattr(h, mod, cur + depth * frac if mod == "friction_mod" else cur - depth * frac)
+    for k, v in h.as_dict().items():
+        setattr(h, k, float(min(max(v, 0.05), 2.5)))
+    return h
+
+
+# The middle of every per-engine wear parameter range.
+# ponytail: the curve at the mean parameters, not the mean of the curves; close
+# enough for a twin reference (tests: healthy p95 under 8 sigma, 2.5x below a new-engine twin).
+FLEET_WEAR = (sum(A_RANGE) / 2, sum(B_RANGE) / 2, sum(BASE_SCALE_RANGE) / 2)
+
+
+def fleet_wear_health(hours: float, tbo_hours: float) -> Health:
+    """Fleet-average baseline wear at these engine hours: all an on-board twin can
+    know about normal ageing (the hour meter and a fleet wear curve), never this
+    engine's own wear rate. Residuals against it keep how far this engine has aged
+    away from the fleet and drop the wear clock everyone shares."""
+    return baseline_health(hours, tbo_hours, *FLEET_WEAR)
+
 
 WEAR_OUT_FAULTS = {"bearing_wear", "compression_loss", "valve_leakage",
                    "oil_pump_degradation", "turbo_degradation",
@@ -166,12 +194,4 @@ class DegradationStateV5(DegradationState):
 
     def health_wear_only(self, hours: float) -> Health:
         """Baseline wear only - the same engine without any of its faults."""
-        h = Health()
-        frac = min(self._progress(hours / max(self.tbo, 1.0) * 100.0,
-                                  self.base_a, self.base_b) * self.base_scale, 1.0)
-        for mod, depth in BASELINE_MODS_V5.items():
-            cur = getattr(h, mod)
-            setattr(h, mod, cur + depth * frac if mod == "friction_mod" else cur - depth * frac)
-        for k, v in h.as_dict().items():
-            setattr(h, k, float(min(max(v, 0.05), 2.5)))
-        return h
+        return baseline_health(hours, self.tbo, self.base_a, self.base_b, self.base_scale)
