@@ -73,11 +73,14 @@ export type BlackoutPlaneProps = {
   // orange for desert (912). Undefined = the model's own original materials
   // (the home page hero and the default/914 simulator).
   tintColor?: string;
+  // Frame shape. Default: the wide strip the simulator uses. The home hero passes a
+  // taller frame so the aircraft fills its half of the screen.
+  frameClassName?: string;
 };
 
-export default function BlackoutPlane({ interactive = true, cameraPosition, tintColor }: BlackoutPlaneProps) {
+export default function BlackoutPlane({ interactive = true, cameraPosition, tintColor, frameClassName = "aspect-[21/8]" }: BlackoutPlaneProps) {
   return (
-    <div className="relative w-full aspect-[21/8]">
+    <div className={`relative w-full ${frameClassName}`}>
       <div className="absolute inset-0 bg-tertiary/20 blur-[100px] rounded-full z-0 mix-blend-screen pointer-events-none" />
       <Canvas
         camera={cameraPosition ? { fov: 40, position: cameraPosition } : { fov: 40 }}
