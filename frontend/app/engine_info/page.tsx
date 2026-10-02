@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
@@ -23,6 +23,7 @@ import {
   BarChart3,
   Info,
 } from "lucide-react";
+import "./engine-info.css";
 
 /* ─── Data ─────────────────────────────────────────────────────────────────── */
 const ENGINE_SPECS = [
@@ -43,8 +44,6 @@ const ENGINE_SPECS = [
     relativePower: "Baseline (0%)",
     powerToMass: "1.77 HP/kg",
     powerPct: 62.5,
-    aiStatus: "AI READY / Production Model",
-    aiValid: true,
     serviceCeiling: "Altitude limited by air density",
     bestUseCase: "Lightweight endurance / baseline UAV studies",
     character:
@@ -71,8 +70,6 @@ const ENGINE_SPECS = [
     relativePower: "+15% over 912",
     powerToMass: "1.80 HP/kg",
     powerPct: 71.9,
-    aiStatus: "AI READY / Production Model",
-    aiValid: true,
     serviceCeiling: "Critical altitude boost maintained",
     bestUseCase: "Moderate-performance, altitude-aware UAV studies",
     character:
@@ -99,8 +96,6 @@ const ENGINE_SPECS = [
     relativePower: "+41% over 912",
     powerToMass: "1.72 HP/kg",
     powerPct: 88.1,
-    aiStatus: "AI READY / Advanced Digital Twin",
-    aiValid: true,
     serviceCeiling: "Full takeoff power to 15,000 ft; 23,000 ft ceiling",
     bestUseCase: "High-performance UAV, heavier payload, advanced engine management",
     character:
@@ -127,8 +122,6 @@ const ENGINE_SPECS = [
     relativePower: "+60% over 912",
     powerToMass: "1.86 HP/kg",
     powerPct: 100,
-    aiStatus: "AI READY / Flagship Digital Twin",
-    aiValid: true,
     serviceCeiling: "High-altitude sustained power & climb",
     bestUseCase: "Maximum-performance UAV and demanding climb/payload studies",
     character:
@@ -156,10 +149,10 @@ const SECTIONS = [
 // manifests). RUL is quoted on the inputs a real aircraft has - predicted wear and
 // severity, measured margin - not on simulator labels.
 const STAGES = [
-  { label: "914 F/UL \u2014 reference twin", desc: "Six models deployed. Detection AUC 0.879 (0.952 where the engine has drifted from its twin), fault naming F1 0.612 over 13 fault types, severity error 0.22 on real faults, sensor-condition F1 0.417, wear error 0.063. RUL 4.6% of TBO overall; on engines that wear out early 387 h against 462 h for counting down to overhaul." },
-  { label: "912 ULS", desc: "11 fault types (no turbo). Training on the v4 data; results appear here once all six models pass their gates." },
-  { label: "915 iS", desc: "14 fault types and a shorter 1,200 h TBO. Training on the v4 data; the 914's models stand in until it finishes." },
-  { label: "916 iS", desc: "14 fault types. Training on the v4 data. All four engines share one twin, one 29-input contract and one set of gates." },
+  { label: "914 F/UL \u2014 reference twin", done: true, desc: "Six models deployed. Detection AUC 0.879 (0.952 where the engine has drifted from its twin), fault naming F1 0.612 over 13 fault types, severity error 0.22 on real faults, sensor-condition F1 0.417, wear error 0.063. RUL 4.6% of TBO overall; on engines that wear out early 387 h against 462 h for counting down to overhaul." },
+  { label: "912 ULS", done: false, desc: "11 fault types (no turbo). Training on the v4 data; results appear here once all six models pass their gates." },
+  { label: "915 iS", done: false, desc: "14 fault types and a shorter 1,200 h TBO. Training on the v4 data; the 914's models stand in until it finishes." },
+  { label: "916 iS", done: false, desc: "14 fault types. Training on the v4 data. All four engines share one twin, one 29-input contract and one set of gates." },
 ];
 
 const PHYSICS_FORMULAS = [
@@ -212,11 +205,25 @@ function SectionHeader({ code, children }: { code: string; children: React.React
 export default function EngineInfoPage() {
   const router = useRouter();
   const [activeEngineIndex, setActiveEngineIndex] = useState<number>(0);
+  const [activeSection, setActiveSection] = useState<string>(SECTIONS[0].id);
   const selectedEngine = ENGINE_SPECS[activeEngineIndex];
+  const trained = selectedEngine.v4.ai === "trained";
+
+  // The section nav follows the reader: the section crossing the band just
+  // under the sticky bars is the current one.
+  useEffect(() => {
+    const io = new IntersectionObserver(
+      (entries) => entries.forEach((e) => e.isIntersecting && setActiveSection(e.target.id)),
+      { rootMargin: "-120px 0px -70% 0px" },
+    );
+    SECTIONS.forEach((s) => { const el = document.getElementById(s.id); if (el) io.observe(el); });
+    return () => io.disconnect();
+  }, []);
 
   const scrollToSection = (id: string) => {
     const el = document.getElementById(id);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (el) el.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
   };
 
   return (
@@ -263,7 +270,8 @@ export default function EngineInfoPage() {
                 <button
                   key={eng.id}
                   onClick={() => { setActiveEngineIndex(idx); scrollToSection("engines"); }}
-                  className={`group text-left p-4 rounded-lg border transition-all ${
+                  aria-pressed={activeEngineIndex === idx}
+                  className={`group text-left p-4 rounded-lg border transition-[transform,border-color,background-color,box-shadow] duration-300 ${
                     activeEngineIndex === idx
                       ? "border-tertiary bg-tertiary/10 shadow-[2px_2px_0px_#000000]"
                       : "border-outline-variant/30 bg-surface/80 hover:border-tertiary/50 hover:-translate-y-0.5 hover:shadow-[2px_2px_0px_#000000]"
@@ -279,7 +287,7 @@ export default function EngineInfoPage() {
             </div>
 
             {/* Compliance note */}
-            <div className="flex items-start gap-3 border border-amber-500/30 bg-amber-950/20 p-4 rounded-lg font-mono text-xs leading-relaxed text-amber-200/90">
+            <div className="flex items-start gap-3 border border-tertiary/25 bg-tertiary/[0.06] p-4 rounded-lg font-mono text-xs leading-relaxed text-on-surface-variant">
               <Info size={16} className="text-tertiary shrink-0 mt-0.5" />
               <div>
                 <strong className="text-tertiary uppercase tracking-wider block mb-0.5">DATA BASIS & COMPLIANCE NOTE:</strong>
@@ -290,28 +298,33 @@ export default function EngineInfoPage() {
               </div>
             </div>
           </div>
-
-          {/* Sticky section nav */}
-          <div className="sticky top-16 z-30 bg-background/90 backdrop-blur-md border-y border-outline-variant/30 overflow-x-auto">
-            <div className="max-w-7xl mx-auto px-4 py-2 flex items-center gap-1 whitespace-nowrap font-mono text-[10px] uppercase tracking-wider">
-              {SECTIONS.map((sec) => (
-                <button
-                  key={sec.id}
-                  onClick={() => scrollToSection(sec.id)}
-                  className="px-3 py-1.5 rounded text-on-surface-variant hover:text-tertiary hover:bg-white/5 transition-colors"
-                >
-                  {sec.label}
-                </button>
-              ))}
-              <Link
-                href="/engine"
-                className="ml-auto bg-tertiary text-black font-bold px-4 py-1.5 rounded flex items-center gap-1.5 hover:bg-amber-300 transition-colors shadow-[1px_1px_0px_#000000] shrink-0"
-              >
-                Propulsion Catalogue <ArrowRight size={11} />
-              </Link>
-            </div>
-          </div>
         </header>
+
+        {/* Sticky section nav: a sibling of the header, so it stays pinned for the whole page */}
+        <div className="sticky top-16 z-30 bg-background/90 backdrop-blur-md border-b border-outline-variant/30 overflow-x-auto">
+          <div className="max-w-7xl mx-auto px-4 py-2 flex items-center gap-1 whitespace-nowrap font-mono text-[10px] uppercase tracking-wider">
+            {SECTIONS.map((sec) => (
+              <button
+                key={sec.id}
+                onClick={() => scrollToSection(sec.id)}
+                aria-current={activeSection === sec.id ? "true" : undefined}
+                className={`px-3 py-1.5 rounded transition-colors ${
+                  activeSection === sec.id
+                    ? "text-tertiary bg-tertiary/10"
+                    : "text-on-surface-variant hover:text-tertiary hover:bg-white/5"
+                }`}
+              >
+                {sec.label}
+              </button>
+            ))}
+            <Link
+              href="/engine"
+              className="ml-auto bg-tertiary text-black font-bold px-4 py-1.5 rounded flex items-center gap-1.5 hover:brightness-110 transition-[filter] shadow-[1px_1px_0px_#000000] shrink-0"
+            >
+              Propulsion Catalogue <ArrowRight size={11} />
+            </Link>
+          </div>
+        </div>
 
         {/* ── CONTENT ───────────────────────────────────────────────────────── */}
         <div className="max-w-7xl mx-auto px-4 md:px-6 py-12 space-y-20 relative z-10">
@@ -349,7 +362,7 @@ export default function EngineInfoPage() {
               </div>
 
               {/* Critical correction card */}
-              <div className="border border-amber-500/40 bg-surface/80 p-5 rounded-lg shadow-[2px_2px_0px_#000000] flex flex-col gap-3">
+              <div className="border border-tertiary/35 bg-surface/80 p-5 rounded-lg shadow-[2px_2px_0px_#000000] flex flex-col gap-3">
                 <div className="flex items-center gap-2 font-mono text-[10px] font-bold text-tertiary uppercase tracking-widest">
                   <AlertTriangle size={14} />
                   SPEC CORRECTION
@@ -377,7 +390,7 @@ export default function EngineInfoPage() {
           </section>
 
           {/* 02 · ENGINE PROFILES ───────────────────────────────────────────── */}
-          <section id="engines" className="scroll-mt-28">
+          <section id="engines" className="scroll-mt-28 ei-reveal">
             <SectionHeader code="02–05 // PROPULSION">Technical Engine Profiles</SectionHeader>
 
             {/* Tab switcher */}
@@ -386,7 +399,8 @@ export default function EngineInfoPage() {
                 <button
                   key={eng.id}
                   onClick={() => setActiveEngineIndex(idx)}
-                  className={`px-3 py-2 rounded font-bold transition-all ${
+                  aria-pressed={activeEngineIndex === idx}
+                  className={`px-3 py-2 rounded font-bold transition-colors ${
                     activeEngineIndex === idx
                       ? "bg-tertiary text-black shadow-[2px_2px_0px_#000000]"
                       : "border border-outline-variant/40 text-on-surface-variant hover:border-tertiary/50 hover:text-primary"
@@ -417,13 +431,13 @@ export default function EngineInfoPage() {
                     <div>
                       <span className="text-on-surface-variant/50 text-[9px] block uppercase tracking-wider">AI STATUS</span>
                       <span className="font-bold text-primary flex items-center gap-1.5">
-                        <span className={`h-1.5 w-1.5 rounded-full ${selectedEngine.aiValid ? "bg-tertiary animate-pulse" : "bg-neutral-500"}`} />
-                        {selectedEngine.aiStatus}
+                        <span className={`h-1.5 w-1.5 rounded-full ${trained ? "bg-tertiary animate-pulse" : "bg-on-surface-variant/60"}`} />
+                        {trained ? "AI READY · V4 MODELS LIVE" : "AI TRAINING · 914 MODELS STAND IN"}
                       </span>
                     </div>
                     <button
                       onClick={() => router.push(`/simulate?engine=${selectedEngine.id}`)}
-                      className="bg-tertiary text-black text-[10px] font-bold px-3 py-1.5 rounded flex items-center gap-1 hover:bg-amber-300 transition-colors uppercase tracking-wider shadow-[1px_1px_0px_#000000]"
+                      className="bg-tertiary text-black text-[10px] font-bold px-3 py-1.5 rounded flex items-center gap-1 hover:brightness-110 active:translate-y-px transition-[filter,transform] uppercase tracking-wider shadow-[1px_1px_0px_#000000]"
                     >
                       <Zap size={11} /> Launch
                     </button>
@@ -431,7 +445,7 @@ export default function EngineInfoPage() {
                 </div>
 
                 {/* Specs panel */}
-                <div className="lg:col-span-7 p-6 flex flex-col gap-5">
+                <div key={selectedEngine.id} className="ei-swap lg:col-span-7 p-6 flex flex-col gap-5">
                   <div>
                     <div className="flex items-start justify-between gap-3 mb-1">
                       <span className="font-mono text-[10px] font-bold text-tertiary tracking-widest uppercase">{selectedEngine.role}</span>
@@ -452,7 +466,7 @@ export default function EngineInfoPage() {
                       <span className="font-mono text-[11px] font-bold text-primary">{selectedEngine.powerPct.toFixed(0)}%</span>
                     </div>
                     <div className="h-1.5 bg-outline-variant/25 rounded-full overflow-hidden">
-                      <div className="h-full bg-tertiary rounded-full transition-all duration-500" style={{ width: `${selectedEngine.powerPct}%` }} />
+                      <div className="ei-bar h-full w-full bg-tertiary rounded-full" style={{ transform: `scaleX(${selectedEngine.powerPct / 100})` }} />
                     </div>
                   </div>
 
@@ -491,7 +505,7 @@ export default function EngineInfoPage() {
                     </div>
                     <div className="border-l-2 border-outline-variant/50 bg-white/[0.02] p-3 pl-4 rounded-r-lg">
                       <span className="text-on-surface-variant/50 font-bold uppercase tracking-wider block text-[9px] mb-1">SIGNAL CHAIN</span>
-                      <div className="text-amber-300/90 tracking-wide text-[11px]">{selectedEngine.signalChain}</div>
+                      <div className="text-tertiary/90 tracking-wide text-[11px]">{selectedEngine.signalChain}</div>
                     </div>
                   </div>
 
@@ -502,7 +516,7 @@ export default function EngineInfoPage() {
                     </span>
                     <Link
                       href={`/simulate?engine=${selectedEngine.id}`}
-                      className="shrink-0 flex items-center gap-2 bg-tertiary text-black font-bold uppercase px-5 py-2.5 rounded text-[10px] tracking-wider shadow-[2px_2px_0px_#000000] hover:-translate-y-0.5 hover:shadow-[4px_4px_0px_#000000] active:translate-y-0 transition-all"
+                      className="shrink-0 flex items-center gap-2 bg-tertiary text-black font-bold uppercase px-5 py-2.5 rounded text-[10px] tracking-wider shadow-[2px_2px_0px_#000000] hover:-translate-y-0.5 hover:shadow-[4px_4px_0px_#000000] active:translate-y-0 transition-[transform,box-shadow]"
                     >
                       <Zap size={13} className="fill-black" /> Configure in Simulator
                     </Link>
@@ -513,7 +527,7 @@ export default function EngineInfoPage() {
           </section>
 
           {/* 06 · COMPARATIVE MATRIX ────────────────────────────────────────── */}
-          <section id="comparison" className="scroll-mt-28">
+          <section id="comparison" className="scroll-mt-28 ei-reveal">
             <SectionHeader code="06 // BENCHMARKING">Comparative Engineering Matrix</SectionHeader>
             <p className="text-sm text-on-surface-variant mb-5">
               Comprehensive comparison across power, mass, induction technology, and power-to-mass ratios.
@@ -539,11 +553,13 @@ export default function EngineInfoPage() {
                     <tr
                       key={eng.id}
                       onClick={() => { setActiveEngineIndex(idx); scrollToSection("engines"); }}
-                      className="hover:bg-white/[0.03] transition-colors cursor-pointer"
+                      className={`transition-colors cursor-pointer ${activeEngineIndex === idx ? "bg-tertiary/[0.05]" : "hover:bg-white/[0.03]"}`}
                     >
-                      <td className="p-4 font-bold text-primary flex items-center gap-2">
-                        <span className="h-1.5 w-1.5 rounded-full bg-tertiary shrink-0" />
-                        {eng.name}
+                      <td className="p-4 font-bold text-primary whitespace-nowrap">
+                        <span className="flex items-center gap-2">
+                          <span className="h-1.5 w-1.5 rounded-full bg-tertiary shrink-0" />
+                          {eng.name}
+                        </span>
                       </td>
                       <td className="p-4 text-primary font-bold">{eng.powerHp}</td>
                       <td className="p-4 text-on-surface-variant">{eng.powerKw}</td>
@@ -567,7 +583,7 @@ export default function EngineInfoPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {[
                 { title: "POWER PROGRESSION (HP)", icon: <BarChart3 size={14} className="text-tertiary" />, bars: ENGINE_SPECS.map(e => ({ label: e.name, value: e.powerHp, pct: (e.powerHp / 160) * 100, text: `${e.powerHp} HP / ${e.powerKw} kW` })), color: "bg-tertiary" },
-                { title: "POWER-TO-MASS (HP/KG)", icon: <Gauge size={14} className="text-tertiary" />, bars: ENGINE_SPECS.map(e => ({ label: e.name, value: parseFloat(e.powerToMass), pct: ((parseFloat(e.powerToMass) - 1.5) / 0.4) * 100, text: e.powerToMass })), color: "bg-amber-400/80" },
+                { title: "POWER-TO-MASS (HP/KG)", icon: <Gauge size={14} className="text-tertiary" />, bars: ENGINE_SPECS.map(e => ({ label: e.name, value: parseFloat(e.powerToMass), pct: ((parseFloat(e.powerToMass) - 1.5) / 0.4) * 100, text: e.powerToMass })), color: "bg-tertiary/60" },
               ].map((chart) => (
                 <div key={chart.title} className="border border-outline-variant/30 bg-surface/80 p-5 rounded-lg shadow-[2px_2px_0px_#000000]">
                   <div className="flex items-center justify-between mb-4">
@@ -582,7 +598,7 @@ export default function EngineInfoPage() {
                           <span className="text-tertiary font-bold">{bar.text}</span>
                         </div>
                         <div className="h-1.5 bg-outline-variant/25 rounded-full overflow-hidden">
-                          <div className={`h-full rounded-full ${chart.color}`} style={{ width: `${bar.pct}%` }} />
+                          <div className={`ei-bar h-full w-full rounded-full ${chart.color}`} style={{ transform: `scaleX(${bar.pct / 100})` }} />
                         </div>
                       </div>
                     ))}
@@ -593,7 +609,7 @@ export default function EngineInfoPage() {
           </section>
 
           {/* 07 · PHYSICS ───────────────────────────────────────────────────── */}
-          <section id="physics" className="scroll-mt-28">
+          <section id="physics" className="scroll-mt-28 ei-reveal">
             <SectionHeader code="07 // MATH">Physics Formulations</SectionHeader>
             <p className="text-sm text-on-surface-variant mb-5 max-w-4xl">
               The strongest architecture is a <strong className="text-primary">hybrid physics + AI model</strong>. Deterministic conservation
@@ -605,7 +621,7 @@ export default function EngineInfoPage() {
                 <div key={f.label} className={`border p-4 rounded-lg font-mono ${f.highlight ? "border-tertiary/40 bg-tertiary/5" : "border-outline-variant/30 bg-surface/80"}`}>
                   <span className="text-[9px] text-tertiary uppercase tracking-wider block mb-1">{f.label}</span>
                   <div className={`text-xl font-bold py-2 ${f.highlight ? "text-tertiary" : "text-primary"}`}>{f.formula}</div>
-                  <p className={`text-[11px] ${f.highlight ? "text-amber-200/80" : "text-on-surface-variant"}`}>{f.note}</p>
+                  <p className={`text-[11px] ${f.highlight ? "text-primary/75" : "text-on-surface-variant"}`}>{f.note}</p>
                 </div>
               ))}
             </div>
@@ -624,7 +640,7 @@ export default function EngineInfoPage() {
           </section>
 
           {/* 08 · AI DIGITAL-TWIN ───────────────────────────────────────────── */}
-          <section id="ai-twin" className="scroll-mt-28">
+          <section id="ai-twin" className="scroll-mt-28 ei-reveal">
             <SectionHeader code="08 // ML PIPELINE">AI Digital-Twin Architecture</SectionHeader>
             <p className="text-sm text-on-surface-variant mb-5">
               One TCN encoder over the window feeds four classification heads; RUL gets its own branch
@@ -661,7 +677,7 @@ export default function EngineInfoPage() {
                         "Fault types: Bias, Drift, Spike, Stuck-At, Noise",
                         "RUL: LSTM + window statistics, started at a ridge fit",
                       ].map((item, i) => (
-                        <li key={item} className={`flex items-start gap-1.5 font-bold text-[11px] ${i < 5 ? "text-tertiary" : i === 5 ? "text-on-surface-variant/70" : "text-amber-300/80"}`}>
+                        <li key={item} className={`flex items-start gap-1.5 font-bold text-[11px] ${i < 5 ? "text-tertiary" : "text-on-surface-variant/70"}`}>
                           <CheckCircle2 size={11} className="shrink-0 mt-0.5" />{item}
                         </li>
                       ))}
@@ -673,13 +689,13 @@ export default function EngineInfoPage() {
               {/* Training stages */}
               <div className="border border-outline-variant/30 bg-surface/80 rounded-lg p-5 font-mono text-xs">
                 <div className="flex items-center gap-2 text-tertiary font-bold uppercase tracking-wider mb-4 text-[10px]">
-                  <Layers size={14} /> TRAINING PROGRESSION — ALL STAGES COMPLETE
+                  <Layers size={14} /> TRAINING PROGRESSION — {STAGES.filter((st) => st.done).length} OF {STAGES.length} DEPLOYED
                 </div>
                 <div className="space-y-3">
                   {STAGES.map((stage, idx) => (
-                    <div key={stage.label} className="flex items-start gap-3 p-3 rounded-lg border border-emerald-500/25 bg-black/30">
-                      <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-bold text-[9px] shrink-0 mt-0.5">
-                        S{idx + 1} ✓
+                    <div key={stage.label} className={`flex items-start gap-3 p-3 rounded-lg border bg-black/30 ${stage.done ? "border-tertiary/30" : "border-outline-variant/30"}`}>
+                      <span className={`px-2 py-0.5 rounded font-bold text-[9px] shrink-0 mt-0.5 ${stage.done ? "bg-tertiary/15 text-tertiary" : "bg-white/5 text-on-surface-variant"}`}>
+                        S{idx + 1} {stage.done ? "LIVE" : "TRAINING"}
                       </span>
                       <div>
                         <strong className="text-primary block text-[11px] mb-0.5">{stage.label}</strong>
@@ -693,7 +709,7 @@ export default function EngineInfoPage() {
           </section>
 
           {/* 09 · SOFTWARE ARCHITECTURE ─────────────────────────────────────── */}
-          <section id="architecture" className="scroll-mt-28">
+          <section id="architecture" className="scroll-mt-28 ei-reveal">
             <SectionHeader code="09 // SYSTEM">Software Architecture</SectionHeader>
             <p className="text-sm text-on-surface-variant mb-5 max-w-4xl">
               Do not implement four unrelated engine simulators. Use one common engine interface with engine-specific parameter sets, maps, and subsystem models.
@@ -745,7 +761,7 @@ export default function EngineInfoPage() {
           </section>
 
           {/* 10 · UAV SIMULATION ────────────────────────────────────────────── */}
-          <section id="uav" className="scroll-mt-28">
+          <section id="uav" className="scroll-mt-28 ei-reveal">
             <SectionHeader code="10 // AERODYNAMICS">UAV Simulation Implications</SectionHeader>
             <p className="text-sm text-on-surface-variant mb-5 max-w-4xl">
               Engine choice affects much more than top speed — mass changes CG envelopes, torque drives propeller thrust curves, altitude changes usable climb power, and fuel burn determines payload endurance.
@@ -761,7 +777,7 @@ export default function EngineInfoPage() {
               ))}
             </div>
 
-            <div className="border border-amber-500/30 bg-amber-950/20 p-4 rounded-lg font-mono text-xs flex items-start gap-3">
+            <div className="border border-tertiary/25 bg-tertiary/[0.06] p-4 rounded-lg font-mono text-xs flex items-start gap-3">
               <Plane size={16} className="text-tertiary shrink-0 mt-0.5" />
               <div>
                 <strong className="text-tertiary uppercase tracking-wider block mb-1">CRITICAL PROPULSION RULE:</strong>
@@ -775,7 +791,7 @@ export default function EngineInfoPage() {
           </section>
 
           {/* 12 · VALIDATION ────────────────────────────────────────────────── */}
-          <section id="validation" className="scroll-mt-28">
+          <section id="validation" className="scroll-mt-28 ei-reveal">
             <SectionHeader code="12 // QA">Validation Strategy</SectionHeader>
             <p className="text-sm text-on-surface-variant mb-5 max-w-4xl">
               A professional aerospace simulator must distinguish between OEM certified specifications, measured test-bench data,
@@ -798,7 +814,7 @@ export default function EngineInfoPage() {
           </section>
 
           {/* 13 · SOURCES & LAUNCH ──────────────────────────────────────────── */}
-          <section id="sources" className="scroll-mt-28">
+          <section id="sources" className="scroll-mt-28 ei-reveal">
             <SectionHeader code="13–14 // REFS">Sources & Launch</SectionHeader>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -839,7 +855,7 @@ export default function EngineInfoPage() {
                   </Link>
                   <Link
                     href="/simulate?engine=Rotax_914_ULF"
-                    className="flex items-center justify-center gap-2 bg-tertiary text-black text-[10px] font-bold uppercase px-5 py-3 rounded text-center font-mono tracking-wider shadow-[2px_2px_0px_#000000] hover:-translate-y-0.5 hover:shadow-[4px_4px_0px_#000000] active:translate-y-0 transition-all"
+                    className="flex items-center justify-center gap-2 bg-tertiary text-black text-[10px] font-bold uppercase px-5 py-3 rounded text-center font-mono tracking-wider shadow-[2px_2px_0px_#000000] hover:-translate-y-0.5 hover:shadow-[4px_4px_0px_#000000] active:translate-y-0 transition-[transform,box-shadow]"
                   >
                     <Zap size={13} className="fill-black" /> Launch 914 Digital Twin
                   </Link>

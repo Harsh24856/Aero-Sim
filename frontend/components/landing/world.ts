@@ -959,7 +959,9 @@ export async function createWorld(o: WorldOptions): Promise<World> {
     }
 
     const prog = getProgress();
-    RIG.smooth = reduce ? prog : damp(RIG.smooth, prog, 4.6, dt);
+    /* the page scroll is already eased (Lenis) on desktop, so the camera only
+       needs a light follow there; touch scroll is raw and gets the heavier one */
+    RIG.smooth = reduce ? prog : damp(RIG.smooth, prog, coarse ? 4.6 : 6.5, dt);
     RIG.mx = damp(RIG.mx, RIG.tmx, 2.4, dt);
     RIG.my = damp(RIG.my, RIG.tmy, 2.4, dt);
     if (INTRO.t0) {
