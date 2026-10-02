@@ -4,8 +4,9 @@
  "model_version": "v5",
  "labels": "v5b",
  "run": "914b",
- "git_sha": "ddc92e4",
- "exported": "2026-10-02T11:12:27",
+ "git_sha": "56a57d9",
+ "git_dirty": false,
+ "exported": "2026-10-02T15:22:46",
  "tbo_hours": 2000.0,
  "window": 128,
  "feature_cols": [
