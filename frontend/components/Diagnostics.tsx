@@ -1,5 +1,5 @@
 import { AlertTriangle, CheckCircle2, FileText, Wrench } from "lucide-react";
-import { flightHours, formatLifeScale, formatSimClock } from "@/lib/timeScale";
+import { flightHours, formatLifeScale, formatSimClock, isV4Family } from "@/lib/timeScale";
 import DiagnosticsV4 from "@/components/DiagnosticsV4";
 import type { AiResultV4Fields, V4Engine, V4Truth } from "@/lib/v4";
 
@@ -147,7 +147,7 @@ const AI_CHANNELS = [
 // telemetry, and this panel's actual job is the AI's diagnosis, not duplicating
 // raw sensor readouts.
 export default function Diagnostics({ ai = null, advisory = null, residuals = null, physicsVersion, link, engineHours, simStatus = null, simSeconds, dataSource, onZeroSensors, frame = null, truth = null, engine = null }: DiagnosticsProps) {
-  const v4 = ai?.model_version === "v4" || physicsVersion === "v4";
+  const v4 = isV4Family(ai?.model_version) || isV4Family(physicsVersion);   // v5 answers in v4's shape
   const v3 = !v4 && (ai?.model_version === "v3" || physicsVersion === "v3");
   const labelOf = (c: string) => residuals?.channels?.[c]?.label ?? c;
   const advisoryCard = (
@@ -301,7 +301,7 @@ export default function Diagnostics({ ai = null, advisory = null, residuals = nu
           </div>
         )}
 
-        {residuals?.enabled && residuals.version !== "v4" && (
+        {residuals?.enabled && !isV4Family(residuals.version) && (
           <article className="border border-[#352722] bg-[#0d0e0d] p-2">
             <div className="flex items-center justify-between text-[7px] uppercase tracking-[0.11em] text-[#bca18e] md:text-[9px]">
               <span>Physics Residuals</span>

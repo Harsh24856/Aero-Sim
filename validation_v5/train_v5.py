@@ -336,8 +336,12 @@ class Trainer:
         for j in app:
             if y["diagnosis"][:, j].sum() == 0:
                 continue
-            f1 = [E.prf(y["diagnosis"][:, j], pc[:, j] >= c)[2] for c in grid_c]
-            cuts[j] = float(grid_c[int(np.argmax(f1))])
+            prf = [E.prf(y["diagnosis"][:, j], pc[:, j] >= c) for c in grid_c]
+            f1 = np.array([x[2] for x in prf])
+            # cfg "min_recall": best F1 among cut-offs that keep this recall (the gate's
+            # per-fault floor is 0.5); none reach it -> plain best F1.
+            ok = np.array([x[1] >= self.cfg.get("min_recall", 0.0) for x in prf])
+            cuts[j] = float(grid_c[int(np.argmax(np.where(ok, f1, -1.0) if ok.any() else f1))])
         return {"temperature": temps.tolist(), "cutoffs": cuts.tolist(),
                 "val_ece_after": E.ece(y["diagnosis"][:, app], pc[:, app]),
                 "val_ece_before": E.ece(y["diagnosis"][:, app], o["diagnosis"][:, app])}

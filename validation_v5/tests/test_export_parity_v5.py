@@ -46,20 +46,20 @@ class TestExportParity(unittest.TestCase):
         ref = sp({"seq": self.seq, "ctx": self.ctx})
         got = self.dep({"seq": self.seq, "ctx": self.ctx})
         os.makedirs(os.path.dirname(REF), exist_ok=True)
-        np.savez(REF, **{k: np.asarray(v) for k, v in ref.items()})
-        for k in ref:
-            d = float(np.abs(np.asarray(ref[k]) - np.asarray(got[k])).max())
-            self.assertLess(d, 1e-5, f"{k}: export differs from training by {d}")
+        np.savez(REF, _exported=np.array(self.dep.manifest["exported"]), **{k: np.asarray(v) for k, v in ref.items()})
+        for k in ref:      # relative too: sensor logits reach ~200, where float32 rounding is ~1e-5
+            np.testing.assert_allclose(np.asarray(got[k]), np.asarray(ref[k]), rtol=1e-6, atol=1e-5, err_msg=k)
 
     def test_device_parity_against_saved_reference(self):
         f = REF
         if not os.path.exists(f):
             self.skipTest("run once on the GPU first to save the reference")
         ref = np.load(f)
+        if "_exported" not in ref.files or str(ref["_exported"]) != self.dep.manifest["exported"]:
+            self.skipTest("reference is from an older export - rerun on the GPU to refresh it")
         got = self.dep({"seq": self.seq, "ctx": self.ctx})
-        for k in ref.files:
-            d = float(np.abs(ref[k] - np.asarray(got[k])).max())
-            self.assertLess(d, 1e-4, f"{k}: differs from the GPU reference by {d}")
+        for k in [k for k in ref.files if k != "_exported"]:
+            np.testing.assert_allclose(np.asarray(got[k]), ref[k], rtol=1e-5, atol=1e-4, err_msg=k)
 
     def test_scaling_matches_cache(self):
         """Raw 1 Hz rows scaled by Deployed == what the cache stored."""

@@ -1,6 +1,7 @@
 "use client";
 
 import { type RawTelemetry, SENSOR_FIELDS, SENSOR_FIELDS_V4 } from "@/components/Meters";
+import { isV4Family } from "@/lib/timeScale";
 
 export type SensrProps = {
   rawTelemetry?: RawTelemetry | null;
@@ -20,7 +21,7 @@ export default function Sensr({
           All Sensors {rawTelemetry ? "" : "(waiting for data)"}
         </div>
         <div className="grid grid-cols-2 gap-1.5 pr-1">
-          {(rawTelemetry?.physics_version && rawTelemetry.physics_version !== "v4" ? SENSOR_FIELDS : SENSOR_FIELDS_V4).map(({ key, label, unit, decimals = 1, convert }) => {
+          {(rawTelemetry?.physics_version && !isV4Family(rawTelemetry.physics_version) ? SENSOR_FIELDS : SENSOR_FIELDS_V4).map(({ key, label, unit, decimals = 1, convert }) => {
             const raw = rawTelemetry?.[key];
             const value = typeof raw === "number" && convert ? convert(raw) : raw;
             return (

@@ -20,7 +20,8 @@ EACH FLIGHT SECOND (POST /step)
 
 DEVICE. v5 builds ReLU as max(z, 0) (model_architectures_v5.relu): the Metal graph
 bug that tied v3/v4 to the GPU does not apply, and tests/test_export_parity_v5.py
-shows the CPU matching the GPU. Either device is validated.
+shows the CPU matching the GPU. Serves on the CPU by default (faster at batch 1);
+AERO_AI_DEVICE=gpu for the GPU.
 
 PLACEHOLDERS. As aiv4: an engine without its own export is served by the 914's, and
 every response says so.
@@ -41,8 +42,16 @@ sys.path.insert(0, os.path.join(ROOT, "validation_v5"))
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
 
 import tensorflow as tf                                        # noqa: E402
-if os.environ.get("AERO_AI_DEVICE", "").lower() == "cpu":
+from threadpoolctl import threadpool_limits                    # noqa: E402
+# CPU by default: one window at a time is latency-bound, and measured on the 914 export
+# the CPU answers in ~42 ms against ~154 ms on the Metal GPU (kernel launches dominate at
+# batch 1). The CPU is validated for v5 (tests/test_export_parity_v5.py). AERO_AI_DEVICE=gpu
+# selects the GPU.
+if os.environ.get("AERO_AI_DEVICE", "cpu").lower() != "gpu":
     tf.config.set_visible_devices([], "GPU")
+# The tree models (stackers, RUL) start an OpenMP pool per call: 116 ms of a single-row
+# prediction was thread start-up. One thread: ~2 ms.
+threadpool_limits(1)
 
 import features_v5 as F                                        # noqa: E402
 import physics_v5 as V                                         # noqa: E402
@@ -60,7 +69,7 @@ MODELS_ROOT = os.path.join(BACKEND_DIR, "models_v5")
 PLACEHOLDER_KEY = "914"
 ENGINE_REGISTRY = {"Rotax_912_ULS": "912", "Rotax_914_ULF": "914",
                    "Rotax_915_iS": "915", "Rotax_916_iS": "916"}
-DEVICE = "GPU" if tf.config.list_physical_devices("GPU") else "CPU"
+DEVICE = "GPU" if tf.config.get_visible_devices("GPU") else "CPU"     # AERO_AI_DEVICE=cpu hides the GPU
 MARGIN_CHANNELS = ["egt", "cht", "oil_temp", "oil_pressure", "engine_rpm"]
 # Offline RUL smoothing steps once per scored window (every 64 s) with alpha 0.2; live
 # it steps every second, so the per-second alpha gives the same time constant.

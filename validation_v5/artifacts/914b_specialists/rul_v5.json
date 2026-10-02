@@ -1,28 +1,28 @@
 {
  "candidates": {
   "gbt": {
-   "wear_limited_mae_pct": 11.824020312315596,
-   "tbo_limited_mae_pct": 4.522689773159082,
+   "wear_limited_mae_pct": 11.615044089752086,
+   "tbo_limited_mae_pct": 4.197482912028786,
    "calendar_wear_limited_mae_pct": 26.889206193524522,
-   "all_mae_pct": 6.7077519322409795,
-   "gain_vs_calendar": 0.5602688964777598,
-   "within_flight_rises_gt_2pct": 1325
+   "all_mae_pct": 6.417329302381434,
+   "gain_vs_calendar": 0.5680406477544424,
+   "within_flight_rises_gt_2pct": 1368
   },
   "mlp": {
-   "wear_limited_mae_pct": 12.95423824856597,
-   "tbo_limited_mae_pct": 5.034966750035158,
+   "wear_limited_mae_pct": 12.709745012876155,
+   "tbo_limited_mae_pct": 5.858475154779596,
    "calendar_wear_limited_mae_pct": 26.889206193524522,
-   "all_mae_pct": 7.404959504935762,
-   "gain_vs_calendar": 0.5182364940291313,
-   "within_flight_rises_gt_2pct": 2210
+   "all_mae_pct": 7.908848087260839,
+   "gain_vs_calendar": 0.5273291103722904,
+   "within_flight_rises_gt_2pct": 2549
   },
   "gated_gbt": {
-   "wear_limited_mae_pct": 12.443609373345353,
-   "tbo_limited_mae_pct": 3.1482535964346763,
+   "wear_limited_mae_pct": 12.173432512331837,
+   "tbo_limited_mae_pct": 2.952222798926444,
    "calendar_wear_limited_mae_pct": 26.889206193524522,
-   "all_mae_pct": 5.9300657681210245,
-   "gain_vs_calendar": 0.5372266000049479,
-   "within_flight_rises_gt_2pct": 1257,
+   "all_mae_pct": 5.7118453495921555,
+   "gain_vs_calendar": 0.5472743812250043,
+   "within_flight_rises_gt_2pct": 1263,
    "threshold": 0.05
   }
  },

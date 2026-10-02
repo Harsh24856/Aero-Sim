@@ -63,8 +63,11 @@ def rul_inputs(o: dict, seq: np.ndarray, ctx: np.ndarray, contract: dict) -> np.
     - one definition for fitting, scoring and serving."""
     marg = measured_margin(contract, seq)
     thr_mean = seq[:, :, F.FEATURE_COLS.index("throttle")].mean(1)
+    # Engine-fault evidence only: `detection` also fires on SENSOR faults, and fed to
+    # RUL it took 7-14% off a healthy engine's life when one instrument failed.
+    engine_fault = np.asarray(o["diagnosis"]).max(1, keepdims=True)
     return np.concatenate([np.asarray(o["health"]), np.asarray(o["severity"]),
-                           np.asarray(o["detection"]), np.asarray(o["family"]),
+                           engine_fault, np.asarray(o["family"]),
                            marg[:, None], thr_mean[:, None], ctx], 1)
 
 

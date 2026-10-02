@@ -1,8 +1,10 @@
+// Physics v4 and v5 on the frontend. backend/aiv5.py answers in aiv4's shape plus the
+// v5 fields below, so one panel and one set of labels serve both.
 // Physics v4 on the frontend: the AI result shape (backend/aiv4.py), the twin's
 // per-frame extras (backend/twin_v4.py) and the names shown for faults and sensors.
 // One place, so the live cockpit, the replay and the reports all read the same words.
 
-export type V4FaultMode = { probability: number; present: boolean; threshold: number; severity: number };
+export type V4FaultMode = { probability: number; present: boolean; threshold: number; severity: number; family?: string };
 export type V4Sensor = { condition: string; confidence: number };
 
 /** The v4 fields of an AI result (on top of the v2/v3 AiResult in Diagnostics.tsx). */
@@ -17,7 +19,20 @@ export type AiResultV4Fields = {
   margin_min?: number;                // operating margin to the nearest certified limit, 0..1
   rul_calendar_hours?: number;        // TBO minus engine hours: the "just count down" answer
   wear_limited?: boolean;             // wear ends life before the overhaul date
+  // ---- v5 only ----
+  model_version?: string;
+  labels?: string;                    // "v5b": severity is EFFECTIVE, small sensor offsets count as none
+  families?: Record<string, number>;  // fault-family probabilities
+  families_present?: string[];        // families called - the answer when no single fault clears its cut-off
+  severity_kind?: string;             // "effective": the share of the fault's full effect the engine shows
+  context_settling?: boolean;         // the 60-minute context is still filling
 };
+
+export const FAMILY_LABELS: Record<string, string> = {
+  induction: "Induction / turbo", cylinder: "Cylinders / valves", fuel_ignition: "Fuel & ignition",
+  oil: "Oil system", cooling: "Cooling", propeller: "Propeller",
+};
+export const familyLabel = (k: string) => FAMILY_LABELS[k] ?? k.replace(/_/g, " ");
 
 /** What the twin knows and the AI does not - shown as the ground-truth panel. */
 export type V4Truth = {
@@ -30,6 +45,7 @@ export type V4Truth = {
   rul_hours?: number;
   rul_calendar_hours?: number;
   wear_limited?: boolean;
+  severity_kind?: string;             // v5: "effective"
 };
 
 /** The engine being flown (main.py engine_summary, in every v4 frame). */

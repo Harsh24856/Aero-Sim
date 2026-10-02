@@ -6,7 +6,7 @@ import {
   ResponsiveContainer, ReferenceLine,
 } from "recharts";
 import { Play, Pause, SkipBack, SkipForward, AlertTriangle } from "lucide-react";
-import { flightHours, formatSimClock, type ModelVersion } from "@/lib/timeScale";
+import { flightHours, formatSimClock, isV4Family, type ModelVersion } from "@/lib/timeScale";
 import { faultLabel } from "@/lib/v4";
 import { formatAirspeed, formatAirspeedSecondary, formatAltitude, formatAltitudeFeet } from "@/lib/units";
 
@@ -71,7 +71,7 @@ function fmt(v: number | null | undefined, digits = 1, suffix = ""): string {
 }
 
 export default function MissionReplay({ rows, modelVersion = "v2" }: { rows: ReplayRow[]; modelVersion?: ModelVersion }) {
-  const v4 = modelVersion === "v4";
+  const v4 = isV4Family(modelVersion);
   const [idx, setIdx] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
