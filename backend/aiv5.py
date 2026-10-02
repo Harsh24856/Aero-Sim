@@ -15,7 +15,7 @@ EACH FLIGHT SECOND (POST /step)
      the training cache did (float16 rounding included);
   2. five specialists + the assembly (detection / health stackers, sensor bias,
      severity gate), calibrated diagnosis probabilities and per-fault cut-offs;
-  3. RUL from the assembled outputs, smoothed within the flight (never rises);
+  3. RUL from the assembled outputs (main.smooth_rul smooths it in flight);
   out: aiv4's response shape plus v5 fields (families, severity_kind, labels).
 
 DEVICE. v5 builds ReLU as max(z, 0) (model_architectures_v5.relu): the Metal graph
@@ -30,6 +30,11 @@ import json
 import os
 import sys
 from collections import deque
+
+# Before numpy / sklearn load OpenMP: request threads (FastAPI runs /step in a worker
+# pool) do not inherit a limit set later on the import thread - measured 78 ms per
+# inference there against 14 ms single-threaded.
+os.environ.setdefault("OMP_NUM_THREADS", "1")
 
 import numpy as np
 import uvicorn
@@ -71,9 +76,6 @@ ENGINE_REGISTRY = {"Rotax_912_ULS": "912", "Rotax_914_ULF": "914",
                    "Rotax_915_iS": "915", "Rotax_916_iS": "916"}
 DEVICE = "GPU" if tf.config.get_visible_devices("GPU") else "CPU"     # AERO_AI_DEVICE=cpu hides the GPU
 MARGIN_CHANNELS = ["egt", "cht", "oil_temp", "oil_pressure", "engine_rpm"]
-# Offline RUL smoothing steps once per scored window (every 64 s) with alpha 0.2; live
-# it steps every second, so the per-second alpha gives the same time constant.
-RUL_ALPHA_PER_S = 1.0 - (1.0 - 0.2) ** (1.0 / 64.0)
 CONTEXT_SETTLED_S = 3600.0          # the 60-minute EMA needs about this long
 
 if list(twin_v5.FEATURE_COLS) != list(F.FEATURE_COLS):
@@ -130,13 +132,13 @@ print("Models warmed.")
 # FLIGHT STATE
 # ============================================================================
 class Flight:
-    """The rolling 128 s window of raw features, the latest context and the RUL
-    smoother - everything that belongs to one flight on one engine."""
+    """The rolling 128 s window of raw features and the latest context. RUL is
+    returned as the model gives it: main.smooth_rul smooths it in flight, and knows
+    to discard take-off windows (a smoother here locked those low guesses in)."""
 
     def __init__(self):
         self.rows: deque = deque(maxlen=F.WINDOW)
         self.last: dict = {}
-        self.rul = rul_v5.RulSmoother(alpha=RUL_ALPHA_PER_S)
 
     def update(self, raw: dict) -> None:
         self.rows.append([float(raw[c]) for c in F.FEATURE_COLS])
@@ -161,7 +163,7 @@ def run_inference(e=None) -> dict:
     seq = dep.scale_seq(np.asarray(flight.rows))
     ctx = dep.scale_ctx(np.asarray(last["ai_context"], np.float64))
     hours = float(last["engine_hours"])
-    o = dep.predict_window(seq, ctx, hours)
+    o = dep.predict_window(seq, ctx, hours, tbo=e["tbo_hours"])     # placeholders: this engine's TBO
 
     prob = apply_temperature(o["diagnosis"][None], e["temps"])[0]
     faults = {}
@@ -184,7 +186,7 @@ def run_inference(e=None) -> dict:
     margin = e["margin_engine"].margins({c: last[c] for c in MARGIN_CHANNELS})["health_index"]
     tbo, calendar = e["tbo_hours"], float(o["rul_calendar_hours"])
     raw_rul = float(o["rul_hours"])
-    rul = min(flight.rul.update(raw_rul, hours), calendar)
+    rul = min(raw_rul, calendar)
     present = [n for n, f in faults.items() if f["present"]]
     t_flight = float(last.get("time", 0.0))
     return {

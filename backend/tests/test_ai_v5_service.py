@@ -54,9 +54,49 @@ class TestAiV5(unittest.TestCase):
         for f in r["fault_modes"].values():
             self.assertIn("family", f)
 
-    def test_rul_never_rises_within_flight(self):
-        ruls = [r["rul_hours"] for r in self.results if r["status"] == "ok"]
-        self.assertTrue(all(b <= a + 1e-9 for a, b in zip(ruls, ruls[1:])))
+    def test_rul_is_the_models_own_value(self):
+        """In-flight smoothing is main.smooth_rul's job (it knows about the take-off
+        hold); a second smoother here locked ground-roll predictions in."""
+        from unittest import mock
+        aiv5.select_engine({"engine_model": "Rotax_914_ULF"})
+        for p in self.flight[:128]:                      # its own full window, whatever ran before
+            aiv5.flight.update(p)
+        e = aiv5.loaded_engines["Rotax_914_ULF"]
+        real = e["dep"].predict_window
+        outs = iter([300.0, 900.0])                      # a low ground-roll guess, then the real one
+
+        def fake(seq, ctx, hours, tbo=None):
+            o = real(seq, ctx, hours, tbo) if tbo is not None else real(seq, ctx, hours)
+            return {**o, "rul_hours": next(outs), "rul_calendar_hours": 1500.0}
+        with mock.patch.object(e["dep"], "predict_window", side_effect=fake):
+            aiv5.run_inference()
+            r = aiv5.run_inference()
+        self.assertEqual(r["rul_hours"], 900.0)
+
+    def test_tree_models_single_threaded_in_request_threads(self):
+        """FastAPI runs /step in worker threads; an OpenMP limit set on the import
+        thread does not reach them (78 ms vs 14 ms per inference)."""
+        import threading
+        from threadpoolctl import threadpool_info
+        seen = []
+        th = threading.Thread(target=lambda: seen.extend(
+            p["num_threads"] for p in threadpool_info() if p.get("user_api") == "openmp"))
+        th.start(); th.join()
+        self.assertTrue(seen and all(n == 1 for n in seen), seen)
+
+    def test_placeholder_engine_uses_its_own_tbo(self):
+        """A 915 served by the 914 export: calendar and RUL on the 915's TBO."""
+        aiv5.select_engine({"engine_model": "Rotax_915_iS"})
+        try:
+            r = None
+            for p in self.flight[:128]:
+                r = aiv5.step(p)
+            tbo = aiv5.loaded_engines["Rotax_915_iS"]["tbo_hours"]
+            self.assertEqual(r["tbo_hours"], tbo)
+            self.assertAlmostEqual(r["rul_calendar_hours"], max(0.0, tbo - self.flight[127]["engine_hours"]), places=2)
+            self.assertLessEqual(r["rul_hours"], r["rul_calendar_hours"] + 1e-6)
+        finally:
+            aiv5.select_engine({"engine_model": "Rotax_914_ULF"})
 
     def test_live_equals_offline_assembly(self):
         """The service's window through Deployed directly gives the same heads."""
