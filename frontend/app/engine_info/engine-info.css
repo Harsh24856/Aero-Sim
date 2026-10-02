@@ -1,0 +1,31 @@
+/* Motion for the engine report. Transform and opacity only; all of it is
+   switched off for reduced motion. */
+
+/* the engine panel settles in when a different engine is picked */
+@keyframes ei-swap {
+  from { opacity: 0; transform: translate3d(0, 10px, 0); }
+  to { opacity: 1; transform: none; }
+}
+.ei-swap { animation: ei-swap 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+/* bars grow from the left by transform, never by width */
+.ei-bar { transform-origin: left; transition: transform 0.7s cubic-bezier(0.16, 1, 0.3, 1); }
+
+/* sections rise into place as they scroll in: scroll-driven, no JS.
+   Browsers without view timelines just show the section. */
+@supports (animation-timeline: view()) {
+  @keyframes ei-rise {
+    from { opacity: 0; transform: translate3d(0, 28px, 0); }
+    to { opacity: 1; transform: none; }
+  }
+  .ei-reveal {
+    animation: ei-rise linear both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 40%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ei-swap, .ei-reveal { animation: none; }
+  .ei-bar { transition: none; }
+}
