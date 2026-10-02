@@ -64,7 +64,7 @@ for i in range(0, len(ids), 2048):
     ok.append((fm.max(1) < 0.01) & (sf == 0).all(1))
 wm = np.concatenate(wm)[np.concatenate(ok)]
 fail = []
-for ch, bar in (('engine_rpm', 9.0), ('oil_pressure', 14.0), ('fuel_flow', 6.0))  # 914 full data: 7.8 / 12.0 / 4.3:
+for ch, bar in (('engine_rpm', 9.0), ('oil_pressure', 14.0), ('fuel_flow', 6.0)):  # 914 full data: 7.8 / 12.0 / 4.3
     q = float(np.quantile(np.abs(wm[:, F.RESIDUAL_COLS.index(f'res_{ch}')]), 0.99))
     print(f'  healthy q99 {ch:13s} {q:5.2f} sigma (bar {bar})')
     if q > bar: fail.append(ch)
