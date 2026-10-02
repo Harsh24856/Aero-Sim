@@ -119,7 +119,8 @@ def relabel_flight(g, ends_local: np.ndarray, faults: list, sensor_faults: list,
     return new
 
 
-def build(key: str, z_fault: float, z_sensor: float, per_channel_faults: bool = False) -> dict:
+def build(key: str, z_fault: float, z_sensor: float, per_channel_faults: bool = False,
+          z_effect_floor: float = 1.0) -> dict:
     p = run_v5.paths(key)
     dst = p["cache"] + "b"
     os.makedirs(dst, exist_ok=True)
@@ -135,7 +136,9 @@ def build(key: str, z_fault: float, z_sensor: float, per_channel_faults: bool = 
     col = {c: i for i, c in enumerate(END_COLS)}
     z_ch = {c: max(z_sensor, q) for c, q in healthy_offset_q99(src).items()}
     import features_v5 as F
-    z_eff = ({c: max(z_sensor, q) for c, q in healthy_offset_q99(src, channels=list(F.RESIDUAL_CHANNELS)).items()}
+    # Per-channel engine-fault bar: the channel's healthy spread, never below z_effect_floor
+    # (1 sigma = the v5 rule) - not z_sensor, which would raise the bar on quiet channels.
+    z_eff = ({c: max(z_effect_floor, q) for c, q in healthy_offset_q99(src, channels=list(F.RESIDUAL_CHANNELS)).items()}
              if per_channel_faults else None)
     touched = ["fault_present", "sensor_fault_any"] + [f"fm_{n}" for n in FAULT_NAMES] \
         + [f"fmv_{n}" for n in FAULT_NAMES] + [f"sf_{c}_flag" for c in FAULTABLE_CHANNELS]
@@ -174,7 +177,9 @@ if __name__ == "__main__":
     ap.add_argument("--per-channel-faults", action="store_true",
                     help="engine-fault visibility per instrument against its healthy spread (needs data "
                          "generated with the eff_<channel> columns; older data falls back to effect_z)")
+    ap.add_argument("--z-effect-floor", type=float, default=1.0,
+                    help="lowest per-channel engine-fault bar with --per-channel-faults (sigma)")
     ap.add_argument("--z-sensor", type=float, default=3.0,
                     help="floor for the per-channel sensor bias/drift threshold (sigma)")
     a = ap.parse_args()
-    print(build(a.engine, a.z_fault, a.z_sensor, a.per_channel_faults))
+    print(build(a.engine, a.z_fault, a.z_sensor, a.per_channel_faults, a.z_effect_floor))

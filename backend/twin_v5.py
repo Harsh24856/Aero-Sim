@@ -127,10 +127,12 @@ class UAVEngineTwinV5:
         mult = {f.name: f.depth / FAULT_MODES[f.name]["depth"] for f in self.deg.faults}
         return {n: v * mult.get(n, 1.0) for n, v in self.severity.items()}
 
-    def _read(self, o: dict, r: dict, hours: float) -> dict:
+    def _read(self, o: dict, r: dict, hours: float, new: bool = True) -> dict:
         meas, flag, _, _ = self.sensors.read(o, self.t)
         res = F.residuals(meas, r, self.turbo)
-        lh = self.lh.update(np.asarray(res) / RES_SIGMA)
+        # One context step per 1 Hz sample, as training's long_horizon_array: the
+        # display-only read at a flight's first physics step does not take one.
+        lh = self.lh.update(np.asarray(res) / RES_SIGMA) if new else self.lh.current()
         ctx = [float(v) for v in lh] + [hours / self.TBO_HOURS, float(self.eng.life_used_h),
                                          1.0 if TS.LIFE_SCALE > 1.0 else 0.0]
         m_meas = self.eng.margins({**o, **meas})
@@ -168,7 +170,7 @@ class UAVEngineTwinV5:
         if new:
             self.health, self.severity = self.deg.health_at(hours)
         if new or self._sample is None:
-            self._sample = self._read(o, r, hours)
+            self._sample = self._read(o, r, hours, new)
         s = self._sample
 
         out = dict(o)
@@ -217,6 +219,10 @@ class UAVEngineTwinV5:
                     setattr(engine, f, float(v))
         if ps.get("long_horizon") is not None:
             self.lh.state = np.asarray(ps["long_horizon"], dtype=np.float64)
+        # This flight's usage is a model input (the context's second-last value) and
+        # restarting it at 0 beside settled 60-minute averages never happens in training.
+        if isinstance(snap.get("life_used_hours"), (int, float)):
+            self.eng.life_used_h = float(snap["life_used_hours"])
         self.t = float(snap.get("time", 0.0))
         self._n = int(round(self.t / self.dt))
         self._sample = None

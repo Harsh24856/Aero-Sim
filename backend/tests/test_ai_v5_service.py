@@ -105,6 +105,15 @@ class TestAiV5(unittest.TestCase):
         o = dep({"seq": dep.scale_seq(rows)[None], "ctx": dep.scale_ctx(np.asarray(self.flight[-1]["ai_context"]))[None]})
         self.assertAlmostEqual(float(o["detection"][0, 0]), self.results[-1]["detection_confidence"], places=4)
 
+    def test_null_input_is_an_error_not_a_crash(self):
+        """A NaN in the twin reaches aiv5 as null (safety.json_safe)."""
+        p = dict(self.flight[-1])
+        p["egt"] = None
+        self.assertEqual(aiv5.step(p)["status"], "error")
+        p = dict(self.flight[-1])
+        p["ai_context"] = [None] * len(p["ai_context"])
+        self.assertEqual(aiv5.step(p)["status"], "error")
+
     def test_rejects_bad_payload(self):
         self.assertEqual(aiv5.step({"altitude": 1.0})["status"], "error")
 

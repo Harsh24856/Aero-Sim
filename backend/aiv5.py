@@ -224,14 +224,24 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 REQUIRED = F.FEATURE_COLS + ["ai_context", "engine_hours", "life_used_hours"]
 
 
+def _finite(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and np.isfinite(v)
+
+
 @app.post("/step")
 def step(payload: dict):
     missing = [c for c in REQUIRED if c not in payload]
     if missing:
         return {"status": "error", "model_version": MODEL_VERSION, "error": f"missing inputs {missing}"}
-    if len(payload["ai_context"]) != len(CTX_COLS):
+    ctx = payload["ai_context"]
+    if not isinstance(ctx, list) or len(ctx) != len(CTX_COLS):
         return {"status": "error", "model_version": MODEL_VERSION,
-                "error": f"ai_context has {len(payload['ai_context'])} values, expected {len(CTX_COLS)}"}
+                "error": f"ai_context must be {len(CTX_COLS)} numbers"}
+    # A NaN in the twin arrives as null (safety.json_safe): refuse it rather than crash.
+    bad = [c for c in F.FEATURE_COLS + ["engine_hours", "life_used_hours"] if not _finite(payload[c])]
+    if bad or not all(_finite(v) for v in ctx):
+        return {"status": "error", "model_version": MODEL_VERSION,
+                "error": f"non-numeric inputs {bad or ['ai_context']}"}
     flight.update(payload)
     if not flight.ready():
         return {"status": "warming_up", "model_version": MODEL_VERSION,
