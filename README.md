@@ -411,6 +411,42 @@ cd ../backend && ../validation/venv/bin/python3 ../scripts/e2e_v4.py --engines 9
 
 Backend tests for v4 (from `backend/`): `.venv/bin/python -m unittest tests.test_twin_v4 tests.test_timescale_v4 tests.test_dbv4 tests.test_ai_v4_contract`.
 
+#### Physics v5 (opt-in; the 914 has its own models, other engines run on the 914's)
+
+Physics v5 (`backend/physics_v5.py`, `backend/twin_v5.py`) has 14 instruments, a residual on every one,
+and the flight's long-horizon context (60-minute trends). Its AI service is `backend/aiv5.py`, serving
+`backend/models_v5/<engine>/`: five specialist networks, one per question (detection, diagnosis and fault
+family, severity, sensor fault, health), assembled with calibrated cut-offs, stacking models and a separate
+RUL model. It answers in `aiv4`'s format plus fault families. v5 flights reuse v4's engine records,
+scenarios, clocks and storage.
+
+```bash
+AERO_PHYSICS_VERSION=v5 scripts/start_stack.sh          # aiv5 :8100, physics :8000, frontend :3000
+```
+
+The 914's v5 scorecard (900 held-out test flights) is `validation_v5/artifacts/914b_specialists/model_card.md`.
+v5 models do **not** need the Metal GPU: the CPU gives the same answers
+(`validation_v5/tests/test_export_parity_v5.py`), and `AERO_AI_DEVICE=cpu` is a valid choice.
+
+Training and shipping an engine (from the repo root, `validation/venv`):
+
+```bash
+validation/venv/bin/python validation_v5/relabel_v5b.py 914                    # v5b labels -> cache/914b
+validation/venv/bin/python validation_v5/specialists_v5.py 914b                # ~8 h on the GPU
+validation/venv/bin/python validation_v5/export_v5.py 914b                     # -> backend/models_v5/914
+validation/venv/bin/python validation_v5/tests/test_export_parity_v5.py 914b   # export == training
+cd backend && ../validation/venv/bin/python3 ../scripts/e2e_v5.py --engines 914
+```
+
+Backend tests for v5 (from `backend/`): `.venv/bin/python -m unittest tests.test_twin_v5` and, with the
+models, `../validation/venv/bin/python -m unittest tests.test_ai_v5_service`.
+
+**Why v3/v4 are "GPU only".** tensorflow-metal computes ReLU after a dense layer *wrongly* inside a compiled
+TensorFlow graph (eager mode and the CPU are exact). v3/v4 were trained and are served through the compiled
+path, so they learned that miscomputed function, and the CPU, computing the true one, disagrees. v5 writes
+ReLU as `max(z, 0)` (`validation_v5/model_architectures_v5.py`), which is exact everywhere;
+`validation_v5/tests/test_graph_parity_v5.py` guards it.
+
 ---
 
 ## Validation and Training

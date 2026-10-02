@@ -34,6 +34,7 @@ model_b64_transfer.txt
 
 # ─── Frontend (Next.js / Node.js) ─────────────────────────────────────────────
 /frontend/node_modules/
+/frontend/node_modules
 /frontend/.next/
 /frontend/out/
 /frontend/coverage/
@@ -169,3 +170,4 @@ data/cmapss/
 # v5 training artifacts are committed (small: ~15 MB per run); scratch runs stay local
 /validation_v5/artifacts/smoke*/
 /validation_v5/artifacts/*_before_*/
+.superpowers/

@@ -13,7 +13,7 @@ import Diagnostics, { failureWindow, type AiResult, type Advisory, type Residual
 import { envAt, eventRequest, eventsFor, getPreset, legAt, presetDuration } from "@/lib/missionPresets";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { engineHoursOfWear, flightHours, formatSimClock, usesEngineHours } from "@/lib/timeScale";
+import { engineHoursOfWear, flightHours, formatSimClock, isV4Family, usesEngineHours } from "@/lib/timeScale";
 import HealthVignette from "@/components/HealthVignette";
 import SoundToggle from "@/components/SoundToggle";
 import ScenarioPanel from "@/components/ScenarioPanel";
@@ -131,7 +131,7 @@ function SimulatePageInner() {
   useEffect(() => {
     if (!started) setInputOverride(preset ? (envAt(preset, 0) as RawTelemetry) : {});
   }, [started, preset]);
-  const liveInputs = started && livePhysicsVersion === "v4" && rawTelemetry
+  const liveInputs = started && isV4Family(livePhysicsVersion) && rawTelemetry
     ? Object.fromEntries([...ENGINE_INPUTS.map((f) => f.key), "oil_thermostat_open"].map((k) => [k, rawTelemetry[k as keyof RawTelemetry]])) as RawTelemetry
     : null;
   const baseInputs = liveInputs ?? preInputs;
@@ -781,7 +781,7 @@ function SimulatePageInner() {
             whatever the backend telemetry stream happens to contain (which could
             be leftover/unrelated to this frontend session entirely), showing a
             "moving" flight time even while paused or never started. */}
-        <Diagnostics ai={aiForPanel} advisory={advisory} residuals={residuals} physicsVersion={livePhysicsVersion} link={started && !paused ? link : undefined} engineHours={started ? sessionEngineHours : undefined} simStatus={simStatus} simSeconds={started && !paused ? rawTelemetry?.time : undefined} dataSource={started ? (rawTelemetry as { data_source?: string } | null)?.data_source : undefined} onZeroSensors={started && !paused && livePhysicsVersion !== "v4" ? () => { fetch(`${API}/residuals/zero`, { method: "POST" }).catch(() => {}); } : undefined} frame={started ? liveFrame : null} truth={started ? liveTruth : null} engine={started ? liveEngine : null} />
+        <Diagnostics ai={aiForPanel} advisory={advisory} residuals={residuals} physicsVersion={livePhysicsVersion} link={started && !paused ? link : undefined} engineHours={started ? sessionEngineHours : undefined} simStatus={simStatus} simSeconds={started && !paused ? rawTelemetry?.time : undefined} dataSource={started ? (rawTelemetry as { data_source?: string } | null)?.data_source : undefined} onZeroSensors={started && !paused && !isV4Family(livePhysicsVersion) ? () => { fetch(`${API}/residuals/zero`, { method: "POST" }).catch(() => {}); } : undefined} frame={started ? liveFrame : null} truth={started ? liveTruth : null} engine={started ? liveEngine : null} />
       </div>
 
       <HealthVignette

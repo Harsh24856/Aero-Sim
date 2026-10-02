@@ -44,6 +44,15 @@ class TestRelabel(unittest.TestCase):
         np.testing.assert_array_equal(new["fmv_valve_leakage"], [0, 0, 1, 1])
         np.testing.assert_array_equal(new["fault_present"], [0, 0, 1, 1])
 
+    def test_per_channel_effect_thresholds(self):
+        """With eff_ columns, a 5-sigma effect is visible on a quiet channel (bar 3) but
+        not on a channel whose healthy spread is 31 sigma."""
+        g = self.g.copy()
+        g["eff_cht"], g["eff_oil_pressure"] = [0.0, 5.0, 0.0, 0.0], [5.0, 0.0, 40.0, 0.0]
+        new = R.relabel_flight(g, np.arange(4), self.faults, [], self.old, z_fault=1.0, z_sensor=3.0,
+                               z_effect={"cht": 3.0, "oil_pressure": 31.0})
+        np.testing.assert_array_equal(new["fmv_valve_leakage"], [0, 1, 1, 0])
+
     def test_small_drift_relabelled_none(self):
         new = self.run_()
         k = SENSOR_FAULT_TYPES.index("drift")

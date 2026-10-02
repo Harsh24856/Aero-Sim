@@ -1,6 +1,8 @@
 # Plan: v5 specialists into the live stack (914 first)
 
-**Written:** 2026-09-28. **Status:** the 914 is trained and scored. Nothing in this plan is built yet.
+**Written:** 2026-09-28. **Status (2026-10-02):** Phases 1-5 are built for the 914 (see "Progress" at the end).
+Phase 6 is partly done: the side-by-side check shows the 914 ready, but the 912/915/916 still run on the
+914's placeholder models, so the default stays v4 until Phase 7 trains them.
 **Source of truth for the models:** `validation_v5/artifacts/914b_specialists/` (`model_card.md` there).
 
 ## Where we are
@@ -98,3 +100,20 @@ For each of 912, 915 and 916: `relabel_v5b.py <key>`, then `specialists_v5.py <k
 - **Metal:** any new `Dense` + ReLU brings the bug back. `tests/test_graph_parity_v5.py` must stay in the test run, and serving must use the same code path as training.
 - **Label meaning changed (v5b):** severity is now *effective* severity, and small sensor offsets count as "none". The UI text and the model card must say so.
 - **Live context:** `LongHorizon` needs a warm-up of about 60 minutes before the 60-minute EMA settles. Serve with the partial context, as training saw from each flight's start, and show a "context warming" flag.
+
+---
+
+## Progress (2026-10-02)
+
+| Phase | State | Evidence |
+|---|---|---|
+| 1 Export | done | `export_v5.py`; `tests/test_export_parity_v5.py`: export == training; CPU == GPU |
+| 2 Shared assembly | done | `assembly_v5.py`; the 914b test step reproduces all 109 scorecard numbers |
+| 3 Backend | done | `twin_v5.py`, `aiv5.py`, `main.py` v5 branch, `start_stack.sh` v5; backend tests; live HTTP + WebSocket flight with fault and sensor injection; `e2e_v5.py` 914: 8/8 |
+| 4 Frontend | done | v5 answers in v4's shape: the v4 panel shows families ("Suspected: <family>"), effective severity, the v5 badge; `tsc` clean; checked in the browser against a live v5 stack |
+| 5 914 gaps | done in code | severity isotonic calibration, RUL without the sensor-fault signal, cut-offs with a 0.55 recall floor; generator stores per-channel fault effects (`eff_<channel>`) and `relabel_v5b.py --per-channel-faults` uses them |
+| 6 Default switch | not switched | `e2e_v5` vs `e2e_v4`, same flights: 914 v5 8/8 vs v4 6/8; but 915/916 on placeholders flag healthy engines - by this plan's own rule the default waits for Phase 7 |
+
+Still to run (long jobs, commands ready):
+- Regenerate the 914 with per-channel effects (~9 h CPU), relabel with `--per-channel-faults`, retrain detection and diagnosis (~5 h GPU).
+- Phase 7: `relabel_v5b.py <key>` then `specialists_v5.py <key>b` (~8 h GPU each) and `export_v5.py` for 912, 915 and 916; then switch the default.

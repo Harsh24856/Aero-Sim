@@ -90,6 +90,10 @@ class LongHorizon:
         x = np.asarray(res_row, dtype=np.float64)
         for i, a in enumerate(self.a):
             self.state[i] += a * (x - self.state[i])
+        return self.current()
+
+    def current(self) -> np.ndarray:
+        """The 42 values for the samples seen so far, without taking a new one."""
         e10, e60, e3, e15 = self.state
         trend = (e3 - e15) / (TAU_TREND_S[1] - TAU_TREND_S[0])
         return np.stack([e10, e60, trend], axis=1).reshape(-1).astype(np.float32)

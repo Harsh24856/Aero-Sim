@@ -25,15 +25,19 @@ from physics import UAVEngineTwin, ENGINE_CONFIGS
 
 # Physics version for every twin this process creates. v4 (default) pairs with
 # backend/aiv4.py (backend/models_v4/); AERO_PHYSICS_VERSION=v3 runs physics v3 with aiv3.py
-# (backend/models_v3/), and v2 the legacy physics with ai.py (backend/models/). /state
+# (backend/models_v3/), and v2 the legacy physics with ai.py (backend/models/).
+# AERO_PHYSICS_VERSION=v5 runs twin_v5 with aiv5.py (backend/models_v5/). /state
 # reports both so a mismatch is visible.
 PHYSICS_VERSION = os.environ.get("AERO_PHYSICS_VERSION", "v4").strip().lower()
-if PHYSICS_VERSION not in ("v2", "v3", "v4"):
-    raise ValueError(f"AERO_PHYSICS_VERSION must be v2, v3 or v4, got {PHYSICS_VERSION!r}")
+if PHYSICS_VERSION not in ("v2", "v3", "v4", "v5"):
+    raise ValueError(f"AERO_PHYSICS_VERSION must be v2, v3, v4 or v5, got {PHYSICS_VERSION!r}")
+# v5 flies the same engine records, scenarios, clocks and storage as v4 - only the
+# physics, instruments and models differ - so every v4 behaviour below applies to it.
+V4_FAMILY = PHYSICS_VERSION in ("v4", "v5")
 
 # v3 runs persist through dbv3 (real engine-hour RUL), v4 through dbv4 (engines with
 # an hour meter, both clocks). Same function names as db, so nothing below changes.
-db = importlib.import_module({"v2": "db", "v3": "dbv3", "v4": "dbv4"}[PHYSICS_VERSION])
+db = importlib.import_module({"v2": "db", "v3": "dbv3", "v4": "dbv4", "v5": "dbv4"}[PHYSICS_VERSION])
 import advisory
 import residual
 import safety
@@ -41,7 +45,9 @@ import summary
 import scenarios_v4
 import timescale_v4
 import twin_v4
+import twin_v5
 from twin_v4 import UAVEngineTwinV4
+from twin_v5 import UAVEngineTwinV5
 
 # Sensor offsets from zeroing (POST /residuals/zero) describe the installed senders, so they
 # survive a backend restart. Kept next to main.py and out of git.
@@ -111,6 +117,8 @@ def new_twin(engine_model: str, engine: Optional[dict] = None):
     """The ONLY place twins are built, so the physics version cannot be missed.
     v4 flies an engine record (scenarios_v4 preset or an engines row); None = the
     default preset for this engine model."""
+    if PHYSICS_VERSION == "v5":
+        return UAVEngineTwinV5(dt=0.01, engine_model=engine_model, engine=engine)
     if PHYSICS_VERSION == "v4":
         return UAVEngineTwinV4(dt=0.01, engine_model=engine_model, engine=engine)
     return UAVEngineTwin(dt=0.01, engine_model=engine_model, physics_version=PHYSICS_VERSION)
@@ -171,7 +179,7 @@ def apply_measured(out: dict) -> dict:
     if data_source() != "can":
         return {**out, "data_source": "sim"}
     measured = state["measured"]
-    if PHYSICS_VERSION == "v4":
+    if V4_FAMILY:
         return apply_measured_v4(out, measured)
     merged = {**out, "data_source": "can",
               "twin_sensors": {ch: out[key] for ch, key in MEASURED_KEYS.items() if ch in measured}}
@@ -191,9 +199,14 @@ def apply_measured_v4(out: dict, measured: dict) -> dict:
         merged["twin_sensors"][key] = out.get(key)
         merged[key] = value / PSI_PER_BAR if ch == "oil_pressure" else value
     ref = out.get("twin") or {}
-    for c in twin_v4.RESIDUAL_CHANNELS:
-        if isinstance(ref.get(c), (int, float)):
-            merged[f"res_{c}"] = merged[c] - ref[c]
+    # Only the channels the aircraft actually sent: the rest keep the twin's own residual
+    # (on a 912 the absent turbo instruments read 0 but the twin's airbox reads ambient,
+    # which turned res_airbox_temp_c into ~-30 sigma). v5's long-horizon context stays
+    # built from the twin's residuals while on CAN.
+    channels = set(getattr(twin, "RESIDUAL_CHANNELS", twin_v4.RESIDUAL_CHANNELS))
+    for key in merged["twin_sensors"]:
+        if key in channels and isinstance(ref.get(key), (int, float)):
+            merged[f"res_{key}"] = merged[key] - ref[key]
     merged["margins"] = twin.eng.margins(merged)
     merged["margin_min"] = merged["margins"]["health_index"]
     return merged
@@ -208,7 +221,7 @@ def pending_simulation_args(user_id: Optional[str], mission: Optional[str] = Non
     as it began (a copy: the live record's hours move on)."""
     if not user_id or not importlib.import_module("db")._enabled:
         return None
-    if PHYSICS_VERSION == "v4":
+    if V4_FAMILY:
         return (user_id, CURRENT_ENGINE_MODEL, copy.deepcopy(twin.record), model_manifest_snapshot(), mission)
     return (user_id, CURRENT_ENGINE_MODEL)
 
@@ -225,7 +238,7 @@ async def retry_simulation_row() -> None:
         if sim_id is None:
             state["sim_retry_at"] = time.monotonic() + SIM_RETRY_S
             return
-        if PHYSICS_VERSION == "v4" and getattr(twin, "record", None) is not None:
+        if V4_FAMILY and getattr(twin, "record", None) is not None:
             twin.record["engine_id"] = args[2].get("engine_id")
         state["simulation_id"], state["pending_simulation"] = sim_id, None
         held, state["pending_logs"] = state["pending_logs"], []
@@ -237,7 +250,7 @@ async def retry_simulation_row() -> None:
 
 
 def write_telemetry_row(simulation_id, time_offset_s, raw, ai, residuals):
-    if PHYSICS_VERSION in ("v3", "v4"):
+    if PHYSICS_VERSION in ("v3", "v4", "v5"):
         return db.log_telemetry(simulation_id, time_offset_s, raw, ai, residuals=residuals)
     return db.log_telemetry(simulation_id, time_offset_s, raw, ai)
 
@@ -245,7 +258,7 @@ def write_telemetry_row(simulation_id, time_offset_s, raw, ai, residuals):
 def log_telemetry(simulation_id, time_offset_s, raw, ai):
     """Thread target for telemetry_logs writes. v3 (dbv3) also persists the physics
     residuals; db.py (v2) keeps its original signature."""
-    if PHYSICS_VERSION in ("v3", "v4"):
+    if PHYSICS_VERSION in ("v3", "v4", "v5"):
         return db.log_telemetry(simulation_id, time_offset_s, raw, ai, residuals=state["residuals"])
     return db.log_telemetry(simulation_id, time_offset_s, raw, ai)
 STEPS_PER_BROADCAST = 5  # 0.01s * 5 = 20Hz telemetry rate
@@ -357,12 +370,14 @@ AI_FEATURE_COLS = [
 # v4: the 29 inputs the models were trained on (twin_v4.FEATURE_COLS), plus the hour
 # meter and this flight's usage for the RUL head's aux inputs.
 AI_FEATURE_COLS_V4 = twin_v4.FEATURE_COLS + ["engine_hours", "life_used_hours"]
+# v5: the 39 inputs, the hour meter and usage, and the flight's 45 context values.
+AI_FEATURE_COLS_V5 = twin_v5.FEATURE_COLS + ["engine_hours", "life_used_hours", "ai_context"]
 
 
 def final_rul_hours(ai: dict):
     """RUL for simulations.final_rul_hours. ai.py (v2) reports simulated-timescale
     hours in rul_hours_internal; aiv3.py reports real engine hours in rul_hours."""
-    if ai.get("model_version") in ("v3", "v4"):
+    if ai.get("model_version") in ("v3", "v4", "v5"):
         return ai.get("rul_hours")
     return ai.get("rul_hours_internal")
 
@@ -383,14 +398,14 @@ async def refresh_ai_version():
     if state["ai_model_version"] != PHYSICS_VERSION:
         print(f"WARNING: physics {PHYSICS_VERSION} but the AI service serves "
               f"{state['ai_model_version']} models - predictions are out of distribution. "
-              "Run ai.py with physics v2, aiv3.py with AERO_PHYSICS_VERSION=v3.")
+              "Run ai.py with physics v2, aiv3.py with v3, aiv4.py with v4, aiv5.py with v5.")
 
 
 async def call_ai_service(telemetry: dict):
     """Sends one timestep to the AI service. Never raises: failures come back as an
     ai_service_unavailable result, and feed the circuit breaker."""
     try:
-        cols = AI_FEATURE_COLS_V4 if PHYSICS_VERSION == "v4" else AI_FEATURE_COLS
+        cols = {"v4": AI_FEATURE_COLS_V4, "v5": AI_FEATURE_COLS_V5}.get(PHYSICS_VERSION, AI_FEATURE_COLS)
         payload = {c: telemetry[c] for c in cols}
         payload["time"] = telemetry["time"]
         resp = await ai_client.post(f"{AI_SERVICE_URL}/step", json=safety.json_safe(payload))
@@ -422,7 +437,7 @@ AI_WINDOW_S = 128.0
 def hold_alerts_outside_envelope(sample: dict, result: dict) -> dict:
     """Return result with fault alerts cleared while the AI window still contains
     below-envelope (ground roll) samples. Health and RUL pass through unchanged."""
-    if PHYSICS_VERSION not in ("v3", "v4"):
+    if PHYSICS_VERSION not in ("v3", "v4", "v5"):
         return result
     t = sample.get("time")
     if not isinstance(t, (int, float)):
@@ -432,12 +447,12 @@ def hold_alerts_outside_envelope(sample: dict, result: dict) -> dict:
         state["ai_settle_until"] = 0.0
     state["ai_last_sample_time"] = t
     airspeed = sample.get("airspeed")
-    floor = AI_ENVELOPE_MIN_AIRSPEED_MS_V4 if PHYSICS_VERSION == "v4" else AI_ENVELOPE_MIN_AIRSPEED_MS
+    floor = AI_ENVELOPE_MIN_AIRSPEED_MS_V4 if V4_FAMILY else AI_ENVELOPE_MIN_AIRSPEED_MS
     if isinstance(airspeed, (int, float)) and airspeed < floor:
         state["ai_settle_until"] = t + AI_WINDOW_S
     if result.get("status") != "ok" or t >= state["ai_settle_until"]:
         return result
-    if PHYSICS_VERSION == "v4":
+    if V4_FAMILY:
         # Same rule for v4: while the window still holds ground roll every call is
         # extrapolation. Wear condition goes too - it is a model output on the same
         # window - and the model's own numbers stay available as *_raw.
@@ -449,6 +464,7 @@ def hold_alerts_outside_envelope(sample: dict, result: dict) -> dict:
                 "fault_modes_raw": result.get("fault_modes"), "faults_present": [],
                 "sensors": {c: {**v, "condition": "none"} for c, v in (result.get("sensors") or {}).items()},
                 "sensors_raw": result.get("sensors"), "faulty_sensors": [],
+                "families_present": [], "families_present_raw": result.get("families_present"),
                 "wear_condition": None, "health_percent": None,
                 "health_percent_raw": result.get("health_percent")}
     # Severities go too: leaving them at 100% while the status reads nominal put a red number
@@ -903,7 +919,7 @@ async def simulation_loop():
             # ---- once per simulated second: residuals, AI, database ----
             state["ai_step_counter"] += 1
             # v4: the twin reads its sensors once per flight second and flags that step.
-            new_sample = (bool(out.get("sample_new")) if PHYSICS_VERSION == "v4"
+            new_sample = (bool(out.get("sample_new")) if V4_FAMILY
                           else state["ai_step_counter"] >= AI_STEPS_PER_CALL)
             if new_sample:
                 state["ai_step_counter"] = 0
@@ -918,7 +934,8 @@ async def simulation_loop():
                     state["ai_warmed_up"] = False
                     reset_rul_filter()
                 try:
-                    state["residuals"] = (residual.twin_residuals_v4(out) if PHYSICS_VERSION == "v4"
+                    state["residuals"] = (residual.twin_residuals_v4(out, getattr(twin, "RESIDUAL_CHANNELS", None))
+                                          if V4_FAMILY
                                           else residual_monitor.update(out, dt=1.0))
                     if isinstance(state["residuals"], dict) and state["residuals"].get("zeroed") is not None:
                         state["residual_offsets"][CURRENT_ENGINE_MODEL] = dict(state["residuals"]["zeroed"])
@@ -960,7 +977,7 @@ async def simulation_loop():
                     else:
                         spawn_db_write(log_telemetry, state["simulation_id"], state["sim_time_offset"],
                                        out, state["last_ai_result"])
-                if PHYSICS_VERSION == "v4" and state["simulation_id"] is not None:
+                if V4_FAMILY and state["simulation_id"] is not None:
                     log_new_advisories(out)
 
                 # Warm-up fast-forward waits (briefly) for the AI to keep its order.
@@ -1109,7 +1126,7 @@ def client_frame(out: dict) -> dict:
     engine record) stays in last_telemetry for /stop and recovery and is left out of
     the frame; the engine being flown is summarised instead."""
     frame = dict(out)
-    if PHYSICS_VERSION == "v4":
+    if V4_FAMILY:
         frame.pop("physics_state", None)
         frame.pop("engine_record", None)
         frame["engine"] = engine_summary()
@@ -1166,7 +1183,7 @@ async def start_sim(req: StartRequest = StartRequest()):
     # bug - session_active is independent of whether persistence succeeds.
     if not state["session_active"]:
         engine = None
-        if PHYSICS_VERSION == "v4":
+        if V4_FAMILY:
             engine, problem = await choose_engine(req)
             if problem:
                 return {"status": "error", "message": problem}
@@ -1212,7 +1229,7 @@ async def start_sim(req: StartRequest = StartRequest()):
         mission = (req.mission or "")[:64] or None
         retry_args = pending_simulation_args(req.user_id, mission)
         state["pending_logs"], state["sim_retry_at"] = [], 0.0
-        if PHYSICS_VERSION == "v4":
+        if V4_FAMILY:
             state["simulation_id"] = await db_call(db.start_simulation, req.user_id, CURRENT_ENGINE_MODEL,
                                                    twin.record, model_manifest_snapshot(), mission)
         else:
@@ -1624,7 +1641,7 @@ async def zero_residuals():
     this engine from the next sample and are kept until the backend restarts."""
     if not state["running"]:
         return {"status": "error", "detail": "start a flight and hold a steady operating point first"}
-    if PHYSICS_VERSION == "v4":
+    if V4_FAMILY:
         return {"status": "error", "detail": "v4 residuals are taken against the on-board twin and need no zeroing"}
     if PHYSICS_VERSION != "v3":
         return {"status": "error", "detail": "physics residuals need physics v3"}
@@ -1639,7 +1656,7 @@ async def update_measured(m: MeasuredUpdate):
     """Measured sensor values from the aircraft. A non-finite or out-of-range value is
     refused and reported, never overlaid - a corrupted reading must not reach the AI."""
     accepted, rejected = {}, []
-    for ch in (MEASURED_KEYS_V4 if PHYSICS_VERSION == "v4" else MEASURED_KEYS):
+    for ch in (MEASURED_KEYS_V4 if V4_FAMILY else MEASURED_KEYS):
         raw = getattr(m, ch)
         if raw is None:
             continue
@@ -1693,7 +1710,7 @@ async def get_state():
         "residuals": safety.json_safe(state["residuals"]),
         "advisory": _safe_advisory(),
         "sim_status": sim_status(),
-        **(v4_state() if PHYSICS_VERSION == "v4" else {}),
+        **(v4_state() if V4_FAMILY else {}),
     }
 
 
@@ -1729,7 +1746,7 @@ def applicable_faults_now() -> list:
 @app.get("/scenarios")
 async def list_scenarios():
     """Demo presets this engine can fly (v4)."""
-    if PHYSICS_VERSION != "v4":
+    if not V4_FAMILY:
         return {"status": "error", "detail": "scenarios need physics v4"}
     return {"status": "ok", "engine_model": CURRENT_ENGINE_MODEL, "selected": state["scenario"],
             "scenarios": scenarios_v4.listing(CURRENT_ENGINE_MODEL), "inputs": engine_inputs(),
@@ -1740,7 +1757,7 @@ async def list_scenarios():
 async def select_scenario(sel: ScenarioSelect):
     """Choose the preset the next fresh flight starts from. A flight in progress is not
     changed: stop it first (a preset is a different engine, not a different sky)."""
-    if PHYSICS_VERSION != "v4":
+    if not V4_FAMILY:
         return {"status": "error", "detail": "scenarios need physics v4"}
     if sel.name not in scenarios_v4.available(CURRENT_ENGINE_MODEL):
         return {"status": "error", "detail": f"{sel.name!r} is not available for {CURRENT_ENGINE_MODEL}"}
@@ -1756,7 +1773,7 @@ async def select_scenario(sel: ScenarioSelect):
 @app.post("/inject")
 async def inject(req: InjectRequest):
     """Inject a component or sensor fault into the engine being flown (v4, for Q&A)."""
-    if PHYSICS_VERSION != "v4":
+    if not V4_FAMILY:
         return {"status": "error", "detail": "injection needs physics v4"}
     try:
         if req.kind == "fault":
@@ -1781,6 +1798,10 @@ def without_removed(ai: dict, fault: Optional[str] = None, channel: Optional[str
     faulty = [c for c, v in sensors.items() if isinstance(v, dict) and v.get("condition") != "none"]
     held = {**ai, "fault_modes": modes, "faults_present": present, "sensors": sensors,
             "faulty_sensors": faulty, "held_after_repair": True}
+    if "families_present" in ai:       # v5: the repaired fault's family goes unless another fault keeps it
+        gone = ((ai.get("fault_modes") or {}).get(fault) or {}).get("family")
+        kept = {modes[k].get("family") for k in present}
+        held["families_present"] = [f for f in ai["families_present"] if f != gone or f in kept]
     if not present and not faulty:
         held.update(fault_detected=False, detection_confidence=0.0,
                     detection_confidence_raw=ai.get("detection_confidence"))
@@ -1790,7 +1811,7 @@ def without_removed(ai: dict, fault: Optional[str] = None, channel: Optional[str
 @app.post("/inject/clear")
 async def clear_injection(req: InjectRequest):
     """Take a component fault (by name) or a sensor fault (by channel) back out (v4)."""
-    if PHYSICS_VERSION != "v4":
+    if not V4_FAMILY:
         return {"status": "error", "detail": "injection needs physics v4"}
     if req.kind == "fault":
         removed = twin.clear_fault(req.name or "")
@@ -1848,7 +1869,7 @@ async def health():
         "db_pending": state["db_pending"],
         "db_skipped": state["db_skipped"],
         "clients": len(clients),
-        **({"time_model": timescale_v4.describe()} if PHYSICS_VERSION == "v4" else {}),
+        **({"time_model": timescale_v4.describe()} if V4_FAMILY else {}),
     }
 
 
