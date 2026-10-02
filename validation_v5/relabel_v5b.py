@@ -61,7 +61,7 @@ def sensor_offset_sigma(kind: str, severity: float, age_s: np.ndarray) -> np.nda
     return (1.0 + 3.0 * severity) * np.maximum(age_s, 0.0) / 600.0
 
 
-def healthy_offset_q99(cache: Cache, n: int = 20000) -> dict:
+def healthy_offset_q99(cache: Cache, n: int = 20000, channels: list | None = None) -> dict:
     """Per faultable channel: 99th percentile of |window-mean residual| (noise sigmas)
     on healthy TRAIN windows - how far a healthy engine's reading sits from the twin."""
     from pipeline_v5 import RES_SLICE
@@ -77,14 +77,22 @@ def healthy_offset_q99(cache: Cache, n: int = 20000) -> dict:
         sf = np.stack([cache.labels(E, f"sf_{c}_flag") for c in FAULTABLE_CHANNELS], 1)
         healthy.append((cache.labels(E, "fault_present") == 0) & (sf == 0).all(1))
     wm = np.concatenate(wm)[np.concatenate(healthy)]
-    return {c: float(np.quantile(wm[:, F.RESIDUAL_COLS.index(f"res_{c}")], 0.99)) for c in FAULTABLE_CHANNELS}
+    return {c: float(np.quantile(wm[:, F.RESIDUAL_COLS.index(f"res_{c}")], 0.99))
+            for c in (channels or FAULTABLE_CHANNELS)}
 
 
 def relabel_flight(g, ends_local: np.ndarray, faults: list, sensor_faults: list, old: dict,
-                   z_fault: float, z_sensor) -> dict:
+                   z_fault: float, z_sensor, z_effect: dict | None = None) -> dict:
     """New label columns for one flight's window ends. `old`: current columns
-    (name -> array over those ends). z_sensor: one threshold, or {channel: threshold}."""
-    z = g.effect_z.to_numpy()[ends_local]
+    (name -> array over those ends). z_sensor: one threshold, or {channel: threshold}.
+    z_effect: {instrument: threshold}; with it, and data that carries the per-channel
+    eff_<channel> columns (generate_dataset_v5 since 2026-10-02), an engine fault is
+    visible when its effect on SOME instrument clears THAT instrument's threshold."""
+    if z_effect and all(f"eff_{c}" in g.columns for c in z_effect):
+        eff_rows = np.stack([np.abs(g[f"eff_{c}"].to_numpy()[ends_local]) / z_effect[c] for c in z_effect], 1)
+        z = eff_rows.max(1) * z_fault                 # >= z_fault exactly when one channel clears its own bar
+    else:
+        z = g.effect_z.to_numpy()[ends_local]
     t = g.t.to_numpy()[ends_local]
     new = {}
     mult = {f["name"]: f["depth"] / FAULT_MODES[f["name"]]["depth"] for f in faults}
@@ -111,7 +119,7 @@ def relabel_flight(g, ends_local: np.ndarray, faults: list, sensor_faults: list,
     return new
 
 
-def build(key: str, z_fault: float, z_sensor: float) -> dict:
+def build(key: str, z_fault: float, z_sensor: float, per_channel_faults: bool = False) -> dict:
     p = run_v5.paths(key)
     dst = p["cache"] + "b"
     os.makedirs(dst, exist_ok=True)
@@ -126,6 +134,9 @@ def build(key: str, z_fault: float, z_sensor: float) -> dict:
     ends[:] = src.ends[:]
     col = {c: i for i, c in enumerate(END_COLS)}
     z_ch = {c: max(z_sensor, q) for c, q in healthy_offset_q99(src).items()}
+    import features_v5 as F
+    z_eff = ({c: max(z_sensor, q) for c, q in healthy_offset_q99(src, channels=list(F.RESIDUAL_CHANNELS)).items()}
+             if per_channel_faults else None)
     touched = ["fault_present", "sensor_fault_any"] + [f"fm_{n}" for n in FAULT_NAMES] \
         + [f"fmv_{n}" for n in FAULT_NAMES] + [f"sf_{c}_flag" for c in FAULTABLE_CHANNELS]
     before = {k: 0.0 for k in ("fmv", "sf")}
@@ -138,7 +149,7 @@ def build(key: str, z_fault: float, z_sensor: float) -> dict:
         assert len(ends_local) == fr.n_ends, f"flight {fi}: cache/raw mismatch"
         old = {k: np.array(ends[sl, col[k]]) for k in touched}      # copies: ends is written below
         new = relabel_flight(g, ends_local, json.loads(fr.faults), json.loads(fr.sensor_faults), old,
-                             z_fault, z_ch)
+                             z_fault, z_ch, z_eff)
         for k, v in new.items():
             ends[sl, col[k]] = v
         before["fmv"] += sum(old[f"fmv_{n}"].sum() for n in FAULT_NAMES)
@@ -160,7 +171,10 @@ if __name__ == "__main__":
     ap.add_argument("engine")
     ap.add_argument("--z-fault", type=float, default=1.0,
                     help="engine fault visible at this noise-free effect (sigma); 1.0 = the v5 rule, unchanged")
+    ap.add_argument("--per-channel-faults", action="store_true",
+                    help="engine-fault visibility per instrument against its healthy spread (needs data "
+                         "generated with the eff_<channel> columns; older data falls back to effect_z)")
     ap.add_argument("--z-sensor", type=float, default=3.0,
                     help="floor for the per-channel sensor bias/drift threshold (sigma)")
     a = ap.parse_args()
-    print(build(a.engine, a.z_fault, a.z_sensor))
+    print(build(a.engine, a.z_fault, a.z_sensor, a.per_channel_faults))

@@ -55,25 +55,39 @@
    0.2,
    0.39,
    0.28,
-   0.41000000000000003,
+   0.15000000000000002,
    0.13,
    0.5800000000000001
   ],
   "val_ece_after": 0.002768336817763599,
   "val_ece_before": 0.0034827743332598053
  },
- "severity": {
-  "factor": 0.25,
+ "severity_calibration": {
   "kept": true,
+  "faults": 13,
   "val_before": {
    "on_fault_mae": 0.08227699474098817,
    "clean_mae": 0.04152352500255285,
    "on_fault_bias": -0.06351523458330725
   },
   "val_after": {
-   "on_fault_mae": 0.09661187163133318,
-   "clean_mae": 0.0018744041726374478,
-   "on_fault_bias": -0.0816056471296902
+   "on_fault_mae": 0.07335592327778823,
+   "clean_mae": 0.15235315252394377,
+   "on_fault_bias": -0.005842442518566986
+  }
+ },
+ "severity": {
+  "factor": 0.25,
+  "kept": true,
+  "val_before": {
+   "on_fault_mae": 0.07335592327778823,
+   "clean_mae": 0.15235315252394377,
+   "on_fault_bias": -0.005842442518566986
+  },
+  "val_after": {
+   "on_fault_mae": 0.08915261105998323,
+   "clean_mae": 0.003814731864662293,
+   "on_fault_bias": -0.036627468518573666
   }
  }
 }

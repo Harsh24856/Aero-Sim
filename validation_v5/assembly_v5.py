@@ -6,7 +6,8 @@ applies, in this order, what specialists_v5.assemble fitted on calibration fligh
     detection   GBT over the specialists' outputs + the largest residual
     health      GBT over the network's health + the 45 context values
     sensor      a bias on the "none" logit
-    severity    zeroed where calibrated diagnosis says the fault is absent
+    severity    per-fault isotonic calibration (the specialist under-predicted real
+                faults by 0.064), then zeroed where calibrated diagnosis says absent
 The stackers read the RAW outputs, so they run before anything is replaced.
 
 `Deployed` loads an export (backend/models_v5/<key>/, written by export_v5.py) and
@@ -52,6 +53,15 @@ def detection_features(o: dict, seq: np.ndarray) -> np.ndarray:
                      o["diagnosis"].max(1), o["family"].max(1), res_max], 1)
 
 
+def calibrate_severity(sev: np.ndarray, iso: dict) -> np.ndarray:
+    """iso: fault column -> fitted sklearn IsotonicRegression (true vs predicted
+    severity on fault cells). Columns without one pass through."""
+    out = sev.copy()
+    for j, m in iso.items():
+        out[:, int(j)] = m.predict(sev[:, int(j)])
+    return out
+
+
 def gate_severity(sev: np.ndarray, diag: np.ndarray, gate: dict) -> np.ndarray:
     """Severity kept only where calibrated diagnosis probability >= the gate cut."""
     p = apply_temperature(diag, gate["temperature"])
@@ -87,6 +97,8 @@ class Assembly:
         if "sensor_bias" in x:
             o["sensor"] = o["sensor"].copy()
             o["sensor"][..., 0] += x["sensor_bias"]
+        if x.get("sev_iso"):
+            o["severity"] = calibrate_severity(o["severity"], x["sev_iso"])
         if x.get("sev_gate") is not None:
             o["severity"] = gate_severity(o["severity"], o["diagnosis"], x["sev_gate"])
         return o
@@ -96,9 +108,17 @@ class Assembly:
 # Serving: an export on disk
 # ---------------------------------------------------------------------------
 def _slim(model, heads: list):
-    """A view of `model` that computes only `heads` (shares its layers and weights)."""
+    """A view of `model` that computes only `heads` (shares its layers and weights),
+    compiled once: eager Keras at batch 1 cost ~225 ms per second of flight for the
+    five networks, compiled ~100 ms. Since the ReLU fix compiled and eager agree to
+    float rounding (sensor logits ~1e-5 on values ~200, 7e-8 relative)."""
     import tensorflow as tf
-    return tf.keras.Model(model.inputs, {h: model.output[h] for h in heads}, name=f"{model.name}_{'_'.join(heads)}")
+    view = tf.keras.Model(model.inputs, {h: model.output[h] for h in heads}, name=f"{model.name}_{'_'.join(heads)}")
+    run = tf.function(lambda x: view(x, training=False), reduce_retracing=True)
+
+    def call(inputs, training=False):
+        return run({k: tf.convert_to_tensor(v, tf.float32) for k, v in inputs.items()})
+    return call
 
 
 class Deployed(Assembly):

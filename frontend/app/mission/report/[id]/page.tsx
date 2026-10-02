@@ -7,7 +7,7 @@ import { ArrowLeft, Film, RefreshCw, Sparkles, AlertTriangle, CheckCircle2 } fro
 import { supabase } from "@/lib/supabase";
 import { missionName } from "@/lib/missionPresets";
 import Navbar from "@/components/Navbar";
-import { engineHoursFlown, engineHoursOf, flightHours, formatLifeScale, formatSimClock, modelVersionOf, rulPercentOf, tboHoursOf, usesEngineHours } from "@/lib/timeScale";
+import { engineHoursFlown, engineHoursOf, flightHours, formatLifeScale, formatSimClock, isV4Family, modelVersionOf, rulPercentOf, tboHoursOf, usesEngineHours } from "@/lib/timeScale";
 import ModelBadge from "@/components/ModelBadge";
 import { formatRul, isRulOutOfRange } from "@/lib/units";
 
@@ -204,7 +204,7 @@ export default function MissionReportPage() {
                       <div className="text-3xl font-bold text-primary">
                         {engineHoursOf(sim) == null ? "--" : `${(engineHoursOf(sim) as number).toFixed(1)}h`}
                       </div>
-                      {version === "v4" && sim.start_engine_hours != null && (
+                      {isV4Family(version) && sim.start_engine_hours != null && (
                         <div className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mt-1">
                           {sim.start_engine_hours.toFixed(1)} &rarr; {sim.end_engine_hours != null ? sim.end_engine_hours.toFixed(1) : "--"} h
                           {engineHoursFlown(sim) != null ? ` (+${(engineHoursFlown(sim) as number).toFixed(1)})` : ""}
@@ -214,7 +214,7 @@ export default function MissionReportPage() {
                       )}
                       {simSeconds !== null && (
                         <div className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mt-1">
-                          {version === "v4" ? "flight" : "sim"} {formatSimClock(simSeconds)}
+                          {isV4Family(version) ? "flight" : "sim"} {formatSimClock(simSeconds)}
                         </div>
                       )}
                     </>

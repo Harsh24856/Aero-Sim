@@ -75,11 +75,15 @@ FMV_COLS = [f"fmv_{n}" for n in FAULT_NAMES]             # present AND visible (
 SF_FLAG_COLS = [f"sf_{c}_flag" for c in FAULTABLE_CHANNELS]      # visible kind index
 SF_ACTIVE_COLS = [f"sf_{c}_active" for c in FAULTABLE_CHANNELS]  # kind index from onset
 SF_SEV_COLS = [f"sf_{c}_sev" for c in FAULTABLE_CHANNELS]
+# Noise-free fault effect per instrument, in that instrument's noise sigma (faulty engine
+# minus the same engine with wear only). effect_z is their max; per channel they let a
+# label judge visibility against each channel's own healthy spread (relabel_v5b point 2).
+EFF_COLS = [f"eff_{c}" for c in SENSOR_CHANNELS]
 LABEL_COLS = (["fault_present", "fault_present_sev", "effect_z", "sensor_fault_any",
                "health_index", "margin_min", "rul_hours", "rul_hours_oracle",
                "rul_calendar_hours", "engine_hours", "life_used_hours", "life_scale",
                "failed", "limit_exceeded"]
-              + FM_COLS + FMV_COLS + SF_FLAG_COLS + SF_ACTIVE_COLS + SF_SEV_COLS)
+              + FM_COLS + FMV_COLS + SF_FLAG_COLS + SF_ACTIVE_COLS + SF_SEV_COLS + EFF_COLS)
 ALL_COLS = ["scenario_id", "t", "mission_id"] + F.FEATURE_COLS + LABEL_COLS
 
 MAX_SCENARIO_S = 4500.0
@@ -131,14 +135,16 @@ class EnvWalk:
         return self.isa, self.hum
 
 
+def effects(o: dict, w: dict, turbo: bool) -> list:
+    """Signed noise-free fault effect per instrument, in sigma (0 for the turbo
+    instruments a naturally aspirated engine does not have)."""
+    return [0.0 if (c in TURBO_CHANNELS and not turbo)
+            else (float(o[c]) - float(w[c])) / SENSOR_SPEC[c]["noise_sd"] for c in SENSOR_CHANNELS]
+
+
 def effect_z(o: dict, w: dict, turbo: bool) -> float:
     """Largest noise-free fault effect over the instruments, in sigma."""
-    z = 0.0
-    for c in SENSOR_CHANNELS:
-        if c in TURBO_CHANNELS and not turbo:
-            continue
-        z = max(z, abs(float(o[c]) - float(w[c])) / SENSOR_SPEC[c]["noise_sd"])
-    return z
+    return max(abs(e) for e in effects(o, w, turbo))
 
 
 def life_stage(start_h: float, tbo: float) -> int:
@@ -230,7 +236,8 @@ def run_scenario(engine_model: str, scen_id: int, rng: np.random.Generator):
             n_known, wear_out_known = k, deg.wear_out_known(hours)
         condition = deg.condition_at(hours)
         m = eng.margins(o)
-        z = effect_z(o, w, turbo)
+        eff = effects(o, w, turbo)
+        z = max(abs(e) for e in eff)
         visible = z >= EFFECT_Z
         max_sev = max(sev.values()) if sev else 0.0
         failed = condition <= 0.0
@@ -252,7 +259,8 @@ def run_scenario(engine_model: str, scen_id: int, rng: np.random.Generator):
             + [int(visible and sev[n] >= FAULT_PRESENT_SEV) for n in FAULT_NAMES]
             + [sf_flag[c] for c in FAULTABLE_CHANNELS]
             + [sf_active[c] for c in FAULTABLE_CHANNELS]
-            + [sf_sev[c] for c in FAULTABLE_CHANNELS])
+            + [sf_sev[c] for c in FAULTABLE_CHANNELS]
+            + [round(e, 3) for e in eff])
         t += DT
         if failed:
             break

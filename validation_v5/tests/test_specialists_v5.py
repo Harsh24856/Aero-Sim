@@ -41,6 +41,16 @@ class TestSpecialists(unittest.TestCase):
         out = S.gate_severity(sev, diag, {"temperature": [1.0, 1.0], "cut": [0.5, 0.5]})
         np.testing.assert_allclose(out, [[0.5, 0.0], [0.0, 0.2]])
 
+    def test_severity_calibration_removes_bias(self):
+        from sklearn.isotonic import IsotonicRegression
+        p = np.linspace(0.1, 0.6, 200)
+        t = p + 0.1                                     # the specialist under-predicts by 0.1
+        iso = {1: IsotonicRegression(out_of_bounds="clip").fit(p, t)}
+        sev = np.stack([p, p], 1)
+        out = S.calibrate_severity(sev, iso)
+        np.testing.assert_allclose(out[:, 0], p)        # a column without a model passes through
+        self.assertLess(abs((out[:, 1] - t).mean()), 1e-6)
+
     def test_gated_rul_returns_calendar_marker_below_threshold(self):
         import rul_v5 as R
 

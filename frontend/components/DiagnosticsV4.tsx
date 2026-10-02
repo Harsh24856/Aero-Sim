@@ -4,7 +4,7 @@ import { useState, type ReactNode } from "react";
 import { AlertTriangle, CheckCircle2, Eye, EyeOff } from "lucide-react";
 import TwinResidualChart from "@/components/TwinResidualChart";
 import {
-  ALTITUDE_MASKED, faultLabel, sensorLabel,
+  ALTITUDE_MASKED, faultLabel, familyLabel, sensorLabel,
   type AiResultV4Fields, type V4Engine, type V4Truth,
 } from "@/lib/v4";
 
@@ -60,6 +60,12 @@ export default function DiagnosticsV4({
   const settling = ok && !!ai?.settling;
   const faults = Object.entries(ai?.fault_modes ?? {});
   const suspect = ok && !settling ? ai?.faulty_sensors ?? [] : [];
+  // v5: when a family is called but none of its faults clears its own cut-off, the
+  // honest answer is the family (e.g. "Oil system") rather than a guessed part.
+  const v5 = ai?.model_version === "v5";
+  const named = new Set((ai?.faults_present ?? []).map((f) => ai?.fault_modes?.[f]?.family));
+  const familyOnly = v5 && !settling ? (ai?.families_present ?? []).filter((f) => !named.has(f)) : [];
+  const sevWord = ai?.severity_kind === "effective" ? "eff. sev" : "sev";
 
   return (
     <>
@@ -118,6 +124,12 @@ export default function DiagnosticsV4({
           {/* 2 - Which part? */}
           <article className={card}>
             <div className={head}>2 &middot; Which part?</div>
+            {familyOnly.length > 0 && (
+              <div className="mt-1 border border-[#84642c] bg-[#1c1710] px-1 py-0.5 text-[8px] text-[#ffd27a] md:text-[9px]"
+                   title="The fault family is clear, but no single part in it clears its own threshold yet.">
+                Suspected: {familyOnly.map(familyLabel).join(", ")} - part not yet clear
+              </div>
+            )}
             <div className="mt-1 space-y-0.5">
               {faults.map(([name, f]) => (
                 <div key={name}
@@ -128,7 +140,7 @@ export default function DiagnosticsV4({
                       {faultLabel(name)}{ALTITUDE_MASKED.has(name) ? " ↑" : ""}
                     </span>
                     <span className={`font-mono ${f.present ? "text-[#ff9a72]" : "text-[#7fc87f]"}`}>
-                      {f.present ? `sev ${Math.round(f.severity * 100)}%` : "OK"}
+                      {f.present ? `${sevWord} ${Math.round(f.severity * 100)}%` : "OK"}
                     </span>
                   </div>
                   <div className="h-[2px] w-full bg-[#241a16]">
@@ -239,6 +251,9 @@ export default function DiagnosticsV4({
                   ? Object.entries(truth.sensor_faults ?? {}).map(([c, k]) => `${sensorLabel(c)} ${k}`).join(", ")
                   : "all fine"}
               </div>
+              {truth.severity_kind === "effective" && (
+                <div className="text-[#7f9db8]">severities are effective: the share of each fault&apos;s full effect this engine shows</div>
+              )}
               <div className="font-mono text-[#9cc3e6]">
                 wear {pct(truth.wear_condition)} &middot; RUL {truth.rul_hours != null ? `${Math.round(truth.rul_hours)} h` : "--"}
                 {truth.wear_limited ? " (wear-limited)" : ""}

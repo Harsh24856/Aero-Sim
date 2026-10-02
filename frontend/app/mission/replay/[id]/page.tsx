@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, FileText } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { modelVersionOf } from "@/lib/timeScale";
+import { isV4Family, modelVersionOf } from "@/lib/timeScale";
 import ModelBadge from "@/components/ModelBadge";
 import { missionName } from "@/lib/missionPresets";
 import Navbar from "@/components/Navbar";
@@ -61,7 +61,7 @@ export default function MissionReplayPage() {
       // RLS policy "select own telemetry" already scopes this via the parent run.
       const { data: logRows } = await supabase
         .from("telemetry_logs")
-        .select(simRow.model_version === "v4" ? REPLAY_COLUMNS + V4_REPLAY_COLUMNS : REPLAY_COLUMNS)
+        .select(isV4Family(simRow.model_version) ? REPLAY_COLUMNS + V4_REPLAY_COLUMNS : REPLAY_COLUMNS)
         .eq("simulation_id", id)
         .order("time_offset_s", { ascending: true });
       if (cancelled) return;

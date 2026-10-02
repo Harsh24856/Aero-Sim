@@ -4,8 +4,8 @@
  "model_version": "v5",
  "labels": "v5b",
  "run": "914b",
- "git_sha": "6b27123",
- "exported": "2026-09-28T10:49:50",
+ "git_sha": "ddc92e4",
+ "exported": "2026-10-02T11:12:27",
  "tbo_hours": 2000.0,
  "window": 128,
  "feature_cols": [
@@ -123,19 +123,19 @@
   "windows": 43321,
   "primary": {
    "detection": 0.9574411561553584,
-   "diagnosis": 0.8094972821275355,
-   "severity": 0.082465760409832,
+   "diagnosis": 0.7998119775431347,
+   "severity": 0.07824007421731949,
    "sensor_fault": 0.8889899695620238,
    "health": 0.03345747977266085,
-   "rul": 11.090253674695825
+   "rul": 10.880615091604456
   },
   "gates": {
    "detection": true,
    "diagnosis": false,
-   "severity": false,
+   "severity": true,
    "sensor_fault": true,
    "health": true,
-   "rul": false
+   "rul": true
   }
  }
 }

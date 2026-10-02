@@ -4,6 +4,16 @@ import type { ModelVersion } from "@/lib/timeScale";
 // compressed simulated timescale and must not be compared number-for-number with
 // v3 runs, whose RUL is in real engine hours.
 export default function ModelBadge({ version }: { version: ModelVersion }) {
+  if (version === "v5") {
+    return (
+      <span
+        title="Physics v5 - 14 instruments, one specialist network per question, fault families, effective severity; RUL in real engine hours"
+        className="ml-2 inline-block rounded border border-tertiary px-1.5 py-0.5 align-middle text-[9px] font-bold uppercase tracking-[0.1em] text-tertiary"
+      >
+        v5
+      </span>
+    );
+  }
   if (version === "v4") {
     return (
       <span
