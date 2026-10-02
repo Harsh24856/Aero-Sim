@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { Fragment, useEffect, useRef, type CSSProperties } from "react";
+import Lenis from "lenis";
+import "lenis/dist/lenis.css";
 import Navbar from "@/components/Navbar";
 import type { World } from "./world";
 import "./landing.css";
@@ -73,6 +75,15 @@ export default function HomeLanding() {
     const timers: number[] = [];
     const later = (f: () => void, ms: number) => timers.push(window.setTimeout(f, ms));
 
+    /* ---------------------------------------------- smooth scroll
+       Wheel input is eased into one continuous glide, so the DOM and the
+       camera move on the same curve. Touch keeps native scrolling; reduced
+       motion gets no smoothing at all. Held still until the preloader lifts. */
+    const lenis = REDUCE || COARSE ? null : new Lenis({ autoRaf: true, lerp: 0.085, wheelMultiplier: 0.9 });
+    lenis?.stop();
+    cleanups.push(() => lenis?.destroy());
+    const glide = (top: number) => lenis ? lenis.scrollTo(top, { duration: 1.4 }) : scrollTo({ top, behavior: REDUCE ? "auto" : "smooth" });
+
     /* ---------------------------------------------- scroll ↔ chapters */
     const SECS = $$("[data-cam]");
     let anchors: number[] = [];
@@ -114,7 +125,7 @@ export default function HomeLanding() {
     const navwrap = $(".lp-navwrap");
     const rail = $(".lp-rail");
     const dots = $$<HTMLButtonElement>(".lp-rail button");
-    dots.forEach((b, i) => listen(b, "click", () => scrollTo({ top: anchors[i], behavior: REDUCE ? "auto" : "smooth" })));
+    dots.forEach((b, i) => listen(b, "click", () => glide(anchors[i])));
     let last = 0, active = -1;
     const onScroll = () => {
       const y = scrollY;
@@ -131,7 +142,7 @@ export default function HomeLanding() {
       const t = document.querySelector<HTMLElement>(a.getAttribute("href")!);
       if (!t) return;
       e.preventDefault();
-      scrollTo({ top: t.offsetTop - 40, behavior: REDUCE ? "auto" : "smooth" });
+      glide(t.offsetTop - 40);
     }) as EventListener));
 
     /* ---------------------------------------------- the hero stands down
@@ -167,14 +178,17 @@ export default function HomeLanding() {
     const dot = $(".lp-cursor");
     let raf = 0;
     if (!COARSE) {
-      let x = innerWidth / 2, y = innerHeight / 2, tx = x, ty = y;
+      let x = innerWidth / 2, y = innerHeight / 2, tx = x, ty = y, t0 = performance.now();
       listen(window, "pointermove", ((e: PointerEvent) => { tx = e.clientX; ty = e.clientY; }) as EventListener);
       $$("a, button, [data-card]").forEach((el) => {
         listen(el, "mouseenter", () => dot.classList.add("act"));
         listen(el, "mouseleave", () => dot.classList.remove("act"));
       });
-      const tick = () => {
-        x += (tx - x) * 0.18; y += (ty - y) * 0.18;
+      /* frame-rate independent follow: the same feel at 60 Hz and 120 Hz */
+      const tick = (now = t0) => {
+        const k = 1 - Math.exp(-Math.min(now - t0, 50) / 1000 * 13);
+        t0 = now;
+        x += (tx - x) * k; y += (ty - y) * k;
         dot.style.transform = `translate3d(${x.toFixed(1)}px,${y.toFixed(1)}px,0)`;
         raf = requestAnimationFrame(tick);
       };
@@ -197,6 +211,7 @@ export default function HomeLanding() {
     const revealHero = () => {
       pre.classList.add("done");
       document.documentElement.classList.remove("lp-locked");
+      lenis?.start();
       $$(".lp-hero [data-rv]").forEach((el, i) => later(() => el.classList.add("rv-in"), REDUCE ? 0 : 340 + i * 95));
     };
     const fallback = (err?: unknown) => {
@@ -205,6 +220,7 @@ export default function HomeLanding() {
       $$("[data-rv]").forEach((el) => el.classList.add("rv-in"));
       pre.classList.add("done");
       document.documentElement.classList.remove("lp-locked");
+      lenis?.start();
     };
     document.documentElement.classList.add("lp-locked");
     listen(window, "resize", () => layoutFix());
@@ -216,7 +232,7 @@ export default function HomeLanding() {
         canvas: $<HTMLCanvasElement>(".lp-gl"),
         root,
         getProgress: () => progressFor(scrollY),
-        onStep: (f, l) => { fill.style.right = `${((1 - f) * 100).toFixed(1)}%`; pct.textContent = String(Math.round(f * 100)); label.textContent = l; },
+        onStep: (f, l) => { fill.style.transform = `scaleX(${f.toFixed(3)})`; pct.textContent = String(Math.round(f * 100)); label.textContent = l; },
         onLost: () => fallback(new Error("context lost")),
         reduce: REDUCE,
         coarse: COARSE,
