@@ -167,13 +167,17 @@ class Deployed(Assembly):
         features_v5.LongHorizon) + hours_frac, life_used_hours, life-clock flag."""
         return ((np.asarray(raw_ctx, np.float64) - self.cmean) / self.cstd).astype(np.float32)
 
-    def predict_window(self, seq: np.ndarray, ctx: np.ndarray, engine_hours: float) -> dict:
+    def predict_window(self, seq: np.ndarray, ctx: np.ndarray, engine_hours: float,
+                       tbo: float | None = None) -> dict:
         """seq [128, 39] and ctx [45], both already scaled. Returns every head plus
-        raw (unsmoothed) RUL hours and the calendar RUL."""
+        raw (unsmoothed) RUL hours and the calendar RUL. tbo: the flown engine's
+        (default: the export's own) - RUL is a fraction of TBO, so a placeholder
+        export answers on the engine it is standing in for."""
+        tbo = self.tbo if tbo is None else float(tbo)
         import rul_v5
         s, c = seq[None], ctx[None]
         o = self({"seq": s, "ctx": c})
         X = rul_v5.rul_inputs(o, s, c, self.contract)
-        calendar = max(0.0, self.tbo - engine_hours)
-        rul_h = float(min(max(float(self.rul.predict(X)[0]), 0.0) * self.tbo, calendar))
+        calendar = max(0.0, tbo - engine_hours)
+        rul_h = float(min(max(float(self.rul.predict(X)[0]), 0.0) * tbo, calendar))
         return {**{k: v[0] for k, v in o.items()}, "rul_hours": rul_h, "rul_calendar_hours": calendar}

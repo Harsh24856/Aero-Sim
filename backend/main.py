@@ -199,9 +199,14 @@ def apply_measured_v4(out: dict, measured: dict) -> dict:
         merged["twin_sensors"][key] = out.get(key)
         merged[key] = value / PSI_PER_BAR if ch == "oil_pressure" else value
     ref = out.get("twin") or {}
-    for c in getattr(twin, "RESIDUAL_CHANNELS", twin_v4.RESIDUAL_CHANNELS):
-        if isinstance(ref.get(c), (int, float)):
-            merged[f"res_{c}"] = merged[c] - ref[c]
+    # Only the channels the aircraft actually sent: the rest keep the twin's own residual
+    # (on a 912 the absent turbo instruments read 0 but the twin's airbox reads ambient,
+    # which turned res_airbox_temp_c into ~-30 sigma). v5's long-horizon context stays
+    # built from the twin's residuals while on CAN.
+    channels = set(getattr(twin, "RESIDUAL_CHANNELS", twin_v4.RESIDUAL_CHANNELS))
+    for key in merged["twin_sensors"]:
+        if key in channels and isinstance(ref.get(key), (int, float)):
+            merged[f"res_{key}"] = merged[key] - ref[key]
     merged["margins"] = twin.eng.margins(merged)
     merged["margin_min"] = merged["margins"]["health_index"]
     return merged
@@ -459,6 +464,7 @@ def hold_alerts_outside_envelope(sample: dict, result: dict) -> dict:
                 "fault_modes_raw": result.get("fault_modes"), "faults_present": [],
                 "sensors": {c: {**v, "condition": "none"} for c, v in (result.get("sensors") or {}).items()},
                 "sensors_raw": result.get("sensors"), "faulty_sensors": [],
+                "families_present": [], "families_present_raw": result.get("families_present"),
                 "wear_condition": None, "health_percent": None,
                 "health_percent_raw": result.get("health_percent")}
     # Severities go too: leaving them at 100% while the status reads nominal put a red number
@@ -1792,6 +1798,10 @@ def without_removed(ai: dict, fault: Optional[str] = None, channel: Optional[str
     faulty = [c for c, v in sensors.items() if isinstance(v, dict) and v.get("condition") != "none"]
     held = {**ai, "fault_modes": modes, "faults_present": present, "sensors": sensors,
             "faulty_sensors": faulty, "held_after_repair": True}
+    if "families_present" in ai:       # v5: the repaired fault's family goes unless another fault keeps it
+        gone = ((ai.get("fault_modes") or {}).get(fault) or {}).get("family")
+        kept = {modes[k].get("family") for k in present}
+        held["families_present"] = [f for f in ai["families_present"] if f != gone or f in kept]
     if not present and not faulty:
         held.update(fault_detected=False, detection_confidence=0.0,
                     detection_confidence_raw=ai.get("detection_confidence"))
