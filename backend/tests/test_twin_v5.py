@@ -60,6 +60,23 @@ class TestTwinV5(unittest.TestCase):
         tw2.restore_state(last)
         np.testing.assert_allclose(tw2.lh.state, tw.lh.state)
 
+    def test_restore_keeps_flight_usage(self):
+        tw = UAVEngineTwinV5(engine_model="Rotax_914_ULF", seed=4)
+        last = fly(tw, 30)[-1]
+        tw2 = UAVEngineTwinV5(engine_model="Rotax_914_ULF", seed=4)
+        tw2.restore_state(last)
+        self.assertAlmostEqual(tw2.eng.life_used_h, last["life_used_hours"], places=9)
+
+    def test_long_horizon_updates_once_per_second(self):
+        """One LongHorizon step per 1 Hz sample, as long_horizon_array does: the
+        first physics step must not add an extra one."""
+        tw = UAVEngineTwinV5(engine_model="Rotax_914_ULF", seed=6)
+        n = []
+        real = tw.lh.update
+        tw.lh.update = lambda row: (n.append(1), real(row))[1]
+        fly(tw, 3)
+        self.assertEqual(len(n), 3)
+
     def test_sensor_drift_injection(self):
         tw = UAVEngineTwinV5(engine_model="Rotax_914_ULF", seed=5)
         fly(tw, 2)

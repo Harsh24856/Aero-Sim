@@ -76,6 +76,13 @@ export default function DiagnosticsV4({
         </div>
       )}
 
+      {ok && !settling && ai?.context_settling && (
+        <div className="border border-[#352722] bg-[#0d0e0d] p-2 text-[8px] text-[#bca18e] md:text-[9px]"
+             title="The models also read 10- and 60-minute averages of every residual. They fill from the start of the flight; slow sensor drift is judged more surely once they have.">
+          Long-term trends still building (first hour of flight).
+        </div>
+      )}
+
       {settling && (
         <div role="status" className="border border-[#4c3025] bg-[#0d0e0d] p-2 text-[8px] text-[#d9c0ae] md:text-[9px]">
           AI settling after takeoff - alerts are held until the last 128 s of flight are above 28 m/s

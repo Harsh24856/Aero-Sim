@@ -66,11 +66,14 @@ def export(run_key: str, out_root: str | None = None) -> str:
         json.dump(contract, fh, indent=1)
     res = json.load(open(os.path.join(art, "results_test.json")))
     sha = subprocess.run(["git", "-C", ROOT, "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip()
+    # The SHA names the code only if the training/serving code was committed when exporting.
+    dirty = bool(subprocess.run(["git", "-C", ROOT, "status", "--porcelain", "--", "validation_v5/*.py", "backend/*.py"],
+                                capture_output=True, text=True).stdout.strip())
     import sklearn
     import tensorflow as tf
     manifest = {
         "engine_model": contract["engine_model"], "key": engine_key(run_key), "model_version": "v5",
-        "labels": contract.get("labels", "v5"), "run": run_key, "git_sha": sha,
+        "labels": contract.get("labels", "v5"), "run": run_key, "git_sha": sha, "git_dirty": dirty,
         "exported": dt.datetime.now().isoformat(timespec="seconds"),
         "tbo_hours": contract["tbo_hours"], "window": contract["window"],
         "feature_cols": contract["feature_cols"], "ctx_cols": contract["ctx_cols"],
