@@ -54,8 +54,10 @@ sys.path.insert(0, HERE)
 
 import evaluate as E  # noqa: E402
 import run_v5  # noqa: E402
-from pipeline_v5 import RES_SLICE, Cache  # noqa: E402
-from train_v5 import HEADS, Trainer, apply_temperature, targets  # noqa: E402
+from pipeline_v5 import Cache  # noqa: E402
+from assembly_v5 import (Assembly, SOURCE, apply_temperature, calibrate_severity,  # noqa: E402,F401
+                         detection_features, gate_severity, health_features)
+from train_v5 import HEADS, Trainer, targets  # noqa: E402
 
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "backend"))
 from degradation_v5 import FAULT_NAMES  # noqa: E402
@@ -68,9 +70,6 @@ SPECS = {
     "sensor": {"heads": ["sensor"], "select": {"sensor_macro_f1": 1.0}},
     "health": {"heads": ["health"], "select": {"health_mae": -1.0}, "linear": True},
 }
-# Which specialist answers each output of the assembled model.
-SOURCE = {"detection": "detection", "diagnosis": "diagnosis", "family": "diagnosis",
-          "severity": "severity", "sensor": "sensor", "health": "health"}
 # lr 3e-4 with cosine decay: the joint model at a flat 6e-4 peaked by epoch 3-10 and then drifted.
 BASE = {"lr": 3e-4, "lr_schedule": "cosine", "balance": "sum"}
 FA_TARGET = 0.005                                   # sensor false-alarm gate
@@ -99,9 +98,9 @@ def split_cal(cache: Cache) -> tuple[np.ndarray, np.ndarray]:
 
 
 # ---------------------------------------------------------------------------
-class Specialists:
-    """The five specialists behind the Trainer interface score_v5 / rul_v5 use:
-    .cache, .applicable, .model(inputs) -> dict of heads, .predict(ids)."""
+class Specialists(Assembly):
+    """The five trained specialists (assembly_v5.Assembly) behind the Trainer
+    interface score_v5 / rul_v5 use: .cache, .applicable, .model(inputs), .predict(ids)."""
 
     predict = Trainer.predict
     calibrate = Trainer.calibrate
@@ -109,59 +108,18 @@ class Specialists:
 
     def __init__(self, cache: Cache, art: str):
         self.cache = cache
-        self.nets = {h: Trainer.load(cache, os.path.join(art, h)) for h in SPECS}
-        self.applicable = self.nets["detection"].applicable
-        self.cfg = {}
+        self.trainers = {h: Trainer.load(cache, os.path.join(art, h)) for h in SPECS}
+        self.applicable = self.trainers["detection"].applicable
+        # Cut-offs keep each fault's validation recall >= 0.55: the gate floor is 0.5 on
+        # test, and pure best-F1 left valve leakage at 0.47.
+        self.cfg = {"min_recall": 0.55}
         self.model = self
-        self.extra = {}
+        extra = {}
         f = os.path.join(art, "assembly.pkl")
         if os.path.exists(f):
             with open(f, "rb") as fh:
-                self.extra = pickle.load(fh)
-
-    def raw(self, seq, ctx) -> dict:
-        """Each output from its own specialist, before any assembly step."""
-        outs = {h: self.nets[h].model({"seq": seq, "ctx": ctx}, training=False) for h in SPECS}
-        o = {k: np.asarray(outs[src][k]) for k, src in SOURCE.items()}
-        o["severity"] = np.clip(o["severity"], 0.0, 1.0)
-        o["health"] = np.clip(o["health"], 0.0, 1.0)
-        return o
-
-    def __call__(self, inputs, training=False) -> dict:
-        seq, ctx = np.asarray(inputs["seq"]), np.asarray(inputs["ctx"])
-        o = self.raw(seq, ctx)
-        x = self.extra
-        # The stackers were fitted on raw outputs, so they read them before any is replaced.
-        det = x["detection_gbt"].predict_proba(detection_features(o, seq))[:, 1:2] \
-            if x.get("detection_gbt") is not None else None
-        if x.get("health_gbt") is not None:
-            o["health"] = np.clip(x["health_gbt"].predict(health_features(o, ctx)), 0, 1)[:, None]
-        if det is not None:
-            o["detection"] = det
-        if "sensor_bias" in x:
-            o["sensor"] = o["sensor"].copy()
-            o["sensor"][..., 0] += x["sensor_bias"]
-        if x.get("sev_gate") is not None:
-            o["severity"] = gate_severity(o["severity"], o["diagnosis"], x["sev_gate"])
-        return o
-
-
-def health_features(o: dict, ctx: np.ndarray) -> np.ndarray:
-    return np.concatenate([o["health"], ctx], 1)
-
-
-def detection_features(o: dict, seq: np.ndarray) -> np.ndarray:
-    z = o["sensor"] - o["sensor"].max(-1, keepdims=True)
-    p_none = np.exp(z[..., 0]) / np.exp(z).sum(-1)                   # [B, 12]
-    res_max = np.abs(seq[:, :, RES_SLICE]).max(axis=(1, 2))
-    return np.stack([o["detection"][:, 0], (1 - p_none).max(1), (1 - p_none).mean(1),
-                     o["diagnosis"].max(1), o["family"].max(1), res_max], 1)
-
-
-def gate_severity(sev: np.ndarray, diag: np.ndarray, gate: dict) -> np.ndarray:
-    """Severity kept only where calibrated diagnosis probability >= the gate cut."""
-    p = apply_temperature(diag, gate["temperature"])
-    return np.where(p >= np.asarray(gate["cut"])[None, :], sev, 0.0)
+                extra = pickle.load(fh)
+        super().__init__({h: t.model for h, t in self.trainers.items()}, extra)
 
 
 def collect(sp: Specialists, ids: np.ndarray, bs: int = 512) -> dict:
@@ -240,6 +198,10 @@ def assemble(sp: Specialists, art: str) -> dict:
                 "detection_gbt": dg if rep["detection"]["kept"] == "gbt" else None}
     # diagnosis: temperature (calibration flights) and cut-offs (validation flights)
     rep["diagnosis"] = sp.calibrate()
+    rep["severity_calibration"] = fit_severity_calibration(sp, c, v)
+    sp.extra["sev_iso"] = rep["severity_calibration"].pop("iso")
+    if sp.extra["sev_iso"]:                   # the gate is chosen on calibrated severities
+        c["sev"], v["sev"] = calibrate_severity(c["sev"], sp.extra["sev_iso"]), calibrate_severity(v["sev"], sp.extra["sev_iso"])
     rep["severity"] = choose_severity_gate(sp, c, v, rep["diagnosis"])
     sp.extra["sev_gate"] = rep["severity"].pop("gate")
     with open(os.path.join(art, "assembly.pkl"), "wb") as fh:
@@ -247,6 +209,29 @@ def assemble(sp: Specialists, art: str) -> dict:
     with open(os.path.join(art, "calibration.json"), "w") as fh:
         json.dump(rep["diagnosis"], fh, indent=1)
     return rep
+
+
+def fit_severity_calibration(sp: Specialists, c: dict, v: dict) -> dict:
+    """Per fault: isotonic regression of true on predicted severity over the
+    calibration half's FAULT cells (true >= 0.08). Kept as a whole only if it lowers
+    validation (on-fault error + |bias|)."""
+    from sklearn.isotonic import IsotonicRegression
+    app = [FAULT_NAMES.index(n) for n in sp.applicable]
+    iso = {}
+    for j in app:
+        t, p = c["y"]["severity"][:, j], c["sev"][:, j]
+        on = t >= E.PRESENT_SEV
+        if on.sum() >= 50:
+            iso[j] = IsotonicRegression(y_min=0.0, y_max=1.0, out_of_bounds="clip").fit(p[on], t[on])
+
+    def cost(sev):
+        r = E.severity_report(v["y"]["severity"][:, app], sev[:, app])
+        return r["on_fault_mae"] + abs(r["on_fault_bias"]), r
+    (c0, r0), (c1, r1) = cost(v["sev"]), cost(calibrate_severity(v["sev"], iso))
+    keep = c1 < c0
+    pick = lambda r: {k: r[k] for k in ("on_fault_mae", "clean_mae", "on_fault_bias")}  # noqa: E731
+    return {"kept": bool(keep), "faults": len(iso), "val_before": pick(r0), "val_after": pick(r1),
+            "iso": iso if keep else {}}
 
 
 def choose_severity_gate(sp: Specialists, c: dict, v: dict, cal: dict) -> dict:
@@ -373,6 +358,10 @@ def main() -> None:
             say(f"  health: network {rep['health']['val_mae_network']:.3f} vs GBT {rep['health']['val_mae_gbt']:.3f} -> {rep['health']['kept']}")
             say(f"  detection recall@0.95: network {rep['detection']['val_recall_p95_network']:.3f} vs GBT "
                 f"{rep['detection']['val_recall_p95_gbt']:.3f} -> {rep['detection']['kept']}")
+            sc = rep["severity_calibration"]
+            say(f"  severity calibration ({sc['faults']} faults): val on-fault {sc['val_before']['on_fault_mae']:.3f} -> "
+                f"{sc['val_after']['on_fault_mae']:.3f}, bias {sc['val_before']['on_fault_bias']:+.3f} -> "
+                f"{sc['val_after']['on_fault_bias']:+.3f} -> {'kept' if sc['kept'] else 'not kept'}")
             sv = rep["severity"]
             say(f"  severity gate x{sv['factor']}: val on-fault {sv['val_before']['on_fault_mae']:.3f} -> "
                 f"{sv['val_after']['on_fault_mae']:.3f}, clean {sv['val_before']['clean_mae']:.3f} -> "

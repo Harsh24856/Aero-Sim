@@ -5,11 +5,11 @@
 | Head | Result | Gate | Why not |
 |---|---|---|---|
 | Detection: recall at precision 0.95 | 0.957 (0.942-0.971); baseline 0.641 | PASS | - |
-| Diagnosis: macro F1 | 0.809 (0.758-0.841); baseline 0.000 | FAIL | min_fault_recall = 0.4721 fails >= 0.5 (CI None, None) |
-| Severity: error on real faults | 0.082 (0.072-0.094); baseline 0.158 | FAIL | abs:bias_on_fault = 0.06488 fails <= 0.03 (CI None, None) |
+| Diagnosis: macro F1 | 0.800 (0.751-0.828); baseline 0.000 | FAIL | min_fault_recall = 0.4721 fails >= 0.5 (CI None, None) |
+| Severity: error on real faults | 0.078 (0.069-0.087); baseline 0.158 | PASS | - |
 | Sensor fault: macro F1 | 0.889 (0.871-0.903); baseline 0.415 | PASS | - |
 | Health: error | 0.033 (0.031-0.036); baseline 0.118 | PASS | - |
-| RUL: error on wear-limited engines, % of TBO | 11.1% (9.9-12.3%); baseline 26.2% | FAIL | mae_pct_tbo_tbo_limited = 4.119 fails <= 4 (CI None, None) |
+| RUL: error on wear-limited engines, % of TBO | 10.9% (9.7-12.1%); baseline 26.2% | PASS | - |
 
 ## Diagnosis by fault
 
@@ -25,7 +25,7 @@
 | combustion_instability | 0.98 | 0.99 | 0.99 | 0.20 |
 | bearing_wear | 0.96 | 0.97 | 0.96 | 0.39 |
 | oil_pump_degradation | 0.61 | 0.45 | 0.52 | 0.28 |
-| oil_degradation | 0.59 | 0.87 | 0.71 | 0.41 |
+| oil_degradation | 0.76 | 0.47 | 0.58 | 0.15 |
 | cooling_degradation | 1.00 | 0.92 | 0.96 | 0.13 |
 | prop_erosion | 0.96 | 0.98 | 0.97 | 0.58 |
 
@@ -41,11 +41,11 @@ Labels here are v5b (relabel_v5b.py); the joint model was scored on the v5 label
 | Head | Specialists | Joint model | Do-nothing | Better than joint? |
 |---|---|---|---|---|
 | Detection: recall at precision 0.95 | 0.957 | 0.546 | 0.641 | yes |
-| Diagnosis: macro F1 | 0.809 | 0.466 | 0.000 | yes |
-| Severity: error on real faults | 0.082 | 0.395 | 0.158 | yes |
+| Diagnosis: macro F1 | 0.800 | 0.466 | 0.000 | yes |
+| Severity: error on real faults | 0.078 | 0.395 | 0.158 | yes |
 | Sensor fault: macro F1 | 0.889 | 0.717 | 0.415 | yes |
 | Health: error | 0.033 | 0.194 | 0.118 | yes |
-| RUL: error on wear-limited engines, % of TBO | 11.090 | 10.046 | 26.171 | no |
+| RUL: error on wear-limited engines, % of TBO | 10.881 | 10.046 | 26.171 | no |
 
 ## Training, per specialist (validation flights)
 

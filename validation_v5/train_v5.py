@@ -55,6 +55,7 @@ if not tf.config.list_physical_devices("GPU"):
     raise SystemExit("No GPU visible to TensorFlow (tensorflow-metal) - v5 trains on the GPU only.")
 
 import evaluate as E  # noqa: E402
+from assembly_v5 import apply_temperature  # noqa: E402,F401  (re-exported: score_v5 imports it from here)
 import model_architectures_v5 as M  # noqa: E402
 from pipeline_v5 import Cache  # noqa: E402
 from seed import set_random_seed  # noqa: E402
@@ -335,8 +336,12 @@ class Trainer:
         for j in app:
             if y["diagnosis"][:, j].sum() == 0:
                 continue
-            f1 = [E.prf(y["diagnosis"][:, j], pc[:, j] >= c)[2] for c in grid_c]
-            cuts[j] = float(grid_c[int(np.argmax(f1))])
+            prf = [E.prf(y["diagnosis"][:, j], pc[:, j] >= c) for c in grid_c]
+            f1 = np.array([x[2] for x in prf])
+            # cfg "min_recall": best F1 among cut-offs that keep this recall (the gate's
+            # per-fault floor is 0.5); none reach it -> plain best F1.
+            ok = np.array([x[1] >= self.cfg.get("min_recall", 0.0) for x in prf])
+            cuts[j] = float(grid_c[int(np.argmax(np.where(ok, f1, -1.0) if ok.any() else f1))])
         return {"temperature": temps.tolist(), "cutoffs": cuts.tolist(),
                 "val_ece_after": E.ece(y["diagnosis"][:, app], pc[:, app]),
                 "val_ece_before": E.ece(y["diagnosis"][:, app], o["diagnosis"][:, app])}
@@ -362,12 +367,6 @@ class WarmUp(tf.keras.optimizers.schedules.LearningRateSchedule):
 
     def get_config(self):
         return {"lr": self.lr, "steps": self.steps, "decay_steps": self.decay_steps}
-
-
-def apply_temperature(p: np.ndarray, temps) -> np.ndarray:
-    p = np.clip(p, 1e-6, 1 - 1e-6)
-    z = np.log(p / (1 - p)) / np.asarray(temps)[None, :]
-    return 1 / (1 + np.exp(-z))
 
 
 DEFAULT_CFG = {"channels": 64, "layers": 6, "dropout": 0.2, "input_dropout": 0.03, "head_hidden": 96,

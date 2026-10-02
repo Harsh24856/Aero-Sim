@@ -47,19 +47,28 @@ from pipeline_v5 import CTX_COLS, Cache  # noqa: E402
 MARGIN_CH = ["cht", "egt", "oil_temp", "oil_pressure", "engine_rpm"]
 
 
-def unscale_last(cache: Cache, seq: np.ndarray) -> dict:
-    """Instrument readings (engineering units) at the window's last second."""
-    sc = cache.contract["scaler"]
-    mean, std = np.array(sc["mean"]), np.array(sc["std"])
-    last = seq[:, -1, :].astype(np.float64) * std + mean
-    return {c: last[:, F.FEATURE_COLS.index(c)] for c in MARGIN_CH}
-
-
-def measured_margin(cache: Cache, seq: np.ndarray) -> np.ndarray:
-    eng = P.PistonEngineV5(cache.contract["engine_model"], dt=1.0)
-    v = unscale_last(cache, seq)
-    return np.array([eng.margins({c: float(v[c][i]) for c in MARGIN_CH})["health_index"]
+def measured_margin(contract: dict, seq: np.ndarray) -> np.ndarray:
+    """Operating margin from the MEASURED instruments at each window's last second
+    (seq scaled as the cache stores it)."""
+    sc = contract["scaler"]
+    last = seq[:, -1, :].astype(np.float64) * np.array(sc["std"]) + np.array(sc["mean"])
+    eng = P.PistonEngineV5(contract["engine_model"], dt=1.0)
+    idx = {c: F.FEATURE_COLS.index(c) for c in MARGIN_CH}
+    return np.array([eng.margins({c: float(last[i, idx[c]]) for c in MARGIN_CH})["health_index"]
                      for i in range(len(seq))])
+
+
+def rul_inputs(o: dict, seq: np.ndarray, ctx: np.ndarray, contract: dict) -> np.ndarray:
+    """RUL model inputs from the assembled outputs `o` and the scaled window/context
+    - one definition for fitting, scoring and serving."""
+    marg = measured_margin(contract, seq)
+    thr_mean = seq[:, :, F.FEATURE_COLS.index("throttle")].mean(1)
+    # Engine-fault evidence only: `detection` also fires on SENSOR faults, and fed to
+    # RUL it took 7-14% off a healthy engine's life when one instrument failed.
+    engine_fault = np.asarray(o["diagnosis"]).max(1, keepdims=True)
+    return np.concatenate([np.asarray(o["health"]), np.asarray(o["severity"]),
+                           engine_fault, np.asarray(o["family"]),
+                           marg[:, None], thr_mean[:, None], ctx], 1)
 
 
 def features(trainer, ids: np.ndarray, bs: int = 512):
@@ -71,12 +80,7 @@ def features(trainer, ids: np.ndarray, bs: int = 512):
     for i in range(0, len(ids), bs):
         seq, ctx, Er = cache.batch(ids[i:i + bs])
         o = trainer.model({"seq": seq, "ctx": ctx}, training=False)
-        marg = measured_margin(cache, seq)
-        thr_mean = seq[:, :, F.FEATURE_COLS.index("throttle")].mean(1)
-        X = np.concatenate([np.asarray(o["health"]), np.asarray(o["severity"]),
-                            np.asarray(o["detection"]), np.asarray(o["family"]),
-                            marg[:, None], thr_mean[:, None], ctx], 1)
-        Xs.append(X)
+        Xs.append(rul_inputs(o, seq, ctx, cache.contract))
         rul = cache.labels(Er, "rul_hours")
         calh = cache.labels(Er, "rul_calendar_hours")
         ys.append(rul / tbo)
@@ -142,6 +146,27 @@ class GatedRUL:
     def predict(self, X, p_wear_limited=None):
         p = self.clf.predict_proba(X)[:, 1] if p_wear_limited is None else p_wear_limited
         return np.where(p >= self.threshold, self.reg.predict(X), 1e3)
+
+
+class RulSmoother:
+    """smooth_within_flight one prediction at a time, for the live service. Same
+    EMA on the removal time and the same non-increasing clamp; `update` with the
+    same sequence returns exactly the array version's values."""
+
+    def __init__(self, alpha: float = 0.2):
+        self.alpha = alpha
+        self.s = None          # smoothed removal time (engine hours)
+        self.out = None        # last output (hours left)
+        self.hours = None
+
+    def update(self, pred_h: float, hours: float) -> float:
+        removal = float(hours) + float(pred_h)
+        self.s = removal if self.s is None else self.s + self.alpha * (removal - self.s)
+        out = self.s - float(hours)
+        if self.out is not None:
+            out = min(out, self.out - max(0.0, float(hours) - self.hours))
+        self.out, self.hours = out, float(hours)
+        return max(out, 0.0)
 
 
 def smooth_within_flight(pred_h: np.ndarray, hours: np.ndarray, alpha: float = 0.2) -> np.ndarray:

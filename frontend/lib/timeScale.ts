@@ -67,15 +67,21 @@ export function simSecondsToRealHours(simSeconds: number): number {
 // above applies to them. Every page decides through these helpers, never by
 // calling the v2 functions directly on a row whose version it has not checked.
 // Rows written before the v3 migration default to 'v2' and render as legacy.
-export type ModelVersion = "v2" | "v3" | "v4";
+export type ModelVersion = "v2" | "v3" | "v4" | "v5";
+
+/** v5 flies v4's engine records, clocks and storage with new physics and models. */
+export function isV4Family(version: string | null | undefined): boolean {
+  return version === "v4" || version === "v5";
+}
 
 export function modelVersionOf(row: { model_version?: string | null } | null | undefined): ModelVersion {
-  return row?.model_version === "v4" ? "v4" : row?.model_version === "v3" ? "v3" : "v2";
+  const v = row?.model_version;
+  return v === "v5" ? "v5" : v === "v4" ? "v4" : v === "v3" ? "v3" : "v2";
 }
 
 /** v3 and v4 both count RUL and wear in REAL engine hours; only v2 is compressed. */
 export function usesEngineHours(version: ModelVersion | string | null | undefined): boolean {
-  return version === "v3" || version === "v4";
+  return version === "v3" || isV4Family(version);
 }
 
 /** TBO for a v3 run: the column, else the physics snapshot that carries it. */
