@@ -139,9 +139,15 @@ Every engine's residual inputs change, so all four must be regenerated and
 retrained once. Use the standard v5b labels (no `--per-channel-faults`: it still
 hides oil degradation).
 
-Still to run (long jobs):
-- Regenerate all four engines with the fleet-wear twin (~2 h CPU each).
-- For each engine, 914 first: `run_v5.py <key> --steps checks,cache --force checks`,
-  `relabel_v5b.py <key>`, `specialists_v5.py <key>b --force detection,diagnosis,severity,sensor,health`
-  (~8 h GPU), `export_v5.py <key>b`, parity test, `e2e_v5.py`.
-- Then switch the default (Phase 6).
+**914 done (2026-10-03, #10):** retrained on the fleet-wear twin, 6/6 gates, exported.
+On 22 identical flights against the old models: exact naming 88% -> 96%, healthy false
+alarms 23/30/19% -> 0/18/11%, RUL error 167 -> 145 h. Weak spots: one valve-leakage
+flight named 74% (mistaken for injector fouling), oil-pump RUL, EGT-stuck detection.
+
+Still to run (long jobs): the 912, 915 and 916, one after another, with
+`validation_v5/run_fleet.sh` (regenerate, checks, relabel, gate, retrain; ~13 h each):
+
+    nohup caffeinate -is bash validation_v5/run_fleet.sh > validation_v5/logs/fleet.log 2>&1 &
+
+Then per engine: review the card, `export_v5.py <key>b`, the parity test and
+`e2e_v5.py --engines <key>`. Then switch the default (Phase 6).
