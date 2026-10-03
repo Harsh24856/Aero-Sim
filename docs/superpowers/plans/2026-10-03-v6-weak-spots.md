@@ -236,13 +236,23 @@ def test_calibrated_twin_beats_fleet_twin_on_healthy_residual(self):   # reuses 
 
 Track B is done (branch `claude/v6-plan`, reviewed). The engines go strictly one after
 another: **914 -> 912 -> 915 -> 916**. An engine starts only after the one before it has
-been checked and merged (or kept back). Every engine gets the same check, against the
-models it would replace:
+been checked and accepted (or kept back).
+
+**Merging (user decision, 2026-10-04): nothing merges until all four engines are done.**
+The v6 code runs from the main checkout as uncommitted copies (PR #14 stays open), so each
+accepted engine's export goes live in the main checkout but carries `git_dirty: true`.
+Task 12 merges everything once and re-exports all four from committed code.
+
+Every engine gets the same check, against the models it would replace:
 
 | Engine | "Previous" it must beat |
 |---|---|
 | 914 | the live 914 v5 export (`backend/models_v5/914`, backup in `914b_specialists_prev`) |
-| 912, 915, 916 | the 914 placeholder serving it at that moment (the 914 v6 models, once Task 8 merges) |
+| 912, 915, 916 | the 914 placeholder serving it at that moment (the 914 v6 models, once Task 8 is accepted) |
+
+For 912 / 915 / 916 the "old" side is a copy of the main checkout taken just before that
+engine's export (so it still serves the 914 placeholder); the "new" side is the main
+checkout after the export.
 
 ### Task 7: The check tool (before any training)
 
@@ -260,23 +270,26 @@ RUL error, and a PASS/FAIL line for the rule below. Sensor presets are scored fr
 1. Test card: 6/6 gates; no per-fault F1 down by more than 0.03 against the previous.
 2. A/B: all flights pass; exact fault naming not lower; healthy false alarms not higher; mean RUL error not higher.
 3. Export parity on GPU and CPU; `e2e_v5 --engines <key>` all pass.
-If any part fails: the engine is NOT merged, the previous stays live, and we investigate before the next engine.
+If any part fails: the engine is NOT accepted (its export is rolled back), the previous stays live, and we
+investigate before the next engine.
 
 ### Task 8: 914 on v6 (about 13 h)
 
-- [ ] Merge `claude/v6-plan` (with the user's OK) and copy it into the main checkout.
+- [ ] (done) The v6 code is copied into the main checkout; `claude/v6-plan` (PR #14) stays open until Task 12.
 - [ ] The user starts: `cd ~/Documents/UAV_Engine && nohup caffeinate -is bash validation_v5/run_fleet.sh 914 > validation_v5/logs/fleet_914.log 2>&1 &`
 - [ ] Card against the live 914 v5. Targets on top of the rule: valve-leakage recall >= 0.65 (was 0.56); RUL bias <= +150 h when
       true life is 600+ h under the calendar (was +300); >= -40 h when 1-50 h under (was -72); wear-limited error <= 9.5% of TBO.
 - [ ] `ab_v5.py --engine 914` against the live export; export to a scratch folder first, parity GPU + CPU, `e2e_v5 --engines 914`.
-- [ ] Rule passed: export for real, commit the models, PR, merge with the user's OK. Failed: keep v5 live and stop to investigate.
+- [ ] Rule passed: the export stays live in the main checkout (git_dirty) and the engine is accepted.
+      Failed: `git checkout -- backend/models_v5/914` (v5 back) and stop to investigate.
 
-### Task 9: 912 on v6 (about 13 h) - only after Task 8 is merged or kept back
+### Task 9: 912 on v6 (about 13 h) - only after Task 8 is accepted or kept back
 
 - [ ] The user starts: `bash validation_v5/run_fleet.sh 912` (same command shape as Task 8).
 - [ ] Card against the 914 placeholder; the 912 has no turbo (its turbo channels are blank) and is the most likely to
       miss the valve-leakage gate (W1) - the calibrated twin is meant to fix exactly that.
-- [ ] `ab_v5.py --engine 912 --old <placeholder> --new <912 v6>`, parity, `e2e_v5 --engines 912`; merge only if the rule passes.
+- [ ] `ab_v5.py --engine 912 --old <copy before export> --new ~/Documents/UAV_Engine`, parity, `e2e_v5 --engines 912`;
+      accept only if the rule passes (else delete `backend/models_v5/912` so the placeholder serves it again).
 
 ### Task 10: 915 on v6 - after Task 9
 
@@ -284,9 +297,13 @@ If any part fails: the engine is NOT merged, the previous stays live, and we inv
 
 ### Task 11: 916 on v6 - after Task 10
 
-- [ ] Same as Task 9 with `916`. When it merges, no engine is on a placeholder any more.
+- [ ] Same as Task 9 with `916`. When it is accepted, no engine is on a placeholder any more.
 
-### Task 12: Default switch, frontend, docs, tests - after Task 11
+### Task 12: Merge everything, re-export clean, default switch, frontend, docs, tests - after Task 11
+
+- [ ] Merge PRs #12, #13 and #14 (with the user's OK), bring the main checkout to `main`.
+- [ ] Re-export every accepted engine from committed code (`export_v5.py <key>b` - minutes each; manifest
+      `git_dirty: false`), parity GPU + CPU, `e2e_v5` all engines; commit the models in one PR and merge it.
 
 - [ ] `e2e_v4` and `e2e_v5` on the same flights, all four engines; if v5 wins on every engine, v5 becomes the default
       in `main.py` and `start_stack.sh` (v4 stays selectable).
@@ -306,6 +323,7 @@ If any part fails: the engine is NOT merged, the previous stays live, and we inv
 | C3 | Task 9: 912, then check | ~13 h | the user starts, I check |
 | C4 | Task 10: 915, then check | ~13 h | the user starts, I check |
 | C5 | Task 11: 916, then check | ~13 h | the user starts, I check |
-| C6 | Task 12: default switch, UI, docs, tests | none | me, ~3 h |
+| C6 | Task 12: one merge + clean re-export, default switch, UI, docs, tests | none | me, ~3-4 h |
 
 Each engine waits for the previous one's check; a failed check stops the line until it is understood.
+Nothing merges before Task 12.
