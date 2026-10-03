@@ -135,7 +135,9 @@ def build_cache(src: str, dst: str) -> dict:
     X.flush()
     ENDS.flush()
     pd.DataFrame(flights).to_parquet(os.path.join(dst, "flights.parquet"), index=False)
-    contract = dict(F.contract(), engine_model=man["engine_model"], tbo_hours=tbo,
+    # The twin is a property of the DATA: older datasets were generated against a new engine.
+    contract = dict(F.contract(), twin=man["contract"].get("twin", "new_engine"),
+                    engine_model=man["engine_model"], tbo_hours=tbo,
                     scaler={"mean": mean.tolist(), "std": std.tolist(),
                             "residual_sigma": RES_SIGMA.tolist(), "residuals_divided_by_sigma_first": True},
                     ctx_cols=CTX_COLS, ctx_scaler={"mean": cmean.tolist(), "std": cstd.tolist()},

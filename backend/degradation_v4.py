@@ -85,6 +85,7 @@ BASELINE_MODS = {
 # shape of a wear-out curve is not engine-specific.
 A_RANGE = (0.0010, 0.0035)
 B_RANGE = (1.30, 1.70)
+BASE_SCALE_RANGE = (0.75, 1.30)
 
 
 @dataclass
@@ -111,7 +112,7 @@ class DegradationState:
         # age are not identical - manufacturing and usage variation.
         self.base_a = float(rng.uniform(*A_RANGE))
         self.base_b = float(rng.uniform(*B_RANGE))
-        self.base_scale = float(rng.uniform(0.75, 1.30))
+        self.base_scale = float(rng.uniform(*BASE_SCALE_RANGE))
 
         # Faults. Most flights carry none; some carry one; a few carry two, which
         # is what makes diagnosis non-trivial and is common in service.
