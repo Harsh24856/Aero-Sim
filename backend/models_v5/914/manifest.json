@@ -4,9 +4,9 @@
  "model_version": "v5",
  "labels": "v5b",
  "run": "914b",
- "git_sha": "56a57d9",
+ "git_sha": "fe90646",
  "git_dirty": false,
- "exported": "2026-10-02T15:22:46",
+ "exported": "2026-10-03T15:31:21",
  "tbo_hours": 2000.0,
  "window": 128,
  "feature_cols": [
@@ -123,16 +123,16 @@
   "flights": 900,
   "windows": 43321,
   "primary": {
-   "detection": 0.9574411561553584,
-   "diagnosis": 0.7998119775431347,
-   "severity": 0.07824007421731949,
-   "sensor_fault": 0.8889899695620238,
-   "health": 0.03345747977266085,
-   "rul": 10.880615091604456
+   "detection": 0.9654806428788032,
+   "diagnosis": 0.8176132452397393,
+   "severity": 0.07276754826307297,
+   "sensor_fault": 0.9006535222417079,
+   "health": 0.03201291734631357,
+   "rul": 9.482933871201883
   },
   "gates": {
    "detection": true,
-   "diagnosis": false,
+   "diagnosis": true,
    "severity": true,
    "sensor_fault": true,
    "health": true,
