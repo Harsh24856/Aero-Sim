@@ -104,6 +104,17 @@ class TestEngineHistory(unittest.TestCase):
         self.assertGreater(h["sev_max"], 0.5)
         self.assertLessEqual(h["wear_ratio"], 2.0)
 
+    def test_history_severity_is_effective_and_gated(self):
+        """The logbook holds what a past flight could see: severity in the same
+        (effective) units the severity head reports, nothing for a sub-visible fault."""
+        d = deg_at(1.0)
+        spec = 0.60                                        # FAULT_MODES["bearing_wear"]["depth"]
+        d.faults = [FaultEvent(name="bearing_wear", onset_h=100.0, a=1.0, b=1.0, depth=0.6 * spec, sense=-1)]
+        h = engine_history(d, 1000.0, np.random.default_rng(0), lag_h=100.0)   # raw progress ~1.0 at 900 h
+        self.assertTrue(0.45 < h["sev_max"] < 0.75, h["sev_max"])               # effective ~0.6, 10% noise
+        d.faults = [FaultEvent(name="bearing_wear", onset_h=899.9, a=0.001, b=1.0, depth=spec, sense=-1)]
+        self.assertEqual(engine_history(d, 1000.0, np.random.default_rng(0), lag_h=100.0)["sev_max"], 0.0)
+
     def test_calibrated_twin_beats_fleet_twin_on_healthy_residual(self):
         cal = np.quantile(healthy_residuals(30, lambda d, h: calibrated_wear_health(
             h, d.tbo, engine_history(d, h, np.random.default_rng(1))["wear_ratio"])), 0.95, axis=0)
@@ -168,6 +179,20 @@ class TestTwinModeFollowsDeployedModel(unittest.TestCase):
         self.assertEqual(set(cal.history), {"lag_h", "wear_ratio", "sev_max"})
         self.assertGreater(cal.history["wear_ratio"], 1.0)        # it really does wear faster than the fleet
         self.assertLess(self._rpm_residual(cal), self._rpm_residual(fleet))
+
+    def test_history_survives_restore(self):
+        """A recovery or resume restores the same logbook: calibration never jumps mid-run."""
+        root = self._root({"914": {"twin": "calibrated_wear"}})
+        rec = self._fast_wearing_engine()
+        # its own wear-curve shape (not the fleet's), so the ratio depends on when it is taken
+        rec["fault_plan"]["baseline"] = {"a": 0.0035, "b": 1.30, "scale": 1.3}
+        tw = twin_v5.UAVEngineTwinV5(engine_model="Rotax_914_ULF", engine=rec, seed=1, models_root=root)
+        for _ in range(int(30 / tw.dt)):
+            snap = tw.step()
+        self.assertGreater(snap["engine_hours"], tw.start_engine_hours)          # the life clock moved
+        back = twin_v5.UAVEngineTwinV5(engine_model="Rotax_914_ULF", seed=1, models_root=root)
+        back.restore_state(snap)
+        self.assertEqual(back.history, tw.history)
 
     def test_engine_record_history_wins(self):
         rec = {**self._fast_wearing_engine(), "history": {"lag_h": 50.0, "wear_ratio": 0.8, "sev_max": 0.0}}
