@@ -107,6 +107,10 @@ html.lp-locked body { overflow: hidden; }
   transition: opacity 0.8s var(--ease), visibility 0.8s;
 }
 .lp-pre.done { opacity: 0; visibility: hidden; pointer-events: none; }
+.lp.seen .lp-pre { display: none; }
+/* a return visit: the scene fades in under the already-visible page */
+.lp.seen .lp-gl { opacity: 0; transition: opacity 1.2s var(--ease); }
+.lp.seen.gl-on .lp-gl { opacity: 1; }
 .lp-pre-in { transition: transform 0.9s var(--ease-out), opacity 0.6s var(--ease); }
 .lp-pre.done .lp-pre-in { transform: translate3d(0, -14px, 0); opacity: 0; }
 .lp-pre-in { width: min(420px, 74vw); text-align: center; }

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useEffect, useRef, type CSSProperties } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, type CSSProperties } from "react";
 import Lenis from "lenis";
 import "lenis/dist/lenis.css";
 import Navbar from "@/components/Navbar";
@@ -55,8 +55,17 @@ const HEADS = [
 
 const RAIL = ["Pre-flight", "Physics Twin", "Engine Fleet", "AI Watch", "Launch", "Colophon"];
 
+/* The preloader is the site's opening: it plays once per browser session.
+   Coming back to /home later shows the page straight away and the world
+   fades in under it as soon as it is built. */
+const SEEN_KEY = "aero-sim:preloaded";
+const seenPreloader = () => { try { return sessionStorage.getItem(SEEN_KEY) === "1"; } catch { return false; } };
+
 export default function HomeLanding() {
   const rootRef = useRef<HTMLDivElement>(null);
+
+  /* before paint, so a return visit never flashes the preloader */
+  useLayoutEffect(() => { if (seenPreloader()) rootRef.current!.classList.add("seen"); }, []);
 
   useEffect(() => {
     const root = rootRef.current!;
@@ -208,7 +217,9 @@ export default function HomeLanding() {
     /* ---------------------------------------------- the world */
     const pre = $(".lp-pre"), fill = $(".lp-pre-fill"), pct = $(".lp-pre-pct"), label = $(".lp-pre-label");
     let world: World | null = null, cancelled = false;
+    const SEEN = root.classList.contains("seen");
     const revealHero = () => {
+      try { sessionStorage.setItem(SEEN_KEY, "1"); } catch { /* private mode: it just plays again */ }
       pre.classList.add("done");
       document.documentElement.classList.remove("lp-locked");
       lenis?.start();
@@ -222,7 +233,8 @@ export default function HomeLanding() {
       document.documentElement.classList.remove("lp-locked");
       lenis?.start();
     };
-    document.documentElement.classList.add("lp-locked");
+    if (SEEN) revealHero();
+    else document.documentElement.classList.add("lp-locked");
     listen(window, "resize", () => layoutFix());
     const layoutFix = () => document.documentElement.style.setProperty("--vw", document.documentElement.clientWidth + "px");
     layoutFix();
@@ -240,7 +252,8 @@ export default function HomeLanding() {
       .then((w) => {
         if (cancelled) { w.dispose(); return; }
         world = w;
-        later(() => { revealHero(); w.start(); measure(); }, 240);
+        if (SEEN) { w.start(); measure(); root.classList.add("gl-on"); }
+        else later(() => { revealHero(); w.start(); measure(); root.classList.add("gl-on"); }, 240);
       })
       .catch(fallback);
 
