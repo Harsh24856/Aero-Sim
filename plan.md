@@ -146,33 +146,30 @@ flight named 74% (mistaken for injector fouling), oil-pump RUL, EGT-stuck detect
 
 ## Remaining work (2026-10-03)
 
-Order: W (fix the 914's weak spots) -> Phase 7 (the other three engines, with the
-fixes) -> Phase 6 (default switch) -> frontend/docs -> housekeeping. The weak spots
-are fixed BEFORE the 912, 915 and 916 train, so those engines get the fixes from the
-start and nothing is trained twice.
+Order: Phase 7 (the other three engines) -> Phase 6 (default switch) ->
+frontend/docs -> housekeeping. The weak-spot investigation (W, below) found no training
+change to make, so Phase 7 runs on the current code.
 
-### W. Weak spots, fixed before Phase 7 (no new data; the 914 is the test bed)
+### W. Weak spots: investigated 2026-10-03, no training change needed
 
-Each fix is proved on the 914 first. If it proves out, the 914's affected head is
-retrained too (a couple of hours, not the full run); if not, the 914 stays as it is.
+All three were traced on the 914 (test flights and the end-to-end presets). None is a
+training defect, so Phase 7 runs on the current code.
 
-| # | Weak spot (914, today) | Investigate | Done when |
+| # | Reported | What it actually is | Verdict |
 |---|---|---|---|
-| W1 | Valve leakage named on 74% of one flight; the rest called injector fouling. Test recall 0.56 (gate 0.5) - the 912, with no turbo, may fail it | Test-set confusion valve leakage -> injector fouling; which channels (`eff_*`) separate the two; whether the diagnosis loss or cut-offs under-weight the pair | 914 valve-leakage recall >= 0.60, every other fault's F1 within 0.02, the valve flight named >= 90% |
-| W2 | Remaining life reads low with a broken sensor (~850 h vs 1,382 h true) | Trace `rul_v5` inputs: a stuck or dropped channel's residual reads as wear. Fix in RUL, not in the data: ignore channels the sensor head flags, or fall back toward the hours prior while one is flagged | Sensor-fault flights' RUL error <= 200 h; wear-limited RUL error (9.5% of TBO) not worse |
-| W3 | EGT-stuck flagged on 53% of its flight (was 78%) | Per-channel stuck recall on the test set; the sensor head's cut-off and bias for stuck on EGT | EGT-stuck flagged >= 75% on its flight; sensor false alarms <= 0.10% |
+| W1 | Valve leakage named on 74% of one flight, "mistaken for injector fouling"; test recall 0.56 | On test flights it is NOT confused with injector fouling (0 of 237 missed windows; injector-only windows are never called valve leakage). Misses are whole flights whose leak moves rpm 2.2-3.4 sigma, only 0.28-0.44x the healthy rpm spread (7.7 sigma); caught flights move it 5.4-9.8 sigma (0.7-1.3x). Probabilities are all-or-nothing, so cut-offs cannot help | Physics ceiling, not training. The fix is the v6 twin (learn each engine's wear rate, shrinking healthy spread). Watch the 912's valve-leakage gate |
+| W2 | Remaining life reads low with a broken sensor (~850 h vs 1,382 h) | Misattributed: the same 600 h engine reads 815 h with NO sensor fault, and swapping each input group back to clean moves it 0-60 h. The real bias: engines just inside the wear-limited boundary read low (-72 h), badly worn ones read high (+300 h when true life is 600+ h under the calendar) | Two candidates tried - a soft gate (calendar weighted by P(wear-limited)) and a regressor fitted on wear-limited engines only - both worse on validation (wear-limited 11.33% and 10.99% vs 10.48%). Current model kept; a real fix needs fault-progression inputs (contract change) |
+| W3 | EGT stuck flagged on 53% of its flight | Window fill: stuck is visible from 30 s after onset, and the model calls it on every sample from 130 s (the 128 s window full of stuck readings). Test-set stuck recall on EGT where visible: 1.00 (0.93-1.00 on every channel) | Not a defect: about 2 minutes of latency, by design of the window |
 
-No feature or contract changes: a new input would force all four engines to retrain.
-Any fix lands in the training code, so `run_fleet.sh` picks it up for the other three.
-
-### Phase 7. The 912, 915 and 916 (after W)
+### Phase 7. The 912, 915 and 916
 
     nohup caffeinate -is bash validation_v5/run_fleet.sh > validation_v5/logs/fleet.log 2>&1 &
 
 `run_fleet.sh`: regenerate, checks, relabel, gate, retrain - about 13 h per engine,
 one after another. Per engine afterwards: review the card, `export_v5.py <key>b`,
 the parity test, and the 22-flight A/B against the 914 placeholder (every applicable
-fault, healthy engines at three ages, the sensor presets) including the W1-W3 flights.
+fault, healthy engines at three ages, the sensor presets). Score sensor presets from
+onset + 128 s (W3) and expect some shallow valve leaks to be missed (W1).
 Merge only if it beats the placeholder. The 912 has no turbo; the 915's TBO is 1,200 h.
 
 ### Phase 6. Default switch (after Phase 7)
