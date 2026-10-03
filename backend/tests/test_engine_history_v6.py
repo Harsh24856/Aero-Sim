@@ -147,6 +147,36 @@ class TestTwinModeFollowsDeployedModel(unittest.TestCase):
         root = self._root({"914": {"twin": "fleet_wear"}})
         self.assertEqual(twin_v5.twin_mode("Rotax_916_iS", root), "fleet_wear")
 
+    def _fast_wearing_engine(self) -> dict:
+        import scenarios_v4
+        rec = scenarios_v4.make_engine("Rotax_914_ULF", seed=5)
+        rec = {**rec, "engine_hours": 1500.0, "fault_plan": {**rec["fault_plan"], "faults": [],
+               "baseline": {"a": FLEET_WEAR[0], "b": FLEET_WEAR[1], "scale": 1.3}}}
+        return rec
+
+    def _rpm_residual(self, tw) -> float:
+        for _ in range(int(30 / tw.dt)):
+            out = tw.step()
+        return abs(out["res_engine_rpm"]) / SENSOR_SPEC["engine_rpm"]["noise_sd"]
+
+    def test_live_twin_calibrated_mode(self):
+        rec = self._fast_wearing_engine()
+        cal = twin_v5.UAVEngineTwinV5(engine_model="Rotax_914_ULF", engine=rec, seed=1,
+                                      models_root=self._root({"914": {"twin": "calibrated_wear"}}))
+        fleet = twin_v5.UAVEngineTwinV5(engine_model="Rotax_914_ULF", engine=rec, seed=1,
+                                        models_root=self._root({"914": {"twin": "fleet_wear"}}))
+        self.assertEqual(set(cal.history), {"lag_h", "wear_ratio", "sev_max"})
+        self.assertGreater(cal.history["wear_ratio"], 1.0)        # it really does wear faster than the fleet
+        self.assertLess(self._rpm_residual(cal), self._rpm_residual(fleet))
+
+    def test_engine_record_history_wins(self):
+        rec = {**self._fast_wearing_engine(), "history": {"lag_h": 50.0, "wear_ratio": 0.8, "sev_max": 0.0}}
+        tw = twin_v5.UAVEngineTwinV5(engine_model="Rotax_914_ULF", engine=rec, seed=1,
+                                     models_root=self._root({"914": {"twin": "calibrated_wear"}}))
+        self.assertEqual(tw.history["wear_ratio"], 0.8)
+        out = tw.step()
+        self.assertEqual(out["engine_history"]["wear_ratio"], 0.8)
+
     def test_live_twin_uses_fleet_wear_when_the_model_does(self):
         root = self._root({"914": {"twin": "fleet_wear"}})
         rec = {"engine_model": "Rotax_914_ULF", "engine_hours": 1500.0, "tbo_hours": 2000.0, "degradation_seed": 5}
