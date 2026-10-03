@@ -311,6 +311,8 @@ def main() -> None:
     ap.add_argument("--max-windows", type=int, default=20000,
                     help="windows per epoch: a fresh random draw from ALL training flights each epoch")
     ap.add_argument("--boot", type=int, default=1000)
+    ap.add_argument("--verbose", type=int, default=1, choices=(0, 1, 2),
+                    help="0 silent, 1 a line per epoch, 2 also training loss, best marker, quarter-epoch progress")
     a = ap.parse_args()
     force = set(filter(None, a.force.split(",")))
     p = paths(a.engine)
@@ -330,7 +332,7 @@ def main() -> None:
         from seed import set_random_seed
         cfg["seed"] = set_random_seed(cfg.get("seed", 0))
         tr = Trainer(cache, cfg)
-        res = tr.train_protocol(a.epochs, a.patience, cfg["batch"], max_train_windows=a.max_windows)
+        res = tr.train_protocol(a.epochs, a.patience, cfg["batch"], max_train_windows=a.max_windows, verbose=a.verbose)
         tr.save(out)
         run_v5.dump(res, os.path.join(out, "history.json"))
         say(f"{h:9s} done in {(time.time() - t0) / 60:.1f} min, best {res['best_composite']:.4f}")
