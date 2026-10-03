@@ -224,11 +224,13 @@ class Trainer:
             yield item
 
     def fit(self, epochs: int, patience: int, bs: int, out_dir: str | None = None,
-            max_train_windows: int | None = None, verbose: bool = True,
+            max_train_windows: int | None = None, verbose: int = 1,
             keep_current: bool = False, epoch0: int = 0) -> dict:
         """keep_current: the weights on entry are the version to beat (later
         stages), so a stage that does not improve the composite changes nothing.
-        epoch0 offsets the window shuffle so later stages see fresh orders."""
+        epoch0 offsets the window shuffle so later stages see fresh orders.
+        verbose: 0 silent, 1 one line per epoch (validation), 2 also the training loss
+        of the heads being trained, a best-epoch marker and progress every quarter epoch."""
         val_ids = self.cache.end_ids(["val"], jitter=False)
         if verbose:
             print(f"device: {[d.name for d in tf.config.list_physical_devices('GPU')]}", flush=True)
@@ -242,21 +244,27 @@ class Trainer:
             if max_train_windows:
                 ids = ids[:max_train_windows]
             tot = np.zeros(len(HEADS))
-            nb = 0
+            nb, n_batches = 0, max(1, len(ids) // bs)
             for seq, ctx, y in self._batches(ids, bs):
                 tot += self.train_step(tf.constant(seq), tf.constant(ctx),
                                        {k: tf.constant(v) for k, v in y.items()}).numpy()
                 nb += 1
+                if verbose >= 2 and nb % max(1, n_batches // 4) == 0 and nb < n_batches:
+                    print(f"   ep {ep:2d} {100 * nb // n_batches:3d}%  batch {nb}/{n_batches}  {time.time() - t0:6.1f}s  "
+                          f"train {self._train_loss(tot / nb)}", flush=True)
             o, y, _ = self.predict(val_ids)
             sc = self.score(o, y)
             rec = {"epoch": ep, "seconds": round(time.time() - t0, 1),
                    "train_losses": dict(zip(HEADS, (tot / max(nb, 1)).round(4).tolist())),
                    "log_vars": self.log_vars.numpy().round(3).tolist(), "val": {k: round(v, 4) for k, v in sc.items()}}
             hist.append(rec)
+            improved = sc["select"] > best + 1e-4
             if verbose:
-                print(f"ep {ep:2d} {rec['seconds']:6.1f}s  " + "  ".join(f"{k} {v:.3f}" for k, v in rec["val"].items()),
-                      flush=True)
-            if sc["select"] > best + 1e-4:
+                line = f"ep {ep:2d} {rec['seconds']:6.1f}s  " + "  ".join(f"{k} {v:.3f}" for k, v in rec["val"].items())
+                if verbose >= 2:
+                    line += f"  | train {self._train_loss(tot / max(nb, 1))}" + ("  * best" if improved else f"  (wait {wait + 1}/{patience})")
+                print(line, flush=True)
+            if improved:
                 best, best_ep, wait = sc["select"], ep, 0
                 best_w = self.model.get_weights()
             else:
@@ -266,8 +274,13 @@ class Trainer:
         self.model.set_weights(best_w)
         return {"best_epoch": best_ep, "best_composite": best, "history": hist}
 
+    def _train_loss(self, mean_losses: np.ndarray) -> str:
+        """Mean training loss of the heads this model trains (all six for the joint one)."""
+        heads = self.cfg.get("heads") or HEADS
+        return "  ".join(f"{h} {mean_losses[HEADS.index(h)]:.4f}" for h in heads if h in HEADS)
+
     def train_protocol(self, epochs: int, patience: int, bs: int, max_train_windows: int | None = None,
-                       verbose: bool = True) -> dict:
+                       verbose: int = 1) -> dict:
         """Phase 5 task 1: joint training, then the heads alone on a frozen encoder,
         then everything unfrozen at a low learning rate with a warm-up (v4 restarted
         at 1e-3 on the whole encoder). Each later stage keeps its result only if it
