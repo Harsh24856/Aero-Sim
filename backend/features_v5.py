@@ -40,7 +40,10 @@ CONTRACT_VERSION = "v5.0"
 # The on-board twin residuals are taken against: degradation_v5.fleet_wear_health
 # at the engine's hours. Exports without this key were trained against a
 # brand-new engine ("new_engine"); twin_v5 serves each model the twin it learnt.
-TWIN = "fleet_wear"
+TWIN = "calibrated_wear"
+# The engine's logbook baseline (degradation_v5.engine_history), one value per flight:
+# the twin is calibrated with hist_wear_ratio, and RUL reads all three.
+HIST_COLS = ["hist_lag_h", "hist_wear_ratio", "hist_sev_max"]
 
 FLIGHT_COLS = ["altitude", "airspeed", "aoa", "throttle",
                "ambient_temp_c", "air_density", "isa_dev_c", "humidity_frac"]
