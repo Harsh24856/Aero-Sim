@@ -5,7 +5,10 @@ A twin of a brand-new engine turns normal, in-limit ageing into a residual of
 show on those channels. A twin that knows only the hour meter and the fleet wear
 curve leaves the residual to what is particular to this engine.
 
-    cd backend && .venv/bin/python -m unittest tests.test_fleet_wear_v5
+v6 goes one step further: the twin is calibrated to THIS engine from a
+logbook-style history taken some hours earlier (engine_history).
+
+    cd backend && .venv/bin/python -m unittest tests.test_engine_history_v6
 """
 import json
 import os
@@ -20,7 +23,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import features_v5 as F  # noqa: E402
 import physics_v5 as P  # noqa: E402
 import twin_v5  # noqa: E402
-from degradation_v5 import DegradationStateV5, baseline_health, fleet_wear_health  # noqa: E402
+from degradation_v4 import FaultEvent  # noqa: E402
+from degradation_v5 import (  # noqa: E402
+    FLEET_WEAR, DegradationStateV5, baseline_health, calibrated_wear_health, engine_history, fleet_wear_health,
+)
 from sensors_v5 import SENSOR_SPEC  # noqa: E402
 
 CHANNELS = ["engine_rpm", "oil_pressure", "fuel_flow"]
@@ -65,6 +71,45 @@ class TestFleetWear(unittest.TestCase):
 
     def test_contract_names_the_twin(self):
         self.assertEqual(F.contract()["twin"], "fleet_wear")
+
+
+def deg_at(scale: float) -> DegradationStateV5:
+    """A fault-free 914 (TBO 2,000 h) on the fleet's wear curve shape, wearing at `scale`."""
+    d = DegradationStateV5(np.random.default_rng(0), start_hours=0.0, tbo_hours=2000.0, n_faults=0)
+    d.base_a, d.base_b, d.base_scale = FLEET_WEAR[0], FLEET_WEAR[1], scale
+    return d
+
+
+def deg_with_fault_before(onset_h: float, sev: float) -> DegradationStateV5:
+    """deg_at(1.0) plus one fault that is already at full severity well before 1,000 h."""
+    d = deg_at(1.0)
+    d.faults = [FaultEvent(name="bearing_wear", onset_h=onset_h, a=1.0, b=1.0, depth=sev, sense=1)]
+    return d
+
+
+class TestEngineHistory(unittest.TestCase):
+    def test_calibrated_ratio_one_is_fleet_wear(self):
+        self.assertEqual(calibrated_wear_health(900, 2000, 1.0).as_dict(), fleet_wear_health(900, 2000).as_dict())
+
+    def test_engine_history_young_engine_ratio_one(self):
+        h = engine_history(deg_at(1.2), 40.0, np.random.default_rng(0))
+        self.assertEqual(h["wear_ratio"], 1.0)
+
+    def test_engine_history_hours_below_lag(self):
+        h = engine_history(deg_at(1.0), 30.0, np.random.default_rng(0), lag_h=100.0)
+        self.assertEqual((h["lag_h"], h["wear_ratio"]), (30.0, 1.0))
+
+    def test_engine_history_fault_contamination_clamped(self):
+        h = engine_history(deg_with_fault_before(800, sev=0.9), 1000.0, np.random.default_rng(0))
+        self.assertGreater(h["sev_max"], 0.5)
+        self.assertLessEqual(h["wear_ratio"], 2.0)
+
+    def test_calibrated_twin_beats_fleet_twin_on_healthy_residual(self):
+        cal = np.quantile(healthy_residuals(30, lambda d, h: calibrated_wear_health(
+            h, d.tbo, engine_history(d, h, np.random.default_rng(1))["wear_ratio"])), 0.95, axis=0)
+        fleet = np.quantile(healthy_residuals(30, lambda d, h: fleet_wear_health(h, d.tbo)), 0.95, axis=0)
+        for c, a, b in zip(CHANNELS, cal, fleet):
+            self.assertLess(a, 0.7 * b, f"{c}: calibrated {a:.1f} vs fleet {b:.1f} sigma")
 
 
 class TestTwinModeFollowsDeployedModel(unittest.TestCase):
