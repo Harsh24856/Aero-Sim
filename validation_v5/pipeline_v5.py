@@ -49,7 +49,8 @@ LABEL_COLS = (["fault_present", "sensor_fault_any", "health_index", "margin_min"
                "rul_hours", "rul_hours_oracle", "rul_calendar_hours", "engine_hours",
                "limit_exceeded", "altitude", "throttle"]
               + [f"fm_{n}" for n in FAULT_NAMES] + [f"fmv_{n}" for n in FAULT_NAMES]
-              + [f"sf_{c}_flag" for c in FAULTABLE_CHANNELS] + [f"sf_{c}_sev" for c in FAULTABLE_CHANNELS])
+              + [f"sf_{c}_flag" for c in FAULTABLE_CHANNELS] + [f"sf_{c}_sev" for c in FAULTABLE_CHANNELS]
+              + F.HIST_COLS)        # last, so every older column keeps its index in older caches
 CTX_COLS = F.LONG_COLS + AUX_COLS
 END_COLS = ["flight", "row"] + CTX_COLS + LABEL_COLS
 RES_SIGMA = np.array([SENSOR_SPEC[c]["noise_sd"] for c in F.RESIDUAL_CHANNELS], np.float32)
@@ -112,8 +113,14 @@ def build_cache(src: str, dst: str) -> dict:
     flights = []
     row = 0
     e = 0
+    has_hist = None
     for fi, (r, g) in enumerate(_read_flights(src)):
         g = g.sort_values("t")
+        if has_hist is None:
+            has_hist = all(c in g.columns for c in F.HIST_COLS)
+        for c, v in zip(F.HIST_COLS, F.HIST_NEUTRAL):      # data from before v6: no logbook
+            if c not in g.columns:
+                g[c] = v
         A = g[F.FEATURE_COLS].to_numpy(np.float64, copy=True)
         A[:, RES_SLICE] /= RES_SIGMA
         X[row:row + len(g)] = ((A - mean) / std).astype(np.float16)
@@ -137,6 +144,7 @@ def build_cache(src: str, dst: str) -> dict:
     pd.DataFrame(flights).to_parquet(os.path.join(dst, "flights.parquet"), index=False)
     # The twin is a property of the DATA: older datasets were generated against a new engine.
     contract = dict(F.contract(), twin=man["contract"].get("twin", "new_engine"),
+                    hist_cols=list(F.HIST_COLS) if has_hist else [],
                     engine_model=man["engine_model"], tbo_hours=tbo,
                     scaler={"mean": mean.tolist(), "std": std.tolist(),
                             "residual_sigma": RES_SIGMA.tolist(), "residuals_divided_by_sigma_first": True},

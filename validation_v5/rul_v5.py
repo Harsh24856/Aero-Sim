@@ -58,17 +58,27 @@ def measured_margin(contract: dict, seq: np.ndarray) -> np.ndarray:
                      for i in range(len(seq))])
 
 
-def rul_inputs(o: dict, seq: np.ndarray, ctx: np.ndarray, contract: dict) -> np.ndarray:
+def rul_inputs(o: dict, seq: np.ndarray, ctx: np.ndarray, contract: dict,
+               hist: np.ndarray | None = None) -> np.ndarray:
     """RUL model inputs from the assembled outputs `o` and the scaled window/context
-    - one definition for fitting, scoring and serving."""
+    - one definition for fitting, scoring and serving. When the contract has
+    `hist_cols` (v6), the engine's logbook history [n, 3] in F.HIST_COLS order adds
+    its wear ratio, past worst severity and severity progression per hour; missing
+    history counts as none. Without hist_cols the inputs are exactly as before."""
     marg = measured_margin(contract, seq)
     thr_mean = seq[:, :, F.FEATURE_COLS.index("throttle")].mean(1)
     # Engine-fault evidence only: `detection` also fires on SENSOR faults, and fed to
     # RUL it took 7-14% off a healthy engine's life when one instrument failed.
     engine_fault = np.asarray(o["diagnosis"]).max(1, keepdims=True)
-    return np.concatenate([np.asarray(o["health"]), np.asarray(o["severity"]),
-                           engine_fault, np.asarray(o["family"]),
-                           marg[:, None], thr_mean[:, None], ctx], 1)
+    X = np.concatenate([np.asarray(o["health"]), np.asarray(o["severity"]),
+                        engine_fault, np.asarray(o["family"]),
+                        marg[:, None], thr_mean[:, None], ctx], 1)
+    if not contract.get("hist_cols"):
+        return X
+    h = np.tile(F.HIST_NEUTRAL, (len(X), 1)) if hist is None else np.asarray(hist, np.float64)
+    lag, ratio, sev = h[:, 0], h[:, 1], h[:, 2]
+    progression = (np.asarray(o["severity"]).max(1) - sev) / np.maximum(lag, 1.0)
+    return np.concatenate([X, ratio[:, None], sev[:, None], progression[:, None]], 1)
 
 
 def features(trainer, ids: np.ndarray, bs: int = 512):
@@ -80,7 +90,9 @@ def features(trainer, ids: np.ndarray, bs: int = 512):
     for i in range(0, len(ids), bs):
         seq, ctx, Er = cache.batch(ids[i:i + bs])
         o = trainer.model({"seq": seq, "ctx": ctx}, training=False)
-        Xs.append(rul_inputs(o, seq, ctx, cache.contract))
+        hist = (np.stack([cache.labels(Er, c) for c in F.HIST_COLS], 1)
+                if cache.contract.get("hist_cols") else None)
+        Xs.append(rul_inputs(o, seq, ctx, cache.contract, hist))
         rul = cache.labels(Er, "rul_hours")
         calh = cache.labels(Er, "rul_calendar_hours")
         ys.append(rul / tbo)

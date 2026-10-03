@@ -44,6 +44,7 @@ TWIN = "calibrated_wear"
 # The engine's logbook baseline (degradation_v5.engine_history), one value per flight:
 # the twin is calibrated with hist_wear_ratio, and RUL reads all three.
 HIST_COLS = ["hist_lag_h", "hist_wear_ratio", "hist_sev_max"]
+HIST_NEUTRAL = [0.0, 1.0, 0.0]           # "no logbook": data and exports from before v6
 
 FLIGHT_COLS = ["altitude", "airspeed", "aoa", "throttle",
                "ambient_temp_c", "air_density", "isa_dev_c", "humidity_frac"]
