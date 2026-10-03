@@ -112,6 +112,7 @@ HIST_NOISE = 0.10                 # relative error of that wear estimate
 HIST_CONTAMINATION = 0.5          # a fault active then reads as this much extra wear per unit severity
 HIST_RATIO = (0.5, 2.0)
 HIST_YOUNG = 0.02                 # below this fleet wear the ratio carries no information
+HIST_SEV_FLOOR = 0.08             # a past fault weaker than this was not visible (FAULT_PRESENT_SEV)
 
 
 def engine_history(deg: "DegradationStateV5", hours: float, rng: np.random.Generator,
@@ -120,16 +121,22 @@ def engine_history(deg: "DegradationStateV5", hours: float, rng: np.random.Gener
     fleet, and its worst fault severity, as measured on a flight `lag_h` hours ago
     (default: drawn from HIST_LAG_H; never before the engine's hour zero). The wear
     estimate is noisy and a fault already active then inflates it - what calibration
-    from real past flights would give. Never reads the current flight.
+    from real past flights would give. The past severity is what that flight could see:
+    EFFECTIVE units (progress x depth / spec depth - the units the severity head
+    reports), zero below HIST_SEV_FLOOR, with the same relative noise. Never reads the
+    current flight.
     ponytail: HIST_NOISE and HIST_CONTAMINATION are modelling knobs; tune them if live
     calibration data ever exists."""
     lag = float(rng.uniform(*HIST_LAG_H)) if lag_h is None else float(lag_h)
     lag = min(lag, float(hours))
     h0 = float(hours) - lag
-    _, sev = deg.health_at(h0)
-    sev_max = max(sev.values()) if sev else 0.0
+    seen = [DegradationState._progress((h0 - f.onset_h) / max(deg.tbo, 1.0) * 100.0, f.a, f.b)
+            * f.depth / FAULT_MODES[f.name]["depth"] for f in deg.faults if f.onset_h < h0]
+    true_sev = max(seen, default=0.0)
     fleet = wear_fraction(h0, deg.tbo, *FLEET_WEAR)
     noise = float(rng.normal(0.0, HIST_NOISE))
+    sev_noise = float(rng.normal(0.0, HIST_NOISE))      # drawn last: earlier draws unchanged
+    sev_max = 0.0 if true_sev < HIST_SEV_FLOOR else min(max(true_sev * (1.0 + sev_noise), 0.0), 1.0)
     if fleet < HIST_YOUNG:
         ratio = 1.0
     else:
