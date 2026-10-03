@@ -70,7 +70,7 @@ class TestFleetWear(unittest.TestCase):
             self.assertLess(f, n / 2.5, f"{c}: fleet {f:.1f} vs new-engine {n:.1f} sigma")
 
     def test_contract_names_the_twin(self):
-        self.assertEqual(F.contract()["twin"], "fleet_wear")
+        self.assertEqual(F.contract()["twin"], "calibrated_wear")
 
 
 def deg_at(scale: float) -> DegradationStateV5:
@@ -110,6 +110,21 @@ class TestEngineHistory(unittest.TestCase):
         fleet = np.quantile(healthy_residuals(30, lambda d, h: fleet_wear_health(h, d.tbo)), 0.95, axis=0)
         for c, a, b in zip(CHANNELS, cal, fleet):
             self.assertLess(a, 0.7 * b, f"{c}: calibrated {a:.1f} vs fleet {b:.1f} sigma")
+
+
+class TestGeneratorV6(unittest.TestCase):
+    def test_generator_rows_carry_history_and_calibrated_twin(self):
+        import glob
+        import pandas as pd
+        import generate_dataset_v5 as G
+        out = tempfile.mkdtemp()
+        man = G.generate_engine("Rotax_914_ULF", seed=3, n_flights=6, out_dir=out)
+        self.assertEqual(man["contract"]["twin"], "calibrated_wear")
+        d = pd.concat([pd.read_parquet(f) for f in glob.glob(os.path.join(out, "914", "flights_*.parquet"))])
+        for c in F.HIST_COLS:
+            self.assertIn(c, d.columns)
+            self.assertTrue((d.groupby("scenario_id")[c].nunique() == 1).all(), c)
+        self.assertTrue(d.hist_wear_ratio.between(0.5, 2.0).all())
 
 
 class TestTwinModeFollowsDeployedModel(unittest.TestCase):
