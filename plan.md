@@ -139,9 +139,58 @@ Every engine's residual inputs change, so all four must be regenerated and
 retrained once. Use the standard v5b labels (no `--per-channel-faults`: it still
 hides oil degradation).
 
-Still to run (long jobs):
-- Regenerate all four engines with the fleet-wear twin (~2 h CPU each).
-- For each engine, 914 first: `run_v5.py <key> --steps checks,cache --force checks`,
-  `relabel_v5b.py <key>`, `specialists_v5.py <key>b --force detection,diagnosis,severity,sensor,health`
-  (~8 h GPU), `export_v5.py <key>b`, parity test, `e2e_v5.py`.
-- Then switch the default (Phase 6).
+**914 done (2026-10-03, #10):** retrained on the fleet-wear twin, 6/6 gates, exported.
+On 22 identical flights against the old models: exact naming 88% -> 96%, healthy false
+alarms 23/30/19% -> 0/18/11%, RUL error 167 -> 145 h. Weak spots: one valve-leakage
+flight named 74% (mistaken for injector fouling), oil-pump RUL, EGT-stuck detection.
+
+## Remaining work (2026-10-03)
+
+Order: W (fix the 914's weak spots) -> Phase 7 (the other three engines, with the
+fixes) -> Phase 6 (default switch) -> frontend/docs -> housekeeping. The weak spots
+are fixed BEFORE the 912, 915 and 916 train, so those engines get the fixes from the
+start and nothing is trained twice.
+
+### W. Weak spots, fixed before Phase 7 (no new data; the 914 is the test bed)
+
+Each fix is proved on the 914 first. If it proves out, the 914's affected head is
+retrained too (a couple of hours, not the full run); if not, the 914 stays as it is.
+
+| # | Weak spot (914, today) | Investigate | Done when |
+|---|---|---|---|
+| W1 | Valve leakage named on 74% of one flight; the rest called injector fouling. Test recall 0.56 (gate 0.5) - the 912, with no turbo, may fail it | Test-set confusion valve leakage -> injector fouling; which channels (`eff_*`) separate the two; whether the diagnosis loss or cut-offs under-weight the pair | 914 valve-leakage recall >= 0.60, every other fault's F1 within 0.02, the valve flight named >= 90% |
+| W2 | Remaining life reads low with a broken sensor (~850 h vs 1,382 h true) | Trace `rul_v5` inputs: a stuck or dropped channel's residual reads as wear. Fix in RUL, not in the data: ignore channels the sensor head flags, or fall back toward the hours prior while one is flagged | Sensor-fault flights' RUL error <= 200 h; wear-limited RUL error (9.5% of TBO) not worse |
+| W3 | EGT-stuck flagged on 53% of its flight (was 78%) | Per-channel stuck recall on the test set; the sensor head's cut-off and bias for stuck on EGT | EGT-stuck flagged >= 75% on its flight; sensor false alarms <= 0.10% |
+
+No feature or contract changes: a new input would force all four engines to retrain.
+Any fix lands in the training code, so `run_fleet.sh` picks it up for the other three.
+
+### Phase 7. The 912, 915 and 916 (after W)
+
+    nohup caffeinate -is bash validation_v5/run_fleet.sh > validation_v5/logs/fleet.log 2>&1 &
+
+`run_fleet.sh`: regenerate, checks, relabel, gate, retrain - about 13 h per engine,
+one after another. Per engine afterwards: review the card, `export_v5.py <key>b`,
+the parity test, and the 22-flight A/B against the 914 placeholder (every applicable
+fault, healthy engines at three ages, the sensor presets) including the W1-W3 flights.
+Merge only if it beats the placeholder. The 912 has no turbo; the 915's TBO is 1,200 h.
+
+### Phase 6. Default switch (after Phase 7)
+
+`e2e_v4` and `e2e_v5` on the same flights, all four engines. If v5 wins on every
+engine, v5 becomes the default in `main.py` and `start_stack.sh`; v4 stays selectable.
+
+### Frontend and docs
+
+`engine_info` still shows "V4 TRAINED/TRAINING" and "1 OF 4 DEPLOYED": show the v5
+status per engine. Refresh the README, this plan, and a four-engine model-card summary.
+
+### Housekeeping
+
+- Fix the three backend tests that fail only in a full-suite run (test-order state leak).
+- Decide on the unmerged branch `claude/male-uav-digital-twin-validation-e0bbe4`.
+
+### Later (v6)
+
+A twin that learns each engine's own wear rate in flight (oil-pressure healthy noise is
+still 12 sigma, from engine-to-engine wear-rate spread).
