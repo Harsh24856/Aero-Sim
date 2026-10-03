@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# v5 engines on the fleet-wear twin, end to end, one engine after another:
-# regenerate -> checks + cache -> relabel (v5b) -> gate -> retrain all five specialists.
-# Default: the three engines still on the 914's placeholder models.
+# v6 engines (calibrated-wear twin + engine history), end to end, one engine after
+# another: regenerate -> checks + cache -> relabel (v5b) -> gate -> retrain all five
+# specialists. Default: all four, the 914 first (docs/superpowers/plans/2026-10-03-v6-weak-spots.md).
 #
 #   cd ~/Documents/UAV_Engine
 #   nohup caffeinate -is bash validation_v5/run_fleet.sh > validation_v5/logs/fleet.log 2>&1 &
 #   tail -f validation_v5/logs/fleet.log
 #
 #   bash validation_v5/run_fleet.sh 915          # one engine
+#   bash validation_v5/run_fleet.sh 914 912      # several, in this order
 #
 # An engine that fails a step is reported and skipped; the next engine still runs.
 # Per engine: validation_v5/logs/<key>_fleet_{regen,cache,relabel,train}.log and the
@@ -32,13 +33,13 @@ run_one() (
   if [ -d "$art" ] && [ ! -d "${art}_prev" ]; then cp -R "$art" "${art}_prev"; say "$key: backed up $art"; fi
 
   # 2. regenerate (~2 h CPU)
-  say "$key: regenerating ($model, fleet-wear twin) ..."
+  say "$key: regenerating ($model, calibrated-wear twin) ..."
   $GEN backend/generate_dataset_v5.py --engine "$model" --flights 6000 > "$L/${key}_fleet_regen.log" 2>&1
   tail -1 "$L/${key}_fleet_regen.log"
 
-  # 3. the data must carry the fleet-wear twin
+  # 3. the data must carry the v6 twin (calibrated to each engine's logbook)
   twin=$($PY -c "import json; print(json.load(open('data/rotax_v5/$key/manifest.json'))['contract'].get('twin','new_engine'))")
-  [ "$twin" = "fleet_wear" ] || { say "$key: STOP - data twin is '$twin'"; exit 1; }
+  [ "$twin" = "calibrated_wear" ] || { say "$key: STOP - data twin is '$twin', not calibrated_wear"; exit 1; }
 
   # 4. checks + cache (run_v5 exits non-zero when a check fails)
   say "$key: checks + cache ..."
@@ -59,7 +60,9 @@ import features_v5 as F
 import relabel_v5b as R
 from sensors_v5 import FAULTABLE_CHANNELS
 c = Cache(f"cache/{os.environ['KEY']}b")
-assert c.contract.get('twin') == 'fleet_wear', f"cache twin {c.contract.get('twin')}"
+assert c.contract.get('twin') == 'calibrated_wear', f"cache twin {c.contract.get('twin')}"
+assert c.contract.get('hist_cols'), 'cache has no engine history (hist_cols)'
+
 ids = c.end_ids(['train'], jitter=False)
 ids = np.sort(np.random.default_rng(0).choice(ids, min(20000, len(ids)), replace=False))
 sc = c.contract['scaler']; mean, std = np.array(sc['mean'])[RES_SLICE], np.array(sc['std'])[RES_SLICE]
@@ -71,7 +74,7 @@ for i in range(0, len(ids), 2048):
     ok.append((fm.max(1) < 0.01) & (sf == 0).all(1))
 wm = np.concatenate(wm)[np.concatenate(ok)]
 fail = []
-for ch, bar in (('engine_rpm', 9.0), ('oil_pressure', 14.0), ('fuel_flow', 6.0)):   # 914: 7.8 / 12.0 / 4.3
+for ch, bar in (('engine_rpm', 6.0), ('oil_pressure', 10.0), ('fuel_flow', 5.0)):   # v5 fleet twin 7.8 / 12.0 / 4.3; v6 sample 2.9 / 3.1 / 1.9
     q = float(np.quantile(np.abs(wm[:, F.RESIDUAL_COLS.index(f'res_{ch}')]), 0.99))
     print(f'  healthy q99 {ch:13s} {q:5.2f} sigma (bar {bar})')
     if q > bar: fail.append(ch)
@@ -96,7 +99,7 @@ EOF
 )
 
 done_ok=() failed=()
-for key in "${@:-912 915 916}"; do
+for key in "${@:-914 912 915 916}"; do
   for k in $key; do
     if run_one "$k"; then done_ok+=("$k"); else failed+=("$k"); say "$k: FAILED - see $L/${k}_fleet_*.log; moving on"; fi
   done
