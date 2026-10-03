@@ -93,7 +93,7 @@ EOF
 
   # 7. retrain every specialist, then assemble, RUL, test, card (~11 h GPU)
   say "$key: training all five specialists ..."
-  $PY validation_v5/specialists_v5.py "${key}b" --force detection,diagnosis,severity,sensor,health > "$L/${key}_fleet_train.log" 2>&1
+  $PY validation_v5/specialists_v5.py "${key}b" --force detection,diagnosis,severity,sensor,health --verbose 2 > "$L/${key}_fleet_train.log" 2>&1
   grep -E '^\| (Detection|Diagnosis|Severity|Sensor|Health|RUL)' "$art/model_card.md" | cut -d'|' -f2,4 || true
   say "$key: DONE - card: $art/model_card.md"
 )
