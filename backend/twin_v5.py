@@ -109,6 +109,7 @@ class UAVEngineTwinV5:
         # logbook), else the same simulated one the training data drew.
         self.history = dict(rec.get("history") or engine_history(
             self.deg, self.start_engine_hours, np.random.default_rng(int(rec["degradation_seed"]) + 2)))
+        self.record["history"] = self.history      # snapshots carry it: a restore never recalibrates
         self.eng = P.PistonEngineV5(self.engine_model, dt=self.dt)
         self.ref = P.PistonEngineV5(self.engine_model, dt=self.dt)
         self.lh = F.LongHorizon()
