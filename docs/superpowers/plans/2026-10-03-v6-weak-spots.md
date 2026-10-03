@@ -232,47 +232,80 @@ def test_calibrated_twin_beats_fleet_twin_on_healthy_residual(self):   # reuses 
 
 ---
 
-## Track C: train and ship
+## Track C: one engine at a time - train, check against the previous models, then the next
 
-### Task 7: 914 on v6 (the user runs it; about 13 h)
+Track B is done (branch `claude/v6-plan`, reviewed). The engines go strictly one after
+another: **914 -> 912 -> 915 -> 916**. An engine starts only after the one before it has
+been checked and merged (or kept back). Every engine gets the same check, against the
+models it would replace:
 
-- [ ] **Step 1: The user starts the run.**
+| Engine | "Previous" it must beat |
+|---|---|
+| 914 | the live 914 v5 export (`backend/models_v5/914`, backup in `914b_specialists_prev`) |
+| 912, 915, 916 | the 914 placeholder serving it at that moment (the 914 v6 models, once Task 8 merges) |
 
-```bash
-cd ~/Documents/UAV_Engine && nohup caffeinate -is bash validation_v5/run_fleet.sh 914 > validation_v5/logs/fleet.log 2>&1 &
-```
+### Task 7: The check tool (before any training)
 
-- [ ] **Step 2: Read the card.** Expected, compared with the live 914 (v5):
-  - all 6 gates pass;
-  - valve-leakage recall ≥ 0.65 (was 0.56);
-  - RUL wear-limited error ≤ 9.5% of TBO;
-  - for badly worn engines (true life 600+ h under the calendar), RUL bias ≤ +150 h (was +300);
-  - for engines just inside the wear-limited boundary (1–50 h under the calendar), RUL bias ≥ −40 h (was −72);
-  - no other per-fault F1 down by more than 0.03.
-- [ ] **Step 3:** Run the 22-flight A/B against the live 914, plus `e2e_v5 --engines 914`. Merge only if better (rule as for PR #10). Then export, run the parity test on GPU and CPU, commit the export, and open a PR.
+**Files:** Create `scripts/ab_v5.py`, from `scratchpad/ab_914.py` (the 22-flight A/B used for PR #10).
 
-### Task 8: 912, 915 and 916 on v6 (about 40 h)
+**Interfaces:** `scripts/ab_v5.py --engine <912|914|915|916> --old <checkout or models dir> --new <checkout or models dir>`.
+It flies every applicable fault, healthy engines at 300 / 1,000 / 1,550 h and the sensor presets, once per side
+with the same seed, and prints one table with: pass, fault named exactly, healthy false alarms, wrong-fault calls,
+RUL error, and a PASS/FAIL line for the rule below. Sensor presets are scored from onset + 128 s (W3).
 
-- [ ] Run `bash validation_v5/run_fleet.sh 912 915 916`. Each engine then goes through the same review as Task 7, step 3, against the 914 placeholder.
+- [ ] Write it; run it with `--old` = `--new` = the live 914 and check both columns are identical (the tool's own test).
+- [ ] Commit `feat(scripts): ab_v5.py, the old-vs-new check every engine goes through`.
 
-### Task 9: Default switch, frontend, docs, tests
+**The rule an engine must pass to merge** (printed by the tool, decided by me, confirmed with the user):
+1. Test card: 6/6 gates; no per-fault F1 down by more than 0.03 against the previous.
+2. A/B: all flights pass; exact fault naming not lower; healthy false alarms not higher; mean RUL error not higher.
+3. Export parity on GPU and CPU; `e2e_v5 --engines <key>` all pass.
+If any part fails: the engine is NOT merged, the previous stays live, and we investigate before the next engine.
 
-- [ ] **Default switch:** run `e2e_v4` and `e2e_v5` on the same flights for all four engines. If v5 wins on every engine, make it the default in `main.py` and `start_stack.sh`, keeping v4 selectable.
-- [ ] **Frontend:** `engine_info` shows the real per-engine v6 status (the `STAGES` and `v4.ai` fields today).
-- [ ] **Docs:** README, plan.md, and a four-engine model-card summary.
-- [ ] **Tests:**
-  - Move the 22-flight A/B script (`scratchpad/ab_914.py`) to `scripts/ab_v5.py --engine <key> --old <models_dir>`, so every engine review uses one tool.
-  - Fix the three order-dependent backend test failures (task already filed).
+### Task 8: 914 on v6 (about 13 h)
+
+- [ ] Merge `claude/v6-plan` (with the user's OK) and copy it into the main checkout.
+- [ ] The user starts: `cd ~/Documents/UAV_Engine && nohup caffeinate -is bash validation_v5/run_fleet.sh 914 > validation_v5/logs/fleet_914.log 2>&1 &`
+- [ ] Card against the live 914 v5. Targets on top of the rule: valve-leakage recall >= 0.65 (was 0.56); RUL bias <= +150 h when
+      true life is 600+ h under the calendar (was +300); >= -40 h when 1-50 h under (was -72); wear-limited error <= 9.5% of TBO.
+- [ ] `ab_v5.py --engine 914` against the live export; export to a scratch folder first, parity GPU + CPU, `e2e_v5 --engines 914`.
+- [ ] Rule passed: export for real, commit the models, PR, merge with the user's OK. Failed: keep v5 live and stop to investigate.
+
+### Task 9: 912 on v6 (about 13 h) - only after Task 8 is merged or kept back
+
+- [ ] The user starts: `bash validation_v5/run_fleet.sh 912` (same command shape as Task 8).
+- [ ] Card against the 914 placeholder; the 912 has no turbo (its turbo channels are blank) and is the most likely to
+      miss the valve-leakage gate (W1) - the calibrated twin is meant to fix exactly that.
+- [ ] `ab_v5.py --engine 912 --old <placeholder> --new <912 v6>`, parity, `e2e_v5 --engines 912`; merge only if the rule passes.
+
+### Task 10: 915 on v6 - after Task 9
+
+- [ ] Same as Task 9 with `915`. Note: TBO 1,200 h, so RUL errors read against a shorter life.
+
+### Task 11: 916 on v6 - after Task 10
+
+- [ ] Same as Task 9 with `916`. When it merges, no engine is on a placeholder any more.
+
+### Task 12: Default switch, frontend, docs, tests - after Task 11
+
+- [ ] `e2e_v4` and `e2e_v5` on the same flights, all four engines; if v5 wins on every engine, v5 becomes the default
+      in `main.py` and `start_stack.sh` (v4 stays selectable).
+- [ ] `engine_info` shows the real per-engine v6 status; README, plan.md and a four-engine model-card summary.
+- [ ] Fix the three order-dependent backend tests and the five deferred review minors.
 
 ---
 
 ## Order and cost
 
-| Track | What | GPU | Who |
+| Step | What | GPU | Who |
 |---|---|---|---|
-| A | Task 1 (W3) | none | me; ship now |
-| B | Tasks 2–6 | none, CPU samples only | me, about 1–2 days of code |
-| C | Tasks 7–8 | about 13 h for the 914, about 40 h for the others | the user starts each run; I review |
-| C | Task 9 | about 1 h | me |
+| Track A (any time) | Task 1: stuck sensor in ~20 s | none | me |
+| Track B | Tasks 2-6 | none | done, on `claude/v6-plan` |
+| C1 | Task 7: the check tool | none | me, ~1 h |
+| C2 | Task 8: 914, then check | ~13 h | the user starts, I check |
+| C3 | Task 9: 912, then check | ~13 h | the user starts, I check |
+| C4 | Task 10: 915, then check | ~13 h | the user starts, I check |
+| C5 | Task 11: 916, then check | ~13 h | the user starts, I check |
+| C6 | Task 12: default switch, UI, docs, tests | none | me, ~3 h |
 
-Doing Track B before training the 912, 915 and 916 means they train once, not twice.
+Each engine waits for the previous one's check; a failed check stops the line until it is understood.
