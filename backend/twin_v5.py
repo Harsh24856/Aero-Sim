@@ -33,7 +33,8 @@ import physics_v5 as P
 import scenarios_v4
 import timescale_v4 as TS
 from degradation_v4 import FAULT_MODES
-from degradation_v5 import DegradationStateV5, FaultEvent, applicable_faults, fleet_wear_health
+from degradation_v5 import (DegradationStateV5, FaultEvent, applicable_faults, calibrated_wear_health,
+                            engine_history, fleet_wear_health)
 from sensors_v5 import FAULTABLE_CHANNELS, SENSOR_CHANNELS, SENSOR_FAULT_TYPES, SENSOR_SPEC, SensorBank, SensorFault
 from twin_v4 import DEFAULT_ENV, STATE_FIELDS, WARM_INPUTS, WARM_SETTLE_S
 
@@ -76,7 +77,7 @@ class UAVEngineTwinV5:
     def __init__(self, dt: float = 0.01, engine_model: str = "Rotax_914_ULF",
                  engine: dict | None = None, seed: int | None = None, models_root: str = MODELS_V5):
         self.dt = float(dt)
-        self.fleet_wear = twin_mode(engine_model, models_root) == "fleet_wear"
+        self.twin_kind = twin_mode(engine_model, models_root)     # new_engine | fleet_wear | calibrated_wear
         self.engine_model = engine_model
         self.spec = P.ENGINE_SPECS[engine_model]
         self.turbo = bool(self.spec.turbocharged)
@@ -104,13 +105,19 @@ class UAVEngineTwinV5:
         self.sensors.faults = [self._sensor_fault(s["channel"], s["kind"], float(s["onset_flight_s"]),
                                                   float(s["severity"])) for s in self.record["sensor_plan"]]
         self.health, self.severity = self.deg.health_at(self.start_engine_hours)
+        # The engine's logbook baseline: the record's own if it carries one (a real
+        # logbook), else the same simulated one the training data drew.
+        self.history = dict(rec.get("history") or engine_history(
+            self.deg, self.start_engine_hours, np.random.default_rng(int(rec["degradation_seed"]) + 2)))
         self.eng = P.PistonEngineV5(self.engine_model, dt=self.dt)
         self.ref = P.PistonEngineV5(self.engine_model, dt=self.dt)
         self.lh = F.LongHorizon()
         self.t, self._n, self._sample = 0.0, 0, None
 
     def twin_health(self, hours: float):
-        return fleet_wear_health(hours, self.TBO_HOURS) if self.fleet_wear else HEALTHY
+        if self.twin_kind == "calibrated_wear":
+            return calibrated_wear_health(hours, self.TBO_HOURS, self.history["wear_ratio"])
+        return fleet_wear_health(hours, self.TBO_HOURS) if self.twin_kind == "fleet_wear" else HEALTHY
 
     @staticmethod
     def _sensor_fault(channel: str, kind: str, onset_s: float, severity: float) -> SensorFault:
@@ -217,6 +224,7 @@ class UAVEngineTwinV5:
             "scenario": self.record.get("scenario"),
             "applicable_faults": applicable_faults(self.spec.turbocharged, self.spec.intercooled),
             "engine_record": {**self.record, "engine_hours": round(hours, 4)},
+            "engine_history": self.history,
             "physics_state": {"eng": {f: getattr(self.eng, f) for f in STATE_FIELDS},
                               "ref": {f: getattr(self.ref, f) for f in STATE_FIELDS},
                               "long_horizon": self.lh.state.tolist()},

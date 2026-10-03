@@ -371,7 +371,7 @@ AI_FEATURE_COLS = [
 # meter and this flight's usage for the RUL head's aux inputs.
 AI_FEATURE_COLS_V4 = twin_v4.FEATURE_COLS + ["engine_hours", "life_used_hours"]
 # v5: the 39 inputs, the hour meter and usage, and the flight's 45 context values.
-AI_FEATURE_COLS_V5 = twin_v5.FEATURE_COLS + ["engine_hours", "life_used_hours", "ai_context"]
+AI_FEATURE_COLS_V5 = twin_v5.FEATURE_COLS + ["engine_hours", "life_used_hours", "ai_context", "engine_history"]
 
 
 def final_rul_hours(ai: dict):

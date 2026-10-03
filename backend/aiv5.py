@@ -163,7 +163,8 @@ def run_inference(e=None) -> dict:
     seq = dep.scale_seq(np.asarray(flight.rows))
     ctx = dep.scale_ctx(np.asarray(last["ai_context"], np.float64))
     hours = float(last["engine_hours"])
-    o = dep.predict_window(seq, ctx, hours, tbo=e["tbo_hours"])     # placeholders: this engine's TBO
+    hist = last.get("engine_history") if dep.contract.get("hist_cols") else None   # v6 exports only
+    o = dep.predict_window(seq, ctx, hours, tbo=e["tbo_hours"], hist=hist)     # placeholders: this engine's TBO
 
     prob = apply_temperature(o["diagnosis"][None], e["temps"])[0]
     faults = {}

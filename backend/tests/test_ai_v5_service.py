@@ -39,6 +39,17 @@ class TestAiV5(unittest.TestCase):
         cls.flight = samples(UAVEngineTwinV5(engine_model="Rotax_914_ULF", seed=11), 140)
         cls.results = [aiv5.step(p) for p in cls.flight]
 
+    def test_old_export_unchanged(self):
+        """The live 914 export predates hist_cols: a logbook in the payload changes nothing."""
+        self.assertFalse(aiv5.loaded_engines["Rotax_914_ULF"]["dep"].contract.get("hist_cols"))
+        aiv5.select_engine({"engine_model": "Rotax_914_ULF"})
+        plain = [aiv5.step(p) for p in self.flight[:128]][-1]
+        aiv5.select_engine({"engine_model": "Rotax_914_ULF"})
+        hist = {"lag_h": 80.0, "wear_ratio": 1.7, "sev_max": 0.4}
+        with_hist = [aiv5.step({**p, "engine_history": hist}) for p in self.flight[:128]][-1]
+        for k in ("rul_hours", "rul_hours_raw", "detection_confidence", "wear_condition"):
+            self.assertEqual(plain[k], with_hist[k], k)
+
     def test_warms_up_then_answers(self):
         self.assertEqual(self.results[0]["status"], "warming_up")
         self.assertEqual(self.results[126]["status"], "warming_up")
@@ -65,8 +76,8 @@ class TestAiV5(unittest.TestCase):
         real = e["dep"].predict_window
         outs = iter([300.0, 900.0])                      # a low ground-roll guess, then the real one
 
-        def fake(seq, ctx, hours, tbo=None):
-            o = real(seq, ctx, hours, tbo) if tbo is not None else real(seq, ctx, hours)
+        def fake(seq, ctx, hours, tbo=None, hist=None):
+            o = real(seq, ctx, hours, tbo, hist) if tbo is not None else real(seq, ctx, hours, hist=hist)
             return {**o, "rul_hours": next(outs), "rul_calendar_hours": 1500.0}
         with mock.patch.object(e["dep"], "predict_window", side_effect=fake):
             aiv5.run_inference()
