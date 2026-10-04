@@ -342,24 +342,27 @@ class Trainer:
                 "val_ece_before": E.ece(y["diagnosis"][:, app], o["diagnosis"][:, app])}
 
 
-# A cut-off may sit lower while it makes at most this much MORE error (1 - F1) than the
-# best: the exact F1 maximum on a flat plateau is a sliver that does not hold on other
-# flights (914 v6: valve 0.87 -> test recall 0.49, where 0.74 makes 15% more error).
-# Relative, not absolute: at F1 0.998 an absolute 0.01 is 5x the errors (914 v6:
-# combustion / bearing cut-offs fell to 0.03 / 0.06 and lost 0.05 / 0.035 test F1).
+# A cut-off may sit below the exact validation-F1 maximum - a sliver on a flat plateau
+# that does not hold on other flights (914 v6: valve 0.87 -> test recall 0.49, where
+# 0.74 costs 0.009 F1) - while BOTH bounds hold: at most CUT_F1_TOL less F1, and at
+# most CUT_ERR_TOL more error (1 - F1). Each alone failed on the 914 v6 card: the
+# absolute bound let near-perfect faults fall to the noise floor (combustion / bearing
+# 0.03 / 0.06), the relative one let weak faults slide (oil degradation 0.39 -> 0.15).
+CUT_F1_TOL = 0.01
 CUT_ERR_TOL = 0.20
 
 
 def choose_cutoff(y: np.ndarray, p: np.ndarray, grid: np.ndarray, min_recall: float = 0.0) -> float:
     """Per-fault cut-off: among cut-offs keeping `min_recall` (the gate's per-fault
-    floor is 0.5; none keep it -> all cut-offs), the LOWEST whose error 1 - F1 is at
-    most (1 + CUT_ERR_TOL) x the best's."""
+    floor is 0.5; none keep it -> all cut-offs), the LOWEST within CUT_F1_TOL of the
+    best F1 and within CUT_ERR_TOL more error than the best."""
     prf = [E.prf(y, p >= c) for c in grid]
     f1 = np.array([x[2] for x in prf])
     ok = np.array([x[1] >= min_recall for x in prf])
     f1 = np.where(ok, f1, -1.0) if ok.any() else f1
-    err = 1.0 - f1
-    return float(grid[int(np.argmax(err <= (1.0 - f1.max()) * (1.0 + CUT_ERR_TOL) + 1e-12))])
+    best = f1.max()
+    near = (f1 >= best - CUT_F1_TOL - 1e-12) & (1.0 - f1 <= (1.0 - best) * (1.0 + CUT_ERR_TOL) + 1e-12)
+    return float(grid[int(np.argmax(near))])
 
 
 ENCODER_PREFIXES = ("in_drop", "tcn", "ctx_d")
