@@ -336,15 +336,27 @@ class Trainer:
         for j in app:
             if y["diagnosis"][:, j].sum() == 0:
                 continue
-            prf = [E.prf(y["diagnosis"][:, j], pc[:, j] >= c) for c in grid_c]
-            f1 = np.array([x[2] for x in prf])
-            # cfg "min_recall": best F1 among cut-offs that keep this recall (the gate's
-            # per-fault floor is 0.5); none reach it -> plain best F1.
-            ok = np.array([x[1] >= self.cfg.get("min_recall", 0.0) for x in prf])
-            cuts[j] = float(grid_c[int(np.argmax(np.where(ok, f1, -1.0) if ok.any() else f1))])
+            cuts[j] = choose_cutoff(y["diagnosis"][:, j], pc[:, j], grid_c, self.cfg.get("min_recall", 0.0))
         return {"temperature": temps.tolist(), "cutoffs": cuts.tolist(),
                 "val_ece_after": E.ece(y["diagnosis"][:, app], pc[:, app]),
                 "val_ece_before": E.ece(y["diagnosis"][:, app], o["diagnosis"][:, app])}
+
+
+# A cut-off may give up this much validation F1 to sit lower: the exact F1 maximum on a
+# flat plateau is a sliver that does not hold on other flights (914 v6: valve 0.87 ->
+# test recall 0.49, where 0.74 costs 0.009 F1).
+CUT_F1_TOL = 0.01
+
+
+def choose_cutoff(y: np.ndarray, p: np.ndarray, grid: np.ndarray, min_recall: float = 0.0) -> float:
+    """Per-fault cut-off: among cut-offs keeping `min_recall` (the gate's per-fault
+    floor is 0.5; none keep it -> all cut-offs), the LOWEST whose F1 is within
+    CUT_F1_TOL of the best."""
+    prf = [E.prf(y, p >= c) for c in grid]
+    f1 = np.array([x[2] for x in prf])
+    ok = np.array([x[1] >= min_recall for x in prf])
+    f1 = np.where(ok, f1, -1.0) if ok.any() else f1
+    return float(grid[int(np.argmax(f1 >= f1.max() - CUT_F1_TOL))])
 
 
 ENCODER_PREFIXES = ("in_drop", "tcn", "ctx_d")
