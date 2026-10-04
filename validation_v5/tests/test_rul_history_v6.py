@@ -74,5 +74,39 @@ class TestHistoryInCacheAndRul(unittest.TestCase):
         np.testing.assert_allclose(X[:, -1], (o["severity"].max(1) - sev) / np.maximum(lag, 1.0))
 
 
+class TestRulScoredAsServed(unittest.TestCase):
+    """RUL candidates are chosen on what is served: predictions smoothed within each
+    flight (914 v6: raw scoring picked a model whose served TBO-limited error was
+    4.31% on validation, over the 4% gate)."""
+
+    def _flights(self):
+        rng = np.random.default_rng(0)
+        fl = np.repeat([3, 1, 2], 40)
+        hrs = np.concatenate([np.sort(rng.uniform(100, 120, 40)) for _ in range(3)])
+        order = rng.permutation(len(fl))                      # windows arrive in any order
+        raw = rng.uniform(200, 900, len(fl))
+        return raw[order], fl[order], hrs[order]
+
+    def test_smooth_by_flight_matches_per_flight_loop(self):
+        raw, fl, hrs = self._flights()
+        want = raw.copy()
+        for f in np.unique(fl):
+            g = np.where(fl == f)[0]
+            g = g[np.argsort(hrs[g], kind="stable")]
+            want[g] = rul_v5.smooth_within_flight(raw[g], hrs[g])
+        np.testing.assert_array_equal(rul_v5.smooth_by_flight(raw, fl, hrs), want)
+
+    def test_served_report_scores_smoothed_predictions(self):
+        import evaluate as E
+        raw, fl, hrs = self._flights()
+        tbo, cal = 2000.0, np.full(len(raw), 900.0)
+        true_h, wl = np.full(len(raw), 600.0), np.arange(len(raw)) % 2 == 0
+        got = rul_v5.served_report(raw / tbo, true_h / tbo, cal, tbo, wl, fl, hrs)
+        want = E.rul_report(true_h, rul_v5.smooth_by_flight(np.minimum(raw, cal), fl, hrs), cal, tbo, wl)
+        self.assertEqual(got["tbo_limited_mae_pct"], want["tbo_limited_mae_pct"])
+        self.assertNotEqual(got["tbo_limited_mae_pct"],
+                            E.rul_report(true_h, np.minimum(raw, cal), cal, tbo, wl)["tbo_limited_mae_pct"])
+
+
 if __name__ == "__main__":
     unittest.main()
