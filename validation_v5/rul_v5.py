@@ -128,8 +128,8 @@ def fit_rul(trainer, out_dir: str | None = None, cal_ids: np.ndarray | None = No
     clf = HistGradientBoostingClassifier(max_iter=400, learning_rate=0.05, max_leaf_nodes=31,
                                          l2_regularization=1.0, random_state=0).fit(Xc, wlc)
     pwl = clf.predict_proba(Xv)[:, 1]
-    report = lambda pred: E.rul_report(yv * tbo, np.minimum(np.clip(pred, 0, None) * tbo, calv),  # noqa: E731
-                                       calv, tbo, wlv, flv, tv)
+    # Candidates are judged on what is served: predictions smoothed within each flight.
+    report = lambda pred: served_report(pred, yv, calv, tbo, wlv, flv, tv)  # noqa: E731
     score = lambda r: max(r["wear_limited_mae_pct"] / 12.0, r["tbo_limited_mae_pct"] / 4.0)  # noqa: E731
     thr = min(np.linspace(0.05, 0.95, 19),
               key=lambda t: score(report(GatedRUL(cands["gbt"], clf, t).predict(Xv, pwl))))
@@ -179,6 +179,27 @@ class RulSmoother:
             out = min(out, self.out - max(0.0, float(hours) - self.hours))
         self.out, self.hours = out, float(hours)
         return max(out, 0.0)
+
+
+def smooth_by_flight(pred_h: np.ndarray, flights: np.ndarray, hours: np.ndarray) -> np.ndarray:
+    """smooth_within_flight applied to each flight's windows in time order, whatever
+    order they come in - the one definition for choosing, scoring and serving."""
+    out = np.asarray(pred_h, float).copy()
+    flights, hours = np.asarray(flights), np.asarray(hours, float)
+    for f in np.unique(flights):
+        g = np.where(flights == f)[0]
+        g = g[np.argsort(hours[g], kind="stable")]
+        out[g] = smooth_within_flight(out[g], hours[g])
+    return out
+
+
+def served_report(pred_frac: np.ndarray, true_frac: np.ndarray, calendar_h: np.ndarray, tbo: float,
+                  wear_limited: np.ndarray, flights: np.ndarray, hours: np.ndarray) -> dict:
+    """evaluate.rul_report on SERVED predictions: capped at the calendar, then smoothed
+    within each flight, as score_v5 and the live service do."""
+    raw = np.minimum(np.clip(np.asarray(pred_frac, float), 0, None) * tbo, calendar_h)
+    return E.rul_report(np.asarray(true_frac) * tbo, smooth_by_flight(raw, flights, hours),
+                        calendar_h, tbo, wear_limited, flights, hours)
 
 
 def smooth_within_flight(pred_h: np.ndarray, hours: np.ndarray, alpha: float = 0.2) -> np.ndarray:

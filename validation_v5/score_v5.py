@@ -151,11 +151,10 @@ def score(trainer, calibration: dict, rul_model=None, n_boot: int = N_BOOT) -> d
     if rul_model is not None:
         X, yr, wl, cal, flr, hrs, _ = R.features(trainer, test)
         raw = np.minimum(np.clip(rul_model.predict(X), 0, None) * tbo, cal)
-        sm = raw.copy()
+        sm = R.smooth_by_flight(raw, flr, hrs)
         rises = 0
         for g in E.flight_groups(flr):
             g = g[np.argsort(hrs[g], kind="stable")]
-            sm[g] = R.smooth_within_flight(raw[g], hrs[g])
             rises += bool((np.diff(sm[g]) > 0.02 * tbo).any())
         true_h = yr * tbo
         rr = E.rul_report(true_h, sm, cal, tbo, wl)
