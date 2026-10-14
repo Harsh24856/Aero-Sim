@@ -220,6 +220,28 @@ tests pass.
 Still open from this audit: F1 (Phase 5-7, model work), F10 (Phase 8). F16 is contained, not removed:
 self-hosting the HDR file would keep the reflections offline too.
 
+## Phase 5 status (2026-10-14)
+
+The weak-spot work this plan calls Phase 5 was already started by another session:
+- branch `claude/v5-weak-spots` (`c5969a3`, 2026-10-03, not merged): the investigation found no training defect;
+- `docs/superpowers/plans/2026-10-03-v6-weak-spots.md`: the v6 follow-up plan;
+- the main checkout's uncommitted v6 work: the `calibrated_wear` twin, engine history and a 914 retrain. It was last touched 2026-10-04 and no session is running it.
+
+Re-checked here on the committed v5 914 models (controlled flights, same seed):
+
+| | Claim (2026-10-03) | Measured today | Holds? |
+|---|---|---|---|
+| W2 | Low RUL with a broken sensor is not caused by the sensor | 600 h engine (true 1,382 h): 814 h with no sensor fault; 826 h with EGT stuck, 875 h with CHT dropout | yes - the RUL model treats this healthy engine as wear-limited (about 570 h low) |
+| W3 | EGT-stuck "53%" is window latency | first stuck call 130 s after onset (window 128 s); CHT dropout 5 s | yes |
+| W1 | Shallow valve leaks are a physics ceiling | not re-checked (needs a test cache that matches the export) | - |
+
+The v6 914 retrain (main checkout, not exported) against the live v5 914 on the test card:
+- detection 0.965 -> 0.978;
+- diagnosis F1 0.818 -> 0.842;
+- valve-leak recall 0.56 -> 0.60;
+- oil-pump recall 0.66 -> 0.72;
+- RUL 9.5% -> 9.6%: W2 is not fixed yet, and the history inputs (v6 Task 4) are what targets it.
+
 ## 4. Skills (from `/find-skills`)
 
 **Already installed and useful here:**
