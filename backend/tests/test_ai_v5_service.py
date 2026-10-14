@@ -13,6 +13,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
 
 import aiv5  # noqa: E402  (loads backend/models_v5)
+import twin_v5  # noqa: E402
 from twin_v5 import UAVEngineTwinV5  # noqa: E402
 from sensors_v5 import FAULTABLE_CHANNELS, SENSOR_SPEC  # noqa: E402
 
@@ -25,7 +26,7 @@ AIV4_KEYS = {"status", "model_version", "engine_model", "placeholder_models", "m
              "faulty_sensors", "wear_condition", "health_percent", "margin_min", "rul_hours",
              "rul_mae_hours", "tbo_hours", "rul_calendar_hours", "rul_percent_remaining",
              "wear_limited", "rul_out_of_range", "steps_collected", "steps_needed"}
-PAYLOAD = aiv5.F.FEATURE_COLS + ["engine_hours", "life_used_hours", "ai_context", "time"]
+PAYLOAD = twin_v5.AI_PAYLOAD + ["time"]
 
 
 def samples(tw, n):
@@ -163,6 +164,17 @@ class TestAiV5(unittest.TestCase):
 
     def test_stuck_rule_on_a_real_healthy_flight_calls_nothing(self):
         self.assertEqual(aiv5.stuck_by_flatline(self._rows(), list(FAULTABLE_CHANNELS)), set())
+
+    def test_offline_harness_sends_what_the_live_stack_sends(self):
+        # e2e_v5 / ab_v5 left engine_history out, so a v6 export's RUL ran on neutral
+        # history in every A/B flight while main.py sent the real one.
+        sys.path.insert(0, os.path.join(os.path.dirname(HERE), "scripts"))
+        import e2e_v5
+        import twin_v5
+        self.assertTrue(set(twin_v5.AI_PAYLOAD) <= set(e2e_v5.PAYLOAD))
+        self.assertTrue(set(twin_v5.AI_PAYLOAD) <= set(PAYLOAD))
+        out = UAVEngineTwinV5(engine_model="Rotax_914_ULF", seed=3).step()
+        self.assertTrue(set(twin_v5.AI_PAYLOAD) <= set(out))
 
     def test_null_input_is_an_error_not_a_crash(self):
         """A NaN in the twin reaches aiv5 as null (safety.json_safe)."""

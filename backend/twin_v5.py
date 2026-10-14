@@ -40,6 +40,11 @@ from twin_v4 import DEFAULT_ENV, STATE_FIELDS, WARM_INPUTS, WARM_SETTLE_S
 
 RESIDUAL_CHANNELS = list(F.RESIDUAL_CHANNELS)          # 14
 FEATURE_COLS = list(F.FEATURE_COLS)                    # the 39 model inputs, in order
+# Everything aiv5's /step reads, once: main.py sends it live, and the offline harness
+# (scripts/e2e_v5.py, ab_v5.py) and the service tests send the same. Three copies of
+# this list drifted - the offline ones lacked engine_history, so a v6 export's RUL ran
+# on neutral history in every A/B flight.
+AI_PAYLOAD = list(FEATURE_COLS) + ["engine_hours", "life_used_hours", "ai_context", "engine_history"]
 RES_SIGMA = np.array([SENSOR_SPEC[c]["noise_sd"] for c in RESIDUAL_CHANNELS])
 FAULT_PRESENT_SEV = 0.08
 HEALTHY = P.Health()
