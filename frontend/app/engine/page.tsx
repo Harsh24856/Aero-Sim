@@ -9,8 +9,8 @@ import EngineViewer912 from "@/components/EngineViewer912";
 import EngineViewer915 from "@/components/EngineViewer915";
 import EngineViewer916 from "@/components/EngineViewer916";
 import { Zap, FileText, ChevronRight, Gauge, Scale, X } from "lucide-react";
+import { API } from "@/lib/api";
 
-const API = "http://localhost:8000";
 
 const ENGINES = [
   {

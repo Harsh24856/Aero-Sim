@@ -1,9 +1,11 @@
-# AI inference runtime for backend/ai.py.
+# AI inference runtime for backend/ai.py, aiv3.py, aiv4.py and aiv5.py.
 #
 # These versions are read off validation/venv - the environment the four model
 # sets were trained, saved and validated in. Reproduce it exactly.
 #
-# Requires Python 3.11 on Apple Silicon (arm64) macOS.
+# Requires Python 3.11 on Apple Silicon (arm64) macOS. CI installs this file without the
+# tensorflow-metal line, for the v5 tests only: v5 computes the same on the CPU
+# (validation_v5/tests/test_export_parity_v5.py); v3/v4 do not.
 #
 # tensorflow-metal IS LOAD-BEARING, not an optimisation. Without it TensorFlow
 # runs CPU-only, and the identical .keras weights then produce materially
@@ -32,6 +34,12 @@ keras==3.15.1
 # an unpinned resolve is a common way to end up with a subtly different runtime.
 ml-dtypes==0.3.2
 h5py==3.14.0
+
+# aiv5.py and validation_v5 (pipeline_v5 reads parquet; aiv5 caps the tree models'
+# OpenMP pool). Missing from this file until 2026-10-14 - a fresh install could not run v5.
+pyarrow==25.0.1
+scipy==1.17.1
+threadpoolctl==3.6.0
 
 fastapi==0.141.1
 pydantic==2.13.5

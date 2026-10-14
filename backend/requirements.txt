@@ -1,8 +1,13 @@
+# Physics API runtime (backend/.venv, Python 3.13). Pinned to the environment the
+# backend tests pass in: scripts/test_all.sh, and CI installs exactly this file.
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
-numpy==1.26.4
-websockets==13.1
-supabase==2.31.0
-python-dotenv==1.0.1
-groq==1.7.0
+numpy==2.5.2
+pandas==3.0.5
+pyarrow==25.0.1
 scipy==1.18.1
+websockets==15.0.1
+httpx==0.28.1
+supabase==2.31.0
+python-dotenv==1.2.3
+groq==1.7.0

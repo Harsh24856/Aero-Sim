@@ -171,3 +171,7 @@ data/cmapss/
 /validation_v5/artifacts/smoke*/
 /validation_v5/artifacts/*_before_*/
 .superpowers/
+
+# Playwright output
+/frontend/test-results/
+/frontend/playwright-report/

@@ -498,6 +498,20 @@ replaced (7-29x lower error, and the near-new under-prediction of 3.7-6.2% of TB
 
 ---
 
+## Tests and CI
+
+```bash
+scripts/test_all.sh                       # every backend, AI and validation suite (about 3 min)
+cd frontend && npx playwright test        # every page on desktop + mobile, physics API mocked
+```
+
+GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request: the physics-API
+tests and lint, the v5 AI tests on CPU TensorFlow (v5 gives the same answers on any
+device; v3/v4 are Metal-only and stay local), and the frontend type check, production
+build (no secrets) and Playwright suite.
+
+---
+
 ## Production Build
 
 ```bash

@@ -19,6 +19,7 @@ import SoundToggle from "@/components/SoundToggle";
 import ScenarioPanel from "@/components/ScenarioPanel";
 import type { V4Engine, V4Truth } from "@/lib/v4";
 import { EngineSound } from "@/lib/engineSound";
+import { API, WS_URL } from "@/lib/api";
 
 // Which themed Simulator variant to render, based on the ?engine= query param
 // set by /engine's selectEngine() navigation. Falls back to the base (914)
@@ -29,8 +30,6 @@ const SIMULATOR_BY_ENGINE: Record<string, typeof SimulatorDefault> = {
   Rotax_916_iS: Simulator916,
 };
 
-const API = "http://localhost:8000";
-const WS_URL = "ws://localhost:8000/ws";
 
 function SimulatePageInner() {
   const router = useRouter();

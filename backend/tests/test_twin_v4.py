@@ -135,7 +135,9 @@ class ResumeAndInject(unittest.TestCase):
         self.assertAlmostEqual(fresh.eng.cht_k, snap["physics_state"]["eng"]["cht_k"])
         nxt = fresh.step()
         self.assertAlmostEqual(nxt["time"], snap["time"] + 0.01, places=6)
-        self.assertLess(abs(nxt["cht"] - snap["cht"]), 5.0)       # no thermal snap back to cold
+        # No thermal snap back to cold. On the physical state: the instrument reading
+        # carries ~1.4 C of unseeded noise per sample, and two reads hit 5 C about 1 run in 25.
+        self.assertLess(abs(fresh.eng.cht_k - snap["physics_state"]["eng"]["cht_k"]), 0.5)
 
     def test_injection_changes_the_engine_and_the_truth(self):
         tw = UAVEngineTwinV4(engine_model=ENGINE, engine=S.make_engine(ENGINE, "healthy", seed=7), seed=7)

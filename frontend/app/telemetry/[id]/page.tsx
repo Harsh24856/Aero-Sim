@@ -13,8 +13,8 @@ import { formatAirspeed, formatAirspeedSecondary, formatAltitude, formatAltitude
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceArea,
 } from "recharts";
+import { API } from "@/lib/api";
 
-const API = "http://localhost:8000";
 
 type Simulation = {
   id: number;

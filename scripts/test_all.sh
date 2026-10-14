@@ -7,7 +7,8 @@
 #   scripts/test_all.sh --with-cache  # also the tests that read validation_v5/cache/914b
 #
 # BACKEND_PY / AI_PY override the interpreters (default: backend/.venv, validation/venv).
-# AI_PY=none skips the TensorFlow suites (a machine without the AI environment).
+# AI_PY=none skips the TensorFlow suites (a machine without the AI environment);
+# BACKEND_PY=none skips the physics-API suites (CI runs the two halves as separate jobs).
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -30,19 +31,24 @@ run() {  # label, then the command (run from backend/)
   fi
 }
 
-[ -x "$BACKEND_PY" ] || { echo "missing $BACKEND_PY - see README (physics environment)" >&2; exit 2; }
-
-for f in "$ROOT"/backend/tests/test_*.py; do
-  m=$(basename "$f" .py)
-  case "$m" in
-    test_ai_v5_service) continue ;;                 # TensorFlow: below
-    test_simulation_safety)
-      for v in v3 v4 v5; do
-        run "backend $m ($v)" env AERO_PHYSICS_VERSION=$v "$BACKEND_PY" -m unittest "tests.$m"
-      done ;;
-    *) run "backend $m" "$BACKEND_PY" -m unittest "tests.$m" ;;
-  esac
-done
+if [ "$BACKEND_PY" = "none" ]; then
+  echo "BACKEND_PY=none - skipping the physics-API suites"
+elif [ ! -x "$BACKEND_PY" ]; then
+  echo "missing $BACKEND_PY - set BACKEND_PY, or BACKEND_PY=none to skip the physics-API suites" >&2
+  failed+=("backend environment")
+else
+  for f in "$ROOT"/backend/tests/test_*.py; do
+    m=$(basename "$f" .py)
+    case "$m" in
+      test_ai_v5_service) continue ;;                 # TensorFlow: below
+      test_simulation_safety)
+        for v in v3 v4 v5; do
+          run "backend $m ($v)" env AERO_PHYSICS_VERSION=$v "$BACKEND_PY" -m unittest "tests.$m"
+        done ;;
+      *) run "backend $m" "$BACKEND_PY" -m unittest "tests.$m" ;;
+    esac
+  done
+fi
 
 if [ "$AI_PY" = "none" ]; then
   echo "AI_PY=none - skipping the TensorFlow suites"

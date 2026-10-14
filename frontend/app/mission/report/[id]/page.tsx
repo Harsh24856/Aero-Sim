@@ -10,8 +10,8 @@ import Navbar from "@/components/Navbar";
 import { engineHoursFlown, engineHoursOf, flightHours, formatLifeScale, formatSimClock, isV4Family, modelVersionOf, rulPercentOf, tboHoursOf, usesEngineHours } from "@/lib/timeScale";
 import ModelBadge from "@/components/ModelBadge";
 import { formatRul, isRulOutOfRange } from "@/lib/units";
+import { API } from "@/lib/api";
 
-const API = "http://localhost:8000";
 
 type GroqResult = {
   status?: string;

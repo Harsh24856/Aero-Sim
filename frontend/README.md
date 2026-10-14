@@ -34,6 +34,9 @@ Start the backend (`:8000`) first — pages open their WebSocket on load.
 | `NEXT_PUBLIC_EMAILJS_SERVICE_ID` | `/about_us` contact form | EmailJS → Email Services |
 | `NEXT_PUBLIC_EMAILJS_TEMPLATE_ID` | `/about_us` contact form | EmailJS → Email Templates |
 | `NEXT_PUBLIC_EMAILJS_PUBLIC_KEY` | `/about_us` contact form | EmailJS → Account |
+| `NEXT_PUBLIC_API_URL` | Optional: physics API on another host (default `http://localhost:8000`) | Your backend URL; inlined at build time |
+
+None of these are needed to build: without the Supabase pair the app builds and serves every page, with sign-in and run history disabled.
 
 EmailJS template variables: `{{title}}`, `{{name}}`, `{{email}}`, `{{message}}`, `{{time}}`; set *Reply To* to `{{email}}`. Restart `npm run dev` after editing `.env.local`.
 
