@@ -99,6 +99,11 @@ used. A test account on a local Supabase would unblock it.
 | F11 | Backend | AI warm-up fast-forward also broadcasts every step: **2,615 WebSocket frames in 5 s at ~10 KB, about 5 MB/s per client**. Steady state is a sane 20 Hz | live_flight + WebSocket probe |
 | F12 | Docs | README still says "Physics v3 is the default" and points at `aiv3`/`models_v3`; `main.py` defaults to v4 | `README.md:366`, `:17`, `:173` |
 | F13 | Security | CORS `*` on main, ai, aiv3, aiv4 and aiv5 (already flagged MVP-only in code) | `backend/main.py:111` |
+| F14 | Setup | `backend/requirements.txt` could not be installed (numpy 1.26.4 pinned against scipy 1.18.1, which needs numpy 2), and pandas and pyarrow were missing | fresh venv, `ResolutionImpossible` |
+| F15 | Setup | `requirements_ai.txt` lacked pyarrow, scipy and threadpoolctl, which `aiv5` and `validation_v5` import, so a fresh AI install could not run v5 | import list |
+| F16 | Frontend | drei `<Environment preset="city">` downloads its HDR from raw.githack.com. If that is unreachable (offline demo, blocked network), `/engine`, `/simulate` and `/engine_info` crash with a runtime error | Playwright with the CDN blocked |
+| F17 | Tests | `test_twin_v4` restore test compared two noisy CHT readings against a 5 C bound and failed about 1 run in 25 | 25-run loop |
+| F18 | Frontend | `/engine` footer "Neural surrogates: 4 checkpoints loaded" was hard-coded, like F7 | `app/engine/page.tsx` |
 
 ## 3. Plan: eight phases, run one after another
 
@@ -202,6 +207,18 @@ tests pass.
    lets Playwright press Start and fly a full flight.
 
 **Done when:** the Playwright tests still pass after the merge and the coverage report is in CI.
+
+## Progress (2026-10-14, PR Harsh24856/Aero-Sim#15)
+
+| Phase | State | Evidence |
+|---|---|---|
+| 1 One green test command | done | `scripts/test_all.sh`: 17 suites (the safety suite under v3, v4 and v5) pass; a mixed-version run now fails with a clear `ImportError` instead of silently testing the wrong physics |
+| 2 CI | done | `.github/workflows/ci.yml`: backend + lint, v5 AI on Linux CPU TensorFlow, frontend types + production build without secrets + Playwright; all three jobs green. Also fixed F14, F15, F17 |
+| 3 Frontend bugs | done | F5, F6, F7, F8, F16, F18 fixed; Playwright 40 tests (desktop + mobile), including an offline-CDN test and a mobile layout size check |
+| 4 Backend and docs | done | F11: stream capped at 20 Hz in wall time (test: 1,389 frames/s without the cap, at most 25 with it); F12 READMEs; F13 `AERO_CORS_ORIGINS`; `tests/test_api_v5.py` (TestClient: engines, scenarios, start, inject, clear, stop) |
+
+Still open from this audit: F1 (Phase 5-7, model work), F10 (Phase 8). F16 is contained, not removed:
+self-hosting the HDR file would keep the reflections offline too.
 
 ## 4. Skills (from `/find-skills`)
 

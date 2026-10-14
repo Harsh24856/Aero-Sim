@@ -13,11 +13,12 @@ Browser  ─── Next.js (port 3000)
                 │  one feature window per simulated second
          FastAPI AI Service (port 8100)
                 │  TensorFlow/Keras heads (detection, diagnosis, severity,
-                │  failure modes, RUL)
-              backend/models_v3/   (legacy v2: backend/models/)
+                │  sensor faults, health, RUL)
+              backend/models_v4/  (default)   backend/models_v5/  (v5)
+              backend/models_v3/, backend/models/  (legacy v3, v2)
 ```
 
-> **Key design principle**: the Physics API (`:8000`) runs standalone. The AI service (`:8100`) is optional and separated because its Keras checkpoints require **Python 3.11 + TensorFlow 2.16.2 with the Metal GPU backend**. If the AI service is offline, simulation and telemetry continue uninterrupted.
+> **Key design principle**: the Physics API (`:8000`) runs standalone. The AI service (`:8100`) is optional and separated because its Keras checkpoints require **Python 3.11 + TensorFlow 2.16.2**, with the Metal GPU backend for v2–v4 (v5 computes the same on the CPU). If the AI service is offline, simulation and telemetry continue uninterrupted.
 
 > ⚠️ **The AI service must run from `validation/venv`.** Not a conda env, not `backend/.venv`. The checkpoints were trained and validated against that environment's Metal GPU TensorFlow, and running them CPU-only returns the same weights with different — and badly wrong — answers. See [§2](#2--ai-inference-service-python-311--validationvenv).
 
@@ -30,12 +31,15 @@ Browser  ─── Next.js (port 3000)
 | `frontend/` | Next.js 16 App Router cockpit dashboard — see [frontend/README.md](frontend/README.md) |
 | `backend/main.py` | FastAPI physics API — simulation loop, REST endpoints, WebSocket stream |
 | `backend/physics.py` | Engine, propeller, aerodynamics, thermal, oil, vibration, wear, and fault models |
-| `backend/aiv3.py` | FastAPI AI inference service for physics v3 (port 8100) — five heads |
-| `backend/ai.py` | The legacy v2 inference service. Same port; run one or the other |
+| `backend/aiv4.py` | FastAPI AI inference service for physics v4, the default (port 8100) |
+| `backend/aiv5.py` | AI service for physics v5: the 914's specialist models (912/915/916 on the 914's until trained) |
+| `backend/twin_v4.py`, `backend/twin_v5.py` | The v4 / v5 flown engine + on-board twin + instruments |
+| `backend/aiv3.py`, `backend/ai.py` | Legacy v3 / v2 inference services. Same port; run one AI service at a time |
 | `backend/failure_modes.py` | Engine failure modes (misfire, injector fouling, cooling, combustion) |
 | `backend/residual.py` | Model-free physics residuals: measured − expected, with sensor zeroing |
 | `backend/advisory.py` | Deterministic maintenance advisory rules over the AI + residual outputs |
 | `backend/can_bus.py`, `aircraft_sim.py`, `can_ingest.py` | SocketCAN plant → bridge → `/measured` |
+| `backend/models_v4/<key>/`, `backend/models_v5/<key>/` | Deployed v4 heads (912, 914, 915) and the v5 export (914) |
 | `backend/models_v3/<key>/` | Deployed per-engine heads + scaler + `manifest.json` (physics v3) |
 | `backend/models_v3/<key>/legacy_rul/` | The superseded RUL head, kept for comparison and rollback |
 | `backend/models/` | Deployed per-engine heads for the legacy v2 stack |
@@ -55,7 +59,7 @@ Browser  ─── Next.js (port 3000)
 | Environment | Python | Manager | Location | Purpose |
 |---|---|---|---|---|
 | `backend/.venv` | 3.x | `python -m venv` | `backend/` | Physics API (`main.py`, `db.py`) |
-| `validation/venv` | **3.11 + Metal** | `python3.11 -m venv` | `validation/` | AI inference service (`aiv3.py` / `ai.py`) **and** all validation/training work |
+| `validation/venv` | **3.11 + Metal** | `python3.11 -m venv` | `validation/` | AI inference services (`aiv4.py`, `aiv5.py`, legacy `aiv3.py` / `ai.py`) **and** all validation/training work |
 | Node.js | 18+ | `npm` | `frontend/` | Next.js dashboard |
 
 The AI service and the validation notebooks deliberately share **one** environment.
@@ -170,11 +174,13 @@ failed to load — fix that first, because nothing downstream will be correct.
 
 ### Start the AI service
 
-From `backend/` (the module is imported as `aiv3`, so the working directory matters):
+From `backend/` (the module is imported by name, so the working directory matters), the one
+that matches `main.py`'s physics version:
 
 ```bash
 cd backend
-../validation/venv/bin/uvicorn aiv3:app --host 0.0.0.0 --port 8100
+../validation/venv/bin/uvicorn aiv4:app --host 127.0.0.1 --port 8100   # physics v4 (default)
+../validation/venv/bin/uvicorn aiv5:app --host 127.0.0.1 --port 8100   # AERO_PHYSICS_VERSION=v5
 ```
 
 No environment activation needed — calling the venv's `uvicorn` directly is
@@ -186,13 +192,17 @@ Health check: <http://localhost:8100/health>
 ```json
 {
   "status": "alive",
+  "model_version": "v4",
   "active_engine": "Rotax_914_ULF",
   "available_engines": ["Rotax_914_ULF", "Rotax_912_ULS", "Rotax_915_iS", "Rotax_916_iS"],
+  "placeholder_engines": ["Rotax_916_iS"],
   "buffer_fill": 0,
-  "tf_devices": ["CPU", "GPU"],
+  "device": "GPU",
   "backend_validated": true
 }
 ```
+
+(abridged; `aiv5` answers the same shape, with `"device": "CPU"` and the 912/915/916 as placeholders.)
 
 **`backend_validated` must be `true`.** If it is `false` you are in the wrong
 environment and every RUL/health number you are looking at is meaningless. The
@@ -267,7 +277,7 @@ scripts/start_stack.sh
 
 It starts the AI service, physics backend and frontend in order, waits for each health check,
 writes logs to `.logs/`, and stops everything on Ctrl-C. Open <http://localhost:3000>.
-`AERO_PHYSICS_VERSION=v2 scripts/start_stack.sh` runs the legacy stack.
+`AERO_PHYSICS_VERSION=v5 scripts/start_stack.sh` runs v5; `v3` and `v2` run the legacy stacks.
 
 Or by hand, in **three terminals**:
 
@@ -281,7 +291,7 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 **Terminal 2 — AI Service** (start this before Terminal 1, so the first simulated second has somewhere to go)
 ```bash
 cd backend
-../validation/venv/bin/uvicorn aiv3:app --host 0.0.0.0 --port 8100
+../validation/venv/bin/uvicorn aiv4:app --host 127.0.0.1 --port 8100
 ```
 Confirm `"backend_validated": true` at <http://localhost:8100/health> before trusting any diagnostics.
 
@@ -338,7 +348,7 @@ curl -X POST http://localhost:8000/params \
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/health` | Active engine, available sets, `buffer_fill`, and `tf_devices` / `backend_validated` |
+| `GET` | `/health` | Active engine, available and placeholder engines, `buffer_fill`, `device`, `backend_validated` |
 | `POST` | `/step` | Push a telemetry frame, returns latest prediction |
 | `POST` | `/reset` | Clear the rolling input window |
 | `POST` | `/select_engine` | Switch active engine model (also clears the window) |
@@ -363,9 +373,9 @@ engine_spread | noisy_sensors | sensor_drift | v2_plant` flies an engine that di
 `validation/mismatch_eval.py` scores those profiles (run it with no flight live). On Linux or real
 hardware use `--bus socketcan:can0` (needs `pip install python-can`) on both sides.
 
-#### Physics v3 (default) and legacy v2
+#### Physics v3 and legacy v2 (superseded by v4)
 
-Physics v3 is the default: `main.py` runs v3 physics and expects `backend/aiv3.py`
+Physics v3 (`AERO_PHYSICS_VERSION=v3`) runs v3 physics and expects `backend/aiv3.py`
 (models in `backend/models_v3/`, RUL in real engine hours, engine failure modes).
 The legacy v2 stack is still available. Run **either** `ai.py` **or** `aiv3.py` - both bind 8100 -
 with the matching physics version:
@@ -381,7 +391,7 @@ v3 responses carry `model_version`, `rul_hours` / `tbo_hours` (engine hours) and
 and have no `rul_hours_internal`. v3 runs persist through `backend/dbv3.py` with
 `simulations.model_version = 'v3'`.
 
-#### Physics v4 (opt-in until its end-to-end check passes)
+#### Physics v4 (the default)
 
 Physics v4 (`backend/physics_v4.py`) runs a flown engine plus a healthy on-board twin, 12 instruments with
 their own faults, component-level degradation, and two clocks: flight time in real seconds and engine
@@ -458,7 +468,7 @@ cd validation
 ./venv/bin/python -m pip install -r requirements.txt  # notebook/plot deps on top of the AI runtime
 ```
 
-Anything that imports `ai.py` / `aiv3.py` — including one-off scripts — must be run with
+Anything that imports an AI service (`aiv4.py`, `aiv5.py`, `aiv3.py`, `ai.py`) — including one-off scripts — must be run with
 `validation/venv/bin/python3`, never `backend/.venv/bin/python3`, which will
 segfault or fail on a missing TensorFlow in a way that looks unrelated to your
 actual change.

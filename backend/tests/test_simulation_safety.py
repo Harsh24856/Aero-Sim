@@ -321,6 +321,22 @@ class SimulationSafetyTest(unittest.TestCase):
         self.assertEqual(frames, 6)
         self.assertTrue(self.wait_for(lambda: self.client.get("/health").json()["loop_alive"], timeout=3))
 
+    def test_warmup_fast_forward_keeps_the_stream_at_20_hz(self):
+        # A long warm-up: physics runs faster than real time while the AI window fills.
+        self.ai.set(mode="ok", warmup_calls=10_000)
+        self.start_cruise()
+        self.assertTrue(self.wait_for(lambda: self.sim_time() > 0.5, timeout=8))
+        frames, t_sim = 0, []
+        with self.client.websocket_connect("/ws") as ws:
+            t0 = time.monotonic()
+            while time.monotonic() - t0 < 1.5:
+                msg = json.loads(ws.receive_text())
+                frames += 1
+                t_sim.append(msg.get("time") or 0.0)
+        wall = time.monotonic() - t0
+        self.assertGreater(t_sim[-1] - t_sim[0], 2.0 * wall, "not fast-forwarding - the test proves nothing")
+        self.assertLessEqual(frames / wall, 25.0, f"{frames} frames in {wall:.1f} s")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

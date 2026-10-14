@@ -1,14 +1,17 @@
 # AERO-SIM Backend
 
-Two Python services plus the offline data generators:
+Two Python services plus the offline data generators. `AERO_PHYSICS_VERSION` picks the
+physics in `main.py`, and the AI service on 8100 must be the matching one (run one of them):
 
 | Process | File | Port | Environment |
 |---|---|---|---|
 | Physics API | `main.py` | 8000 | `backend/.venv` (`requirements.txt`) |
-| AI inference (physics v3, default) | `aiv3.py` | 8100 | `validation/venv` (`requirements_ai.txt`) |
-| AI inference (legacy v2) | `ai.py` | 8100 | `validation/venv` — run **either** `ai.py` or `aiv3.py` |
+| AI inference, physics **v4 (default)** | `aiv4.py` | 8100 | `validation/venv` (`requirements_ai.txt`), Metal GPU |
+| AI inference, physics v5 (the 914's own specialists; 912/915/916 on the 914's as stand-ins) | `aiv5.py` | 8100 | `validation/venv`, CPU by default |
+| AI inference, physics v3 / legacy v2 | `aiv3.py` / `ai.py` | 8100 | `validation/venv`, Metal GPU |
 
-The physics API runs standalone. If the AI service is down, telemetry keeps streaming and the AI fields stop updating.
+`scripts/start_stack.sh` starts the matching pair (and the frontend):
+`AERO_PHYSICS_VERSION=v5 scripts/start_stack.sh`. The physics API runs standalone. If the AI service is down, telemetry keeps streaming and the AI fields stop updating.
 
 ---
 
@@ -17,22 +20,26 @@ The physics API runs standalone. If the AI service is down, telemetry keeps stre
 | File | Role |
 |---|---|
 | `main.py` | FastAPI app: simulation loop, REST endpoints, `/ws` telemetry stream, AI + DB wiring |
-| `physics.py` | `UAVEngineTwin` — engine, propeller, aero, thermal, oil, vibration, wear and fault models (v3 default, `physics_version="v2"` for legacy) |
+| `twin_v4.py`, `physics_v4.py`, `sensors_v4.py`, `degradation_v4.py`, `scenarios_v4.py`, `timescale_v4.py` | Physics v4 (default): flown engine + on-board twin, instruments, wear and faults, demo presets, the flight/life clocks |
+| `twin_v5.py`, `physics_v5.py`, `sensors_v5.py`, `degradation_v5.py`, `features_v5.py`, `observability_v5.py` | Physics v5: as v4, plus the fleet-wear on-board twin and the long-horizon context the v5 models read |
+| `physics.py` | `UAVEngineTwin` — v3 and legacy v2 physics |
 | `failure_modes.py` | Engine failure modes: misfire, injector fouling, cooling, combustion |
 | `residual.py` | Model-free residuals: measured − expected, with sensor zeroing (`/residuals/zero`) |
 | `advisory.py` | Deterministic maintenance advisories over AI + residual outputs |
 | `safety.py` | Simulation safety limits / crash handling |
 | `summary.py` | Post-flight natural-language summary via Groq (`/summarize/{sim_id}`) |
-| `aiv3.py` / `ai.py` | AI services — 128-step rolling window → detection, diagnosis, severity, failure modes (v3), RUL |
-| `db.py` / `dbv3.py` | Optional Supabase persistence (v2 / v3 runs) |
+| `aiv4.py`, `aiv5.py`, `aiv3.py`, `ai.py` | AI services — 128 s rolling window → detection, diagnosis, severity, sensor faults, health, RUL |
+| `db.py`, `dbv3.py`, `dbv4.py` | Optional Supabase persistence (v2 / v3 / v4 and v5 runs) |
 | `can_bus.py`, `aircraft_sim.py`, `can_ingest.py` | CAN plant → bridge → `/params` + `/measured` |
 | `bench.py` | Bench-test helpers used by `main.py` and tests |
 | `generate_dataset_v3.py` | v3 scenario dataset generator |
 | `generate_rul_dataset.py` | v3 RUL probe dataset (one engine, one frozen life stage, one window) |
 | `generate_training_data.py`, `generate_unified_database.py`, `generate_multi_engine_data_v2.py` | Legacy v2 dataset generators |
+| `models_v4/<key>/` | Deployed v4 heads (912, 914, 915; the 916 is served by the 914's) |
+| `models_v5/<key>/` | Deployed v5 export (`validation_v5/export_v5.py`); 914 only so far |
 | `models_v3/<key>/` | Deployed v3 heads, scaler, `manifest.json`; `legacy_rul/` keeps the superseded RUL head |
 | `models/<key>/` | Deployed v2 heads + scaler |
-| `tests/` | Pytest suites |
+| `tests/` | unittest suites; run them all with `scripts/test_all.sh` (section 5) |
 
 Engine keys: `912`, `914`, `915`, `916` (Rotax 912 ULS, 914 ULF, 915 iS, 916 iS).
 
@@ -58,9 +65,11 @@ Interactive docs: <http://localhost:8000/docs>
 | `SUPABASE_SERVICE_ROLE_KEY` | — | Server-side Supabase key — never expose to the browser |
 | `GROQ_API_KEY` | — | Post-flight summaries (optional) |
 | `GROQ_MODEL` | `openai/gpt-oss-120b` | Summary model |
-| `AERO_PHYSICS_VERSION` | `v3` | `v2` runs the legacy physics + expects `ai.py` |
+| `AERO_PHYSICS_VERSION` | `v4` | Physics and AI pairing: `v4` + `aiv4.py` (default), `v5` + `aiv5.py`, `v3` + `aiv3.py`, `v2` + `ai.py` |
 | `AERO_AI_URL` | `http://127.0.0.1:8100` | Where the AI service lives |
-| `AERO_HEALTH_FAILURE_HOLD_S` | `20` | Seconds a failure verdict is held in the health display |
+| `AERO_HEALTH_FAILURE_HOLD_S` | `20` | Seconds health must stay at the floor before the flight ends as an engine failure; `0` disables the shutdown |
+| `AERO_CORS_ORIGINS` | `*` | Comma-separated origins allowed to call the API. `*` is for local use only |
+| `AERO_AI_DEVICE` | `cpu` | `aiv5.py` only: `gpu` runs the v5 models on Metal (slower at batch 1) |
 
 Without Supabase/Groq the simulator runs fully; only persistence and summaries are off.
 
@@ -93,7 +102,7 @@ Faults emerge from operating conditions (sustained high power/RPM, poor cooling)
 
 ## 2. AI inference service
 
-**Must run from `validation/venv`** (Python 3.11, TensorFlow 2.16.2 + `tensorflow-metal`, Apple Silicon). The heads were trained and validated on the Metal GPU backend; the same `.keras` files under CPU-only TensorFlow give materially wrong RUL (e.g. 915: 1.07 h MAE vs 513 h). See the root README for the full table.
+**Must run from `validation/venv`** (Python 3.11, TensorFlow 2.16.2 + `tensorflow-metal`, Apple Silicon). The v2/v3/v4 heads were trained and validated on the Metal GPU backend; the same `.keras` files under CPU-only TensorFlow give materially wrong RUL (e.g. 915: 1.07 h MAE vs 513 h). See the root README for the full table. v5 is exempt: it builds ReLU as `max(z, 0)`, which computes the same on any device, and serves on the CPU by default.
 
 ```bash
 cd validation
@@ -107,7 +116,8 @@ Start it from `backend/` (module import path matters), before `main.py`:
 
 ```bash
 cd backend
-../validation/venv/bin/uvicorn aiv3:app --host 127.0.0.1 --port 8100
+../validation/venv/bin/uvicorn aiv4:app --host 127.0.0.1 --port 8100   # with main.py's default (v4)
+../validation/venv/bin/uvicorn aiv5:app --host 127.0.0.1 --port 8100   # with AERO_PHYSICS_VERSION=v5
 ```
 
 `curl localhost:8100/health` must show `"backend_validated": true`. The models need 128 simulated seconds of history; until then `/step` returns `{"status": "warming_up"}` (`main.py` fast-forwards this).

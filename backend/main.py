@@ -108,7 +108,9 @@ app = FastAPI(title="UAV Digital Twin API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # MVP only - lock this down before real deployment
+    # Comma-separated, e.g. AERO_CORS_ORIGINS=https://aero-sim.example.com. Default "*"
+    # is for local use only - set it before the API is reachable from anywhere else.
+    allow_origins=[o.strip() for o in os.environ.get("AERO_CORS_ORIGINS", "*").split(",") if o.strip()],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -262,6 +264,10 @@ def log_telemetry(simulation_id, time_offset_s, raw, ai):
         return db.log_telemetry(simulation_id, time_offset_s, raw, ai, residuals=state["residuals"])
     return db.log_telemetry(simulation_id, time_offset_s, raw, ai)
 STEPS_PER_BROADCAST = 5  # 0.01s * 5 = 20Hz telemetry rate
+# ...in wall-clock time too. Warm-up fast-forward runs steps as fast as the CPU allows,
+# and counting steps alone sent ~500 frames/s (~5 MB/s per browser) until the AI window
+# filled. Just under 50 ms, so real-time jitter never drops a frame.
+BROADCAST_MIN_INTERVAL_S = 0.045
 
 # How often a telemetry_logs row is written, in SIMULATED seconds.
 #
@@ -890,6 +896,7 @@ async def simulation_loop():
     worker = asyncio.create_task(ai_worker(queue))
     step_count = 0
     next_tick = time.monotonic()
+    last_broadcast = 0.0
     if state["sim_health"] in ("idle", "halted"):
         state["sim_health"] = "running"
     try:
@@ -989,7 +996,9 @@ async def simulation_loop():
                         waited += 0.005
 
             # ---- broadcast at 20 Hz (guarded) ----
-            if step_count % STEPS_PER_BROADCAST == 0:
+            if (step_count % STEPS_PER_BROADCAST == 0
+                    and time.monotonic() - last_broadcast >= BROADCAST_MIN_INTERVAL_S):
+                last_broadcast = time.monotonic()
                 try:
                     payload = client_frame(out)
                     payload["ai"] = state["last_ai_result"]
