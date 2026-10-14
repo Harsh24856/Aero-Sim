@@ -752,7 +752,7 @@ function SimulatePageInner() {
               />
             </div>
             {feedLive && !started && !everStartedRef.current && !resumePending && (
-              <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-black/70 px-4 text-center">
+              <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-[#050403]/95 px-4 text-center">
                 <div className="text-[13px] font-bold uppercase tracking-[0.14em] text-[#f8efdd] md:text-[16px]">
                   A flight is already running
                 </div>
