@@ -14,12 +14,17 @@ import os
 import sys
 import unittest
 
+os.environ["AERO_PHYSICS_VERSION"] = "v4"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import main                                      # noqa: E402  (AI_FEATURE_COLS_V4)
 import twin_v4                                   # noqa: E402
 from degradation_v4 import FAULT_NAMES           # noqa: E402
 from sensors_v4 import SENSOR_CHANNELS, SENSOR_FAULT_TYPES   # noqa: E402
+
+if main.PHYSICS_VERSION != os.environ["AERO_PHYSICS_VERSION"]:   # main reads it once, at import
+    raise ImportError(f"main is already loaded as physics {main.PHYSICS_VERSION}, this module needs "
+                      f"{os.environ['AERO_PHYSICS_VERSION']} - run it in its own process (scripts/test_all.sh)")
 
 MODELS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models_v4")
 

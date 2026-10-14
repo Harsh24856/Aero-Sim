@@ -47,8 +47,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import numpy as np
 import pandas as pd
-import pyarrow as pa
-import pyarrow.parquet as pq
 
 from physics import UAVEngineTwin, ENGINE_CONFIGS, TBO_HOURS
 from failure_modes import MODES as FAILURE_MODES

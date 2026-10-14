@@ -58,7 +58,7 @@ import features_v5 as F  # noqa: E402
 import physics_v5 as P  # noqa: E402
 import timescale_v4 as TS  # noqa: E402
 from degradation_v5 import (  # noqa: E402
-    DegradationStateV5, FAULT_NAMES, REMOVAL_CONDITION, applicable_faults, fleet_wear_health,
+    DegradationStateV5, FAULT_NAMES, applicable_faults, fleet_wear_health,
 )
 from generate_dataset_v4 import (  # noqa: E402  unchanged v4 helpers
     MISSIONS, MISSION_NAMES, mission_target, sample_environment, sample_start_hours,

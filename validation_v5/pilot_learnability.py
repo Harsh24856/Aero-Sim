@@ -32,7 +32,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(HERE), "backend"))
 import evaluate as E  # noqa: E402
 import features_v5 as F  # noqa: E402
 from data_checks_v5 import load  # noqa: E402
-from degradation_v5 import FAULT_NAMES, applicable_faults  # noqa: E402
+from degradation_v5 import FAULT_NAMES  # noqa: E402
 from observability_v5 import FAMILY_OF  # noqa: E402
 from sensors_v5 import FAULTABLE_CHANNELS  # noqa: E402
 
@@ -100,7 +100,6 @@ def main(dirpath: str) -> None:
     report["detection"] = det
 
     # -- diagnosis ------------------------------------------------------------
-    spec_turbo = "turbo" in man.get("engine_model", "").lower()
     names = [n for n in FAULT_NAMES if L[f"fm_{n}"].max() > 0]
     diag = {}
     for label, make in (("v5 visible", lambda n: L[f"fmv_{n}"]), ("v4 severity", lambda n: L[f"fm_{n}"] >= 0.08)):

@@ -158,8 +158,15 @@ Training, head export and scoring live in `validation/` — see the root README,
 
 ## 5. Tests
 
+From the repo root, every suite in its own process with the right environment:
+
 ```bash
-source .venv/bin/activate
-pip install pytest
-pytest tests/
+scripts/test_all.sh                # backend, the v5 AI service, cache-free validation_v5
+scripts/test_all.sh --with-cache   # plus the tests that read validation_v5/cache/914b
 ```
+
+`main.py` reads `AERO_PHYSICS_VERSION` once, at import, so test modules for different
+physics versions cannot share one interpreter: a module imported after `main` loaded
+under another version fails with an `ImportError` that says so. One module alone:
+`.venv/bin/python -m unittest tests.test_twin_v5` (TensorFlow suites:
+`../validation/venv/bin/python -m unittest tests.test_ai_v5_service`).
