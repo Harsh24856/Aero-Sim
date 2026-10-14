@@ -242,6 +242,17 @@ The v6 914 retrain (main checkout, not exported) against the live v5 914 on the 
 - oil-pump recall 0.66 -> 0.72;
 - RUL 9.5% -> 9.6%: W2 is not fixed yet, and the history inputs (v6 Task 4) are what targets it.
 
+### Phase 5 outcome (2026-10-15)
+
+- **v6 914 not accepted** (the v6 plan's own rule). The test card passes, as do export parity on GPU and CPU and `e2e_v5` (8/8). The 22-flight A/B fails:
+  - exact fault naming 96.0% -> 93.7%;
+  - RUL error 145 -> 225 h. v6 over-predicts life on every mid-fault engine and is better on sensor and old-engine cases.
+
+  Parked with its evidence in Harsh24856/Aero-Sim#16; the live 914 stays on v5.
+- **Bug fixed on the way:** the offline harness (`e2e_v5`, `ab_v5`) never sent `engine_history`, so every v6 A/B ran on neutral history. `twin_v5.AI_PAYLOAD` is now the one list (#16).
+- **W3 shipped** (Harsh24856/Aero-Sim#17): a stuck sensor is called from its flat line 20 s after onset (was 130 s); EGT-stuck right kind 32 -> 54/57; 0 false calls. Confirmed live: 20 s, `source=flatline`.
+- **Flaky runs explained:** every slow or flaky run tonight (a test file taking 245-603 s, the v5 safety suite failing once) coincided with the Mac's battery Maintenance Sleep (`pmset -g log`: ~603 s asleep, 21 s awake). It is not a code fault. Run long checks on power, or under `caffeinate -is`.
+
 ## 4. Skills (from `/find-skills`)
 
 **Already installed and useful here:**
