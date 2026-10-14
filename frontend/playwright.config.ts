@@ -12,6 +12,11 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
+  // Headless Chromium renders the three.js scenes in software: more than two pages at
+  // once starve each other of CPU (seven workers timed out half the suite).
+  workers: 2,
+  timeout: 60_000,
+  expect: { timeout: 15_000 },
   use: { baseURL: `http://localhost:${PORT}`, trace: "retain-on-failure" },
   projects: [
     { name: "desktop", use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } } },

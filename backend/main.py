@@ -1398,10 +1398,16 @@ async def reset_sim():
 async def list_engines():
     """Single source of truth is physics.py's ENGINE_CONFIGS - the frontend never
     hardcodes a duplicate list, it just asks this endpoint."""
+    await refresh_ai_version()      # the engine list is read before any /start has asked
     return {
         "engines": list(ENGINE_CONFIGS.keys()),
         "current": CURRENT_ENGINE_MODEL,
         "ai_valid_engines": list(AI_VALID_ENGINES),
+        # From the AI service's last /health: engines it serves with another engine's
+        # models, and whether it answered at all (the cockpit list must not claim
+        # "AI ready" for either).
+        "ai_placeholder_engines": (state["ai_health"] or {}).get("placeholder_engines") or [],
+        "ai_online": state["ai_model_version"] is not None,
     }
 
 
