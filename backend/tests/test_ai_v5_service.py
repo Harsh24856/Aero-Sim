@@ -14,6 +14,11 @@ sys.path.insert(0, HERE)
 
 import aiv5  # noqa: E402  (loads backend/models_v5)
 from twin_v5 import UAVEngineTwinV5  # noqa: E402
+from sensors_v5 import FAULTABLE_CHANNELS, SENSOR_SPEC  # noqa: E402
+
+
+def col(name: str) -> int:
+    return aiv5.F.FEATURE_COLS.index(name)
 
 AIV4_KEYS = {"status", "model_version", "engine_model", "placeholder_models", "models_engine",
              "fault_detected", "detection_confidence", "fault_modes", "faults_present", "sensors",
@@ -104,6 +109,49 @@ class TestAiV5(unittest.TestCase):
         rows = np.asarray([[p[c] for c in aiv5.F.FEATURE_COLS] for p in self.flight[-128:]])
         o = dep({"seq": dep.scale_seq(rows)[None], "ctx": dep.scale_ctx(np.asarray(self.flight[-1]["ai_context"]))[None]})
         self.assertAlmostEqual(float(o["detection"][0, 0]), self.results[-1]["detection_confidence"], places=4)
+
+    # ---- W3: a stuck sensor is called from its flat line, not after the 128 s window ----
+    def _rows(self, n=128, steady=False):
+        """Raw window rows [n, 39] from a real flight; steady=True freezes the twin
+        (measured - residual) on every channel, as at a long steady cruise."""
+        rows = np.array([[p[c] for c in aiv5.F.FEATURE_COLS] for p in self.flight[:n]], np.float64)
+        if steady:
+            for ch in FAULTABLE_CHANNELS:
+                m, r = col(ch), col("res_" + ch)
+                twin = rows[:, m] - rows[:, r]
+                rows[:, r] = rows[:, m] - twin[0]          # twin constant, measurement as flown
+        return rows
+
+    def test_stuck_rule_flags_flat_reading_against_moving_twin(self):
+        rows = self._rows()
+        m, r = col("egt"), col("res_egt")
+        twin = rows[:, m] - rows[:, r]
+        twin[-20:] = twin[-21] + np.linspace(0.0, 5 * SENSOR_SPEC["egt"]["noise_sd"], 20)   # twin rising
+        rows[-20:, m] = rows[-21, m]                     # the sensor froze
+        rows[:, r] = rows[:, m] - twin
+        self.assertEqual(aiv5.stuck_by_flatline(rows, ["egt"]), {"egt"})
+
+    def test_stuck_rule_needs_a_moving_twin_where_a_healthy_reading_can_sit_flat(self):
+        # Engine rpm (quantum 10, slow noise) reads identically for up to 25 s on healthy
+        # flights; at a steady cruise a flat rpm is not evidence of anything.
+        rows = self._rows(steady=True)
+        m = col("engine_rpm")
+        rows[-20:, m] = rows[-21, m]
+        rows[:, col("res_engine_rpm")] = rows[:, m] - rows[-1, m]     # twin flat too
+        self.assertEqual(aiv5.stuck_by_flatline(rows, ["engine_rpm"]), set())
+
+    def test_stuck_rule_flat_noisy_channel_is_stuck_even_with_a_steady_twin(self):
+        # EGT noise (6 C, quantum 1 C) never repeats a reading for more than 4 s on a
+        # healthy flight: 20 identical readings are a frozen instrument, whatever the twin.
+        rows = self._rows(steady=True)
+        m, r = col("egt"), col("res_egt")
+        twin = rows[0, m] - rows[0, r]
+        rows[-20:, m] = rows[-21, m]
+        rows[:, r] = rows[:, m] - twin                   # the twin stays perfectly steady
+        self.assertEqual(aiv5.stuck_by_flatline(rows, ["egt"]), {"egt"})
+
+    def test_stuck_rule_on_a_real_healthy_flight_calls_nothing(self):
+        self.assertEqual(aiv5.stuck_by_flatline(self._rows(), list(FAULTABLE_CHANNELS)), set())
 
     def test_null_input_is_an_error_not_a_crash(self):
         """A NaN in the twin reaches aiv5 as null (safety.json_safe)."""
