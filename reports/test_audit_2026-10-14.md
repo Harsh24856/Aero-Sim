@@ -253,6 +253,18 @@ The v6 914 retrain (main checkout, not exported) against the live v5 914 on the 
 - **W3 shipped** (Harsh24856/Aero-Sim#17): a stuck sensor is called from its flat line 20 s after onset (was 130 s); EGT-stuck right kind 32 -> 54/57; 0 false calls. Confirmed live: 20 s, `source=flatline`.
 - **Flaky runs explained:** every slow or flaky run tonight (a test file taking 245-603 s, the v5 safety suite failing once) coincided with the Mac's battery Maintenance Sleep (`pmset -g log`: ~603 s asleep, 21 s awake). It is not a code fault. Run long checks on power, or under `caffeinate -is`.
 
+### Phase 5 closed (2026-10-15)
+
+Done: W3 shipped (#17). Deferred with evidence: W1 (a physics ceiling) and W2 (needs a model change). Details are in Harsh24856/Aero-Sim#16.
+
+- **Naming:** v6's drop is oil degradation only. It is called oil pump instead (same family); cut-off 0.39 vs 0.25. On the test set v6 is better, so this is a precision/recall trade, not a defect.
+- **W2 RUL:** both models over-predict mid-fault engines (v5 +169 h, v6 +198 h).
+  - About +20 to +80 h of that is expected: remaining life is convex in fault growth rate.
+  - v6's extra error is the RUL regressor mis-reading faults absent from the logbook: +155 h on held-out windows whose labels average 170 h.
+  - Three fixes (a two-point extrapolation as an input, as an override, and as a severity-gated override) were each rejected on validation and reverted.
+  - What is needed: several logbook points, or a model of each fault's own removal time. Either changes the data contract, so the data must be regenerated and the models retrained.
+- **Phase 8 cleanup:** one Simulator with per-engine scenery, pixel-identical (#18).
+
 ## 4. Skills (from `/find-skills`)
 
 **Already installed and useful here:**
