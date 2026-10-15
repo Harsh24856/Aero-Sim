@@ -72,9 +72,12 @@ TREND_B, TREND_DEPTH, TREND_CAP = 1.5, 0.775, 2.0     # TREND_CAP: fraction of T
 _REMOVAL_SEV, _SEV_FLOOR = 0.8, 0.08
 
 
-def logbook_trend(sev_now: np.ndarray, logbook: np.ndarray, tbo: float) -> np.ndarray:
+def logbook_trend(sev_now: np.ndarray, logbook: np.ndarray, tbo: float,
+                  elapsed_h: np.ndarray | None = None) -> np.ndarray:
     """Time to removal / TBO from the severity now and the logbook [n, len(LOG_LAGS_H)];
-    TREND_CAP where growth is not measured (no fault now, no visible past entry, no growth)."""
+    TREND_CAP where growth is not measured (no fault now, no visible past entry, no growth).
+    elapsed_h: engine hours since the flight started - the logbook is from the start, and
+    one flight ages the engine up to ~225 h on the x180 life clock."""
     def g(progress):
         p = np.clip(np.asarray(progress, np.float64), 0.0, 0.999)
         return (-np.log1p(-p)) ** (1.0 / TREND_B)
@@ -82,7 +85,8 @@ def logbook_trend(sev_now: np.ndarray, logbook: np.ndarray, tbo: float) -> np.nd
         return g(np.asarray(s, np.float64) / TREND_DEPTH)
     now = np.asarray(sev_now, np.float64)
     log = np.asarray(logbook, np.float64)
-    t = -np.asarray(F.LOG_LAGS_H, np.float64)[None, :].repeat(len(now), 0)
+    el = np.zeros(len(now)) if elapsed_h is None else np.asarray(elapsed_h, np.float64)
+    t = -(np.asarray(F.LOG_LAGS_H, np.float64)[None, :] + el[:, None])
     seen = log > 0.0
     # points: the visible inspections and now (t = 0)
     T = np.concatenate([np.where(seen, t, np.nan), np.zeros((len(now), 1))], 1)
@@ -96,6 +100,31 @@ def logbook_trend(sev_now: np.ndarray, logbook: np.ndarray, tbo: float) -> np.nd
     return np.where(ok, np.clip(rem, 0.0, TREND_CAP), TREND_CAP)
 
 
+def logbook_bound(sev_now: np.ndarray, logbook: np.ndarray, tbo: float,
+                  elapsed_h: np.ndarray | None = None) -> np.ndarray:
+    """A fault newer than the logbook (invisible at every inspection, present now) grew
+    from under the visibility floor within (25 h + elapsed): taking it from half the floor
+    then gives a bound on its rate, so on the time left. TREND_CAP otherwise. A separate
+    input from logbook_trend - as an override this guess lost on validation (PR #16)."""
+    now = np.asarray(sev_now, np.float64)
+    el = np.zeros(len(now)) if elapsed_h is None else np.asarray(elapsed_h, np.float64)
+    newer = (np.asarray(logbook, np.float64) <= 0.0).all(1) & (now >= _SEV_FLOOR)
+    then = np.full((len(now), len(F.LOG_LAGS_H)), 0.0)
+    then[:, 0] = _SEV_FLOOR / 2                       # the most recent inspection, as a point
+    est = logbook_trend(now, then, tbo, el)
+    return np.where(newer, est, TREND_CAP)
+
+
+def flight_elapsed_h(ctx: np.ndarray, contract: dict) -> np.ndarray:
+    """Engine hours since the flight started, from the (scaled) context: the flight's
+    duty-weighted hours x the life scale (x180 on the live and training life clock)."""
+    sc = contract["ctx_scaler"]
+    i_used, i_scale = CTX_COLS.index("life_used_hours"), CTX_COLS.index("life_scale_180")
+    used = np.asarray(ctx)[:, i_used] * sc["std"][i_used] + sc["mean"][i_used]
+    flag = np.asarray(ctx)[:, i_scale] * sc["std"][i_scale] + sc["mean"][i_scale]
+    return np.maximum(used, 0.0) * np.where(flag > 0.5, 180.0, 1.0)
+
+
 def rul_inputs(o: dict, seq: np.ndarray, ctx: np.ndarray, contract: dict,
                hist: np.ndarray | None = None, logbook: np.ndarray | None = None) -> np.ndarray:
     """RUL model inputs from the assembled outputs `o` and the scaled window/context
@@ -103,7 +132,8 @@ def rul_inputs(o: dict, seq: np.ndarray, ctx: np.ndarray, contract: dict,
     `hist_cols` (v6), the engine's logbook history [n, 3] in F.HIST_COLS order adds
     its wear ratio, past worst severity and severity progression per hour; missing
     history counts as none. With `log_cols` (W2) the inspection logbook [n, 4] adds its
-    four severities and logbook_trend. Without them the inputs are exactly as before."""
+    four severities, logbook_trend, logbook_bound and the hours flown since the logbook.
+    Without them the inputs are exactly as before."""
     marg = measured_margin(contract, seq)
     thr_mean = seq[:, :, F.FEATURE_COLS.index("throttle")].mean(1)
     # Engine-fault evidence only: `detection` also fires on SENSOR faults, and fed to
@@ -121,8 +151,10 @@ def rul_inputs(o: dict, seq: np.ndarray, ctx: np.ndarray, contract: dict,
     if not contract.get("log_cols"):
         return X
     log = (np.tile(F.LOG_NEUTRAL, (len(X), 1)) if logbook is None else np.asarray(logbook, np.float64))
-    trend = logbook_trend(np.asarray(o["severity"]).max(1), log, contract["tbo_hours"])
-    return np.concatenate([X, log, trend[:, None]], 1)
+    sev_now, elapsed = np.asarray(o["severity"]).max(1), flight_elapsed_h(ctx, contract)
+    trend = logbook_trend(sev_now, log, contract["tbo_hours"], elapsed)
+    bound = logbook_bound(sev_now, log, contract["tbo_hours"], elapsed)
+    return np.concatenate([X, log, trend[:, None], bound[:, None], elapsed[:, None]], 1)
 
 
 def features(trainer, ids: np.ndarray, bs: int = 512):
