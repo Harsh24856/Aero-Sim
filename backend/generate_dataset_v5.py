@@ -59,7 +59,7 @@ import physics_v5 as P  # noqa: E402
 import timescale_v4 as TS  # noqa: E402
 from degradation_v5 import (  # noqa: E402
     DegradationStateV5, FAULT_NAMES, applicable_faults, calibrated_wear_health,
-    engine_history,
+    engine_history, engine_logbook,
 )
 from generate_dataset_v4 import (  # noqa: E402  unchanged v4 helpers
     MISSIONS, MISSION_NAMES, mission_target, sample_environment, sample_start_hours,
@@ -85,7 +85,8 @@ LABEL_COLS = (["fault_present", "fault_present_sev", "effect_z", "sensor_fault_a
                "health_index", "margin_min", "rul_hours", "rul_hours_oracle",
                "rul_calendar_hours", "engine_hours", "life_used_hours", "life_scale",
                "failed", "limit_exceeded"]
-              + FM_COLS + FMV_COLS + SF_FLAG_COLS + SF_ACTIVE_COLS + SF_SEV_COLS + EFF_COLS + F.HIST_COLS)
+              + FM_COLS + FMV_COLS + SF_FLAG_COLS + SF_ACTIVE_COLS + SF_SEV_COLS + EFF_COLS + F.HIST_COLS
+              + F.LOG_COLS)
 ALL_COLS = ["scenario_id", "t", "mission_id"] + F.FEATURE_COLS + LABEL_COLS
 
 MAX_SCENARIO_S = 4500.0
@@ -194,6 +195,9 @@ def run_scenario(engine_model: str, scen_id: int, rng: np.random.Generator):
     # The engine's logbook baseline, from its own RNG stream so no other draw moves.
     hist = engine_history(deg, start_h, np.random.default_rng([zlib.crc32(engine_model.encode()), scen_id, 2]))
     hist_row = [round(hist["lag_h"], 3), round(hist["wear_ratio"], 5), round(hist["sev_max"], 5)]
+    # W2: the inspection logbook, from a further stream of its own (draws above unchanged).
+    log = engine_logbook(deg, start_h, np.random.default_rng([zlib.crc32(engine_model.encode()), scen_id, 3]))
+    hist_row += [round(log[c], 5) for c in F.LOG_COLS]
     twin.warm_start(warm_u, calibrated_wear_health(start_h, tbo, hist["wear_ratio"]))
     wear.warm_start(warm_u, hw0)
     for _ in range(300):

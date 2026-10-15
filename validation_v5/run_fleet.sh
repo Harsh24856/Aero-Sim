@@ -62,6 +62,7 @@ from sensors_v5 import FAULTABLE_CHANNELS
 c = Cache(f"cache/{os.environ['KEY']}b")
 assert c.contract.get('twin') == 'calibrated_wear', f"cache twin {c.contract.get('twin')}"
 assert c.contract.get('hist_cols'), 'cache has no engine history (hist_cols)'
+assert c.contract.get('log_cols'), 'cache has no inspection logbook (log_cols, W2)'
 
 ids = c.end_ids(['train'], jitter=False)
 ids = np.sort(np.random.default_rng(0).choice(ids, min(20000, len(ids)), replace=False))

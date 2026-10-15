@@ -25,6 +25,7 @@ import physics_v5 as P  # noqa: E402
 import twin_v5  # noqa: E402
 from degradation_v4 import FaultEvent  # noqa: E402
 from degradation_v5 import (  # noqa: E402
+    engine_logbook,
     FLEET_WEAR, DegradationStateV5, baseline_health, calibrated_wear_health, engine_history, fleet_wear_health,
 )
 from sensors_v5 import SENSOR_SPEC  # noqa: E402
@@ -123,6 +124,34 @@ class TestEngineHistory(unittest.TestCase):
             self.assertLess(a, 0.7 * b, f"{c}: calibrated {a:.1f} vs fleet {b:.1f} sigma")
 
 
+class TestEngineLogbook(unittest.TestCase):
+    """W2: the logbook's worst visible severity at the 25 / 50 / 100 / 200 h inspections,
+    so RUL measures a fault's growth instead of guessing it from one entry."""
+
+    def _growing_fault(self):
+        d = deg_at(1.0)
+        spec = 0.60                                        # FAULT_MODES["bearing_wear"]["depth"]
+        # progress 1 - exp(-0.004 x^1.5), x = age in % of TBO: visible from ~85 h of age
+        d.faults = [FaultEvent(name="bearing_wear", onset_h=700.0, a=0.004, b=1.5, depth=spec, sense=-1)]
+        return d
+
+    def test_each_entry_is_that_inspections_effective_severity(self):
+        d = self._growing_fault()
+        log = engine_logbook(d, 1000.0, np.random.default_rng(0))
+        self.assertEqual(list(log), F.LOG_COLS)
+        for col, lag in zip(F.LOG_COLS, F.LOG_LAGS_H):
+            ref = engine_history(d, 1000.0, np.random.default_rng(5), lag_h=lag)["sev_max"]
+            self.assertAlmostEqual(log[col], ref, delta=0.25 * max(ref, 0.04), msg=col)
+        self.assertGreater(log["log_sev_25h"], log["log_sev_200h"])     # it grew
+
+    def test_inspections_before_hour_zero_read_nothing(self):
+        log = engine_logbook(self._growing_fault(), 40.0, np.random.default_rng(0))
+        self.assertEqual(set(log.values()), {0.0})
+
+    def test_fault_free_engine_reads_nothing(self):
+        self.assertEqual(set(engine_logbook(deg_at(1.3), 1500.0, np.random.default_rng(0)).values()), {0.0})
+
+
 class TestGeneratorV6(unittest.TestCase):
     def test_generator_rows_carry_history_and_calibrated_twin(self):
         import glob
@@ -136,6 +165,10 @@ class TestGeneratorV6(unittest.TestCase):
             self.assertIn(c, d.columns)
             self.assertTrue((d.groupby("scenario_id")[c].nunique() == 1).all(), c)
         self.assertTrue(d.hist_wear_ratio.between(0.5, 2.0).all())
+        for c in F.LOG_COLS:                                    # W2: the inspection logbook
+            self.assertIn(c, d.columns)
+            self.assertTrue((d.groupby("scenario_id")[c].nunique() == 1).all(), c)
+            self.assertTrue(d[c].between(0.0, 1.0).all(), c)
 
 
 class TestTwinModeFollowsDeployedModel(unittest.TestCase):
@@ -176,7 +209,7 @@ class TestTwinModeFollowsDeployedModel(unittest.TestCase):
                                       models_root=self._root({"914": {"twin": "calibrated_wear"}}))
         fleet = twin_v5.UAVEngineTwinV5(engine_model="Rotax_914_ULF", engine=rec, seed=1,
                                         models_root=self._root({"914": {"twin": "fleet_wear"}}))
-        self.assertEqual(set(cal.history), {"lag_h", "wear_ratio", "sev_max"})
+        self.assertEqual(set(cal.history), {"lag_h", "wear_ratio", "sev_max", *F.LOG_COLS})
         self.assertGreater(cal.history["wear_ratio"], 1.0)        # it really does wear faster than the fleet
         self.assertLess(self._rpm_residual(cal), self._rpm_residual(fleet))
 
@@ -193,6 +226,15 @@ class TestTwinModeFollowsDeployedModel(unittest.TestCase):
         back = twin_v5.UAVEngineTwinV5(engine_model="Rotax_914_ULF", seed=1, models_root=root)
         back.restore_state(snap)
         self.assertEqual(back.history, tw.history)
+
+    def test_saved_engine_without_a_logbook_gets_one(self):
+        """Engine records saved before W2 carry history but no inspections: the twin
+        fills those in, and keeps the saved calibration."""
+        rec = {**self._fast_wearing_engine(), "history": {"lag_h": 50.0, "wear_ratio": 0.8, "sev_max": 0.0}}
+        tw = twin_v5.UAVEngineTwinV5(engine_model="Rotax_914_ULF", engine=rec, seed=1,
+                                     models_root=self._root({"914": {"twin": "calibrated_wear"}}))
+        self.assertEqual(tw.history["wear_ratio"], 0.8)
+        self.assertTrue(set(F.LOG_COLS) <= set(tw.history))
 
     def test_engine_record_history_wins(self):
         rec = {**self._fast_wearing_engine(), "history": {"lag_h": 50.0, "wear_ratio": 0.8, "sev_max": 0.0}}

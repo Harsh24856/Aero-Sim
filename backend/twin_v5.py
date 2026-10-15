@@ -34,7 +34,7 @@ import scenarios_v4
 import timescale_v4 as TS
 from degradation_v4 import FAULT_MODES
 from degradation_v5 import (DegradationStateV5, FaultEvent, applicable_faults, calibrated_wear_health,
-                            engine_history, fleet_wear_health)
+                            engine_history, engine_logbook, fleet_wear_health)
 from sensors_v5 import FAULTABLE_CHANNELS, SENSOR_CHANNELS, SENSOR_FAULT_TYPES, SENSOR_SPEC, SensorBank, SensorFault
 from twin_v4 import DEFAULT_ENV, STATE_FIELDS, WARM_INPUTS, WARM_SETTLE_S
 
@@ -114,6 +114,10 @@ class UAVEngineTwinV5:
         # logbook), else the same simulated one the training data drew.
         self.history = dict(rec.get("history") or engine_history(
             self.deg, self.start_engine_hours, np.random.default_rng(int(rec["degradation_seed"]) + 2)))
+        # W2: the inspection logbook. Records saved before it carry history without one.
+        if not set(F.LOG_COLS) <= set(self.history):
+            self.history.update(engine_logbook(
+                self.deg, self.start_engine_hours, np.random.default_rng(int(rec["degradation_seed"]) + 3)))
         self.record["history"] = self.history      # snapshots carry it: a restore never recalibrates
         self.eng = P.PistonEngineV5(self.engine_model, dt=self.dt)
         self.ref = P.PistonEngineV5(self.engine_model, dt=self.dt)

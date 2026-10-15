@@ -51,6 +51,7 @@ from degradation_v4 import (  # noqa: F401  re-exported
     A_RANGE, B_RANGE, BASE_SCALE_RANGE, BASELINE_MODS, FAULT_MODES, FAULT_NAMES, N_FAULTS,
     DegradationState, FaultEvent, applicable_faults,
 )
+from features_v5 import LOG_COLS, LOG_LAGS_H
 from physics_v4 import Health
 
 REMOVAL_SEVERITY = 0.8
@@ -115,6 +116,26 @@ HIST_YOUNG = 0.02                 # below this fleet wear the ratio carries no i
 HIST_SEV_FLOOR = 0.08             # a past fault weaker than this was not visible (FAULT_PRESENT_SEV)
 
 
+def visible_severity(deg: "DegradationStateV5", at_hours: float, noise: float) -> float:
+    """The worst fault severity an inspection at `at_hours` could see: EFFECTIVE units
+    (progress x depth / spec depth - what the severity head reports), zero below
+    HIST_SEV_FLOOR, scaled by (1 + noise), within [0, 1]."""
+    seen = [DegradationState._progress((at_hours - f.onset_h) / max(deg.tbo, 1.0) * 100.0, f.a, f.b)
+            * f.depth / FAULT_MODES[f.name]["depth"] for f in deg.faults if f.onset_h < at_hours]
+    true_sev = max(seen, default=0.0)
+    return 0.0 if true_sev < HIST_SEV_FLOOR else min(max(true_sev * (1.0 + noise), 0.0), 1.0)
+
+
+def engine_logbook(deg: "DegradationStateV5", hours: float, rng: np.random.Generator) -> dict:
+    """W2: the worst visible fault severity at each inspection in features_v5.LOG_LAGS_H
+    (25 / 50 / 100 / 200 h before `hours`), with engine_history's units, floor and
+    relative noise. An inspection before the engine's hour zero reads nothing. Pass its
+    OWN random stream: every other draw (and so the telemetry) stays as it was."""
+    return {col: (visible_severity(deg, float(hours) - lag, float(rng.normal(0.0, HIST_NOISE)))
+                  if lag <= float(hours) else 0.0)
+            for col, lag in zip(LOG_COLS, LOG_LAGS_H)}
+
+
 def engine_history(deg: "DegradationStateV5", hours: float, rng: np.random.Generator,
                    lag_h: float | None = None) -> dict:
     """A logbook-style baseline for an engine at `hours`: its wear compared with the
@@ -130,13 +151,10 @@ def engine_history(deg: "DegradationStateV5", hours: float, rng: np.random.Gener
     lag = float(rng.uniform(*HIST_LAG_H)) if lag_h is None else float(lag_h)
     lag = min(lag, float(hours))
     h0 = float(hours) - lag
-    seen = [DegradationState._progress((h0 - f.onset_h) / max(deg.tbo, 1.0) * 100.0, f.a, f.b)
-            * f.depth / FAULT_MODES[f.name]["depth"] for f in deg.faults if f.onset_h < h0]
-    true_sev = max(seen, default=0.0)
     fleet = wear_fraction(h0, deg.tbo, *FLEET_WEAR)
     noise = float(rng.normal(0.0, HIST_NOISE))
     sev_noise = float(rng.normal(0.0, HIST_NOISE))      # drawn last: earlier draws unchanged
-    sev_max = 0.0 if true_sev < HIST_SEV_FLOOR else min(max(true_sev * (1.0 + sev_noise), 0.0), 1.0)
+    sev_max = visible_severity(deg, h0, sev_noise)
     if fleet < HIST_YOUNG:
         ratio = 1.0
     else:

@@ -74,6 +74,67 @@ class TestHistoryInCacheAndRul(unittest.TestCase):
         np.testing.assert_allclose(X[:, -1], (o["severity"].max(1) - sev) / np.maximum(lag, 1.0))
 
 
+class TestLogbookTrend(unittest.TestCase):
+    """W2: remaining life from the fault's MEASURED growth across the inspection logbook
+    (25 / 50 / 100 / 200 h) and now - least squares on the growth curve's linear form."""
+    TBO = 2000.0
+
+    @staticmethod
+    def _sev(age_h, a, b, tbo=2000.0):
+        from degradation_v4 import DegradationState
+        return DegradationState._progress(age_h / tbo * 100.0, a, b)
+
+    def _true_remaining(self, age_now, a, b):
+        lo, hi = age_now, 50 * self.TBO
+        for _ in range(80):
+            m = (lo + hi) / 2
+            lo, hi = (m, hi) if self._sev(m, a, b) < 0.8 else (lo, m)
+        return hi - age_now
+
+    def _logbook(self, age, a, b, depth, noise=None):
+        """Effective severities at the inspections, floored (and noisy) as the logbook is."""
+        out = []
+        for lag in F.LOG_LAGS_H:
+            s = self._sev(age - lag, a, b) * depth if age > lag else 0.0
+            s = 0.0 if s < 0.08 else (s if noise is None else min(max(s * (1.0 + noise.normal(0, 0.10)), 0.0), 1.0))
+            out.append(s)
+        return np.array([out])
+
+    def test_unbiased_on_training_distribution_faults_with_a_noisy_logbook(self):
+        # A model INPUT: it must be informative and unbiased. Each fault's depth (0.55-1)
+        # and exponent (1.3-1.7) are unknown, and the logbook has 10% noise: median
+        # |error| ~32%, almost all from depth (the exact-curve test below pins the maths).
+        from degradation_v4 import A_RANGE, B_RANGE
+        rng = np.random.default_rng(1)
+        signed = []
+        for _ in range(600):
+            a = rng.uniform(*A_RANGE) * rng.uniform(2.0, 9.0); b = rng.uniform(*B_RANGE)
+            depth = rng.uniform(0.55, 1.0); age = rng.uniform(100.0, 1200.0)
+            now = self._sev(age, a, b) * depth
+            log = self._logbook(age, a, b, depth, noise=rng)
+            if not (0.15 <= now / depth <= 0.75) or (log > 0).sum() < 1:
+                continue
+            est = rul_v5.logbook_trend(np.array([now]), log, self.TBO)[0] * self.TBO
+            true = self._true_remaining(age, a, b)
+            signed.append((est - true) / true)
+        self.assertGreater(len(signed), 100)
+        self.assertLess(abs(np.median(signed)), 0.10)
+        self.assertLess(np.median(np.abs(signed)), 0.50)     # measured 32-40%; the units bug gave 365%
+
+    def test_the_failed_regime_now_reads_fast(self):
+        # The v6 failure: invisible 134 h ago, 0.34 now (test labels average 170 h). The
+        # 25 h and 50 h inspections see it, so its growth is measured.
+        age, a, b, depth = 200.0, 0.0022 * 5.5, 1.5, 0.775
+        now = self._sev(age, a, b) * depth
+        est = rul_v5.logbook_trend(np.array([now]), self._logbook(age, a, b, depth), self.TBO)[0] * self.TBO
+        self.assertLess(abs(est - self._true_remaining(age, a, b)), 0.25 * self._true_remaining(age, a, b))
+
+    def test_nothing_measured_is_capped(self):
+        out = rul_v5.logbook_trend(np.array([0.3, 0.02, 0.3]),
+                                   np.array([[0, 0, 0, 0], [0.3, 0.3, 0.3, 0.3], [0.3, 0.3, 0.3, 0.3]], float), 2000.0)
+        np.testing.assert_allclose(out, rul_v5.TREND_CAP)    # no visible past / no fault now / no growth
+
+
 class TestRulScoredAsServed(unittest.TestCase):
     """RUL candidates are chosen on what is served: predictions smoothed within each
     flight (914 v6: raw scoring picked a model whose served TBO-limited error was
