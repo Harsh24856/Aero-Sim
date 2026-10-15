@@ -58,41 +58,13 @@ def measured_margin(contract: dict, seq: np.ndarray) -> np.ndarray:
                      for i in range(len(seq))])
 
 
-# Two-point fault extrapolation (v6). A fault grows as s = 1 - exp(-a x^b), x its age in
-# % of TBO (degradation_v4._progress). With G(s) = (-ln(1-s))^(1/b) linear in age, two
-# points - the logbook's worst severity `lag` hours ago and the severity now - give the
-# time left until removal (s = REMOVAL_SEVERITY) without knowing a or the onset:
-#     remaining = lag * (G(removal) - G(now)) / (G(now) - G(then)).
-# Inputs are fault PROGRESS. rul_inputs converts the model's effective severities
-# (progress x depth/spec depth) with the typical depth fraction, and reads a fault
-# absent from the logbook (below HIST_SEV_FLOOR then) as the floor's midpoint.
-# ponytail: b fixed at the fleet mean (1.5); per-fault b would need a third point.
-TWO_POINT_B = 1.5
-TWO_POINT_CAP = 2.0                  # fraction of TBO: no growth seen, no logbook, or no fault
-_REMOVAL_SEV, _SEV_FLOOR, _DEPTH_FRAC = 0.8, 0.08, 0.775
-
-
-def two_point_remaining(prog_now, prog_then, lag_h, tbo: float) -> np.ndarray:
-    """Hours to removal / TBO, from the fault's progress now and `lag_h` hours ago."""
-    def g(s):
-        s = np.clip(np.asarray(s, np.float64), 0.0, 0.999)
-        return (-np.log1p(-s)) ** (1.0 / TWO_POINT_B)
-    now, then = np.asarray(prog_now, np.float64), np.asarray(prog_then, np.float64)
-    lag = np.asarray(lag_h, np.float64)
-    grow = g(now) - g(then)
-    ok = (lag > 0.0) & (now >= _SEV_FLOOR) & (grow > 1e-6)
-    rem = np.where(ok, lag * (g(_REMOVAL_SEV) - g(now)) / np.where(ok, grow, 1.0), 0.0) / float(tbo)
-    return np.where(ok, np.clip(rem, 0.0, TWO_POINT_CAP), TWO_POINT_CAP)
-
-
 def rul_inputs(o: dict, seq: np.ndarray, ctx: np.ndarray, contract: dict,
                hist: np.ndarray | None = None) -> np.ndarray:
     """RUL model inputs from the assembled outputs `o` and the scaled window/context
     - one definition for fitting, scoring and serving. When the contract has
     `hist_cols` (v6), the engine's logbook history [n, 3] in F.HIST_COLS order adds
-    its wear ratio, past worst severity, severity progression per hour and the
-    two-point estimate of the time left (two_point_remaining); missing history counts
-    as none. Without hist_cols the inputs are exactly as before."""
+    its wear ratio, past worst severity and severity progression per hour; missing
+    history counts as none. Without hist_cols the inputs are exactly as before."""
     marg = measured_margin(contract, seq)
     thr_mean = seq[:, :, F.FEATURE_COLS.index("throttle")].mean(1)
     # Engine-fault evidence only: `detection` also fires on SENSOR faults, and fed to
@@ -105,11 +77,8 @@ def rul_inputs(o: dict, seq: np.ndarray, ctx: np.ndarray, contract: dict,
         return X
     h = np.tile(F.HIST_NEUTRAL, (len(X), 1)) if hist is None else np.asarray(hist, np.float64)
     lag, ratio, sev = h[:, 0], h[:, 1], h[:, 2]
-    sev_now = np.asarray(o["severity"]).max(1)
-    progression = (sev_now - sev) / np.maximum(lag, 1.0)
-    then = np.where(sev <= 0.0, _SEV_FLOOR / 2, sev)              # absent from the logbook: below the floor
-    two_point = two_point_remaining(sev_now / _DEPTH_FRAC, then / _DEPTH_FRAC, lag, contract["tbo_hours"])
-    return np.concatenate([X, ratio[:, None], sev[:, None], progression[:, None], two_point[:, None]], 1)
+    progression = (np.asarray(o["severity"]).max(1) - sev) / np.maximum(lag, 1.0)
+    return np.concatenate([X, ratio[:, None], sev[:, None], progression[:, None]], 1)
 
 
 def features(trainer, ids: np.ndarray, bs: int = 512):
