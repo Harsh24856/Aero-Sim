@@ -165,9 +165,6 @@ def fit_rul(trainer, out_dir: str | None = None, cal_ids: np.ndarray | None = No
     thr = min(np.linspace(0.05, 0.95, 19),
               key=lambda t: score(report(GatedRUL(cands["gbt"], clf, t).predict(Xv, pwl))))
     cands["gated_gbt"] = GatedRUL(cands["gbt"], clf, float(thr))
-    if cache.contract.get("hist_cols"):              # v6: a fault the logbook did not show
-        for k in ("gbt", "gated_gbt"):
-            cands[f"{k}+new_fault"] = NewFaultRUL(cands[k])
     for name, m in cands.items():
         res[name] = report(m.predict(Xv))
     res["gated_gbt"]["threshold"] = float(thr)
@@ -192,30 +189,6 @@ class GatedRUL:
     def predict(self, X, p_wear_limited=None):
         p = self.clf.predict_proba(X)[:, 1] if p_wear_limited is None else p_wear_limited
         return np.where(p >= self.threshold, self.reg.predict(X), 1e3)
-
-
-# rul_inputs column of the engine-fault evidence: after health (1) and severity (14).
-ENGINE_FAULT_COL = 1 + 14
-NEW_FAULT_EVIDENCE = 0.5
-
-
-class NewFaultRUL:
-    """`base`'s RUL, except for an engine fault that the logbook did not show: there
-    the two-point extrapolation (rul_inputs' last column) answers. Held-out windows
-    with a mid-severity fault absent from the logbook: model +158 h (MAE 161 h),
-    two-point -34 h (MAE 96 h); where the logbook showed the fault the model is better,
-    so it keeps those. Needs v6 inputs (hist_cols): columns -3 = logbook severity,
-    -1 = two-point estimate. A diagnosed fault only, so a stray severity reading on a
-    healthy engine never shortens its life."""
-
-    def __init__(self, base):
-        self.base = base
-
-    def predict(self, X):
-        X = np.asarray(X)
-        new = ((X[:, -3] <= 0.0) & (X[:, -1] < TWO_POINT_CAP)
-               & (X[:, ENGINE_FAULT_COL] >= NEW_FAULT_EVIDENCE))
-        return np.where(new, X[:, -1], self.base.predict(X))
 
 
 class RulSmoother:

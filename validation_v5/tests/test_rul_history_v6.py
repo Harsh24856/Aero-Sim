@@ -125,41 +125,6 @@ class TestTwoPointRemaining(unittest.TestCase):
         np.testing.assert_allclose(out, rul_v5.TWO_POINT_CAP)
 
 
-class TestNewFaultRUL(unittest.TestCase):
-    """The two-point estimate replaces the model only for a diagnosed fault that the
-    logbook did not show; everywhere else the trained model answers."""
-
-    class Base:
-        def predict(self, X):
-            return np.full(len(X), 0.5)
-
-    def _X(self, engine_fault, sev_max, two_point):
-        X = np.zeros((1, 30))
-        X[0, rul_v5.ENGINE_FAULT_COL], X[0, -3], X[0, -1] = engine_fault, sev_max, two_point
-        return X
-
-    def test_overrides_only_a_diagnosed_fault_absent_from_the_logbook(self):
-        m = rul_v5.NewFaultRUL(self.Base())
-        self.assertAlmostEqual(m.predict(self._X(0.9, 0.0, 0.08))[0], 0.08)        # new fault: physics
-        self.assertAlmostEqual(m.predict(self._X(0.9, 0.2, 0.08))[0], 0.5)         # logbook saw it: model
-        self.assertAlmostEqual(m.predict(self._X(0.1, 0.0, 0.08))[0], 0.5)         # no fault diagnosed: model
-        self.assertAlmostEqual(m.predict(self._X(0.9, 0.0, rul_v5.TWO_POINT_CAP))[0], 0.5)   # no estimate
-
-    def test_engine_fault_column_is_where_rul_inputs_puts_it(self):
-        o = {"health": np.zeros((2, 1)), "severity": np.zeros((2, 14)), "diagnosis": np.full((2, 14), 0.1),
-             "family": np.zeros((2, 6))}
-        o["diagnosis"][:, 3] = 0.77
-        path = os.path.join(V5, "cache", "914b", "contract_v5.json")
-        if not os.path.exists(path):
-            self.skipTest("needs a cache contract (validation_v5/cache/914b)")
-        import json
-        contract = json.load(open(path))
-        seq = np.zeros((2, 128, len(F.FEATURE_COLS)), np.float32)
-        ctx = np.zeros((2, len(contract["ctx_cols"])), np.float32)
-        X = rul_v5.rul_inputs(o, seq, ctx, contract, hist=np.array([[100.0, 1.0, 0.0]] * 2))
-        np.testing.assert_allclose(X[:, rul_v5.ENGINE_FAULT_COL], 0.77)
-
-
 class TestRulScoredAsServed(unittest.TestCase):
     """RUL candidates are chosen on what is served: predictions smoothed within each
     flight (914 v6: raw scoring picked a model whose served TBO-limited error was
