@@ -129,6 +129,29 @@ class TestLogbookTrend(unittest.TestCase):
         est = rul_v5.logbook_trend(np.array([now]), self._logbook(age, a, b, depth), self.TBO)[0] * self.TBO
         self.assertLess(abs(est - self._true_remaining(age, a, b)), 0.25 * self._true_remaining(age, a, b))
 
+    def test_inspections_are_dated_from_the_flight_start(self):
+        # One flight ages the engine up to ~225 h (x180 life clock). The logbook is taken
+        # at the start, so 60 h into the flight its "25 h" inspection is 85 h old.
+        age0, a, b, depth, elapsed = 150.0, 0.0022 * 5.5, 1.5, 0.775, 60.0
+        log = self._logbook(age0, a, b, depth)                      # inspections before the flight
+        now = self._sev(age0 + elapsed, a, b) * depth
+        est = rul_v5.logbook_trend(np.array([now]), log, self.TBO, elapsed_h=np.array([elapsed]))[0] * self.TBO
+        true = self._true_remaining(age0 + elapsed, a, b)
+        self.assertLess(abs(est - true), 0.05 * true)
+        stale = rul_v5.logbook_trend(np.array([now]), log, self.TBO)[0] * self.TBO
+        self.assertGreater(abs(stale - true), 3 * abs(est - true))    # ignoring it is what went wrong
+
+    def test_a_fault_newer_than_the_logbook_is_bounded(self):
+        # Invisible at every inspection, 0.36 now, 40 h into the flight: it grew from under
+        # the floor within 65 h. A bound, not a measurement - a separate input.
+        b = rul_v5.logbook_bound(np.array([0.36, 0.36, 0.02]), np.zeros((3, 4)), self.TBO,
+                                 elapsed_h=np.array([40.0, 400.0, 40.0]))
+        self.assertLess(b[0], b[1])                      # less time to grow -> faster -> less life
+        self.assertLess(b[0] * self.TBO, 400.0)
+        self.assertEqual(b[2], rul_v5.TREND_CAP)         # no fault now: nothing to bound
+        seen = rul_v5.logbook_bound(np.array([0.36]), np.array([[0.2, 0, 0, 0]]), self.TBO)
+        self.assertEqual(seen[0], rul_v5.TREND_CAP)      # the logbook saw it: logbook_trend measures it
+
     def test_nothing_measured_is_capped(self):
         out = rul_v5.logbook_trend(np.array([0.3, 0.02, 0.3]),
                                    np.array([[0, 0, 0, 0], [0.3, 0.3, 0.3, 0.3], [0.3, 0.3, 0.3, 0.3]], float), 2000.0)
