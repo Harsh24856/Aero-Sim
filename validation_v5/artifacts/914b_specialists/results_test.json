@@ -328,31 +328,31 @@
   },
   "rul": {
    "mae_pct_tbo_wear_limited": {
-    "point": 9.650835283610872,
+    "point": 9.607328320350163,
     "ci": [
-     8.676112418547767,
-     10.796044197833996
+     8.62954589957322,
+     10.683573666831016
     ],
     "baseline": {
      "point": 26.170862081840188
     },
     "diff": {
-     "point": -16.520026798229317,
+     "point": -16.563533761490024,
      "ci": [
-      -18.35605374581158,
-      -14.664189903080683
+      -18.378316635332673,
+      -14.724595858077281
      ]
     }
    },
    "gain_vs_calendar": {
-    "point": 0.6312373947242826,
+    "point": 0.6328998146753204,
     "ci": [
      null,
      null
     ]
    },
    "mae_pct_tbo_tbo_limited": {
-    "point": 3.268887017270552,
+    "point": 3.3573035599222485,
     "ci": [
      null,
      null
@@ -366,12 +366,12 @@
     ]
    },
    "before_smoothing": {
-    "wear_limited_mae_pct": 10.235930198628541,
-    "tbo_limited_mae_pct": 2.5271019717014918,
+    "wear_limited_mae_pct": 10.188572953582526,
+    "tbo_limited_mae_pct": 2.6019575335984353,
     "calendar_wear_limited_mae_pct": 26.170862081840188,
-    "all_mae_pct": 5.083128117256305,
-    "gain_vs_calendar": 0.608880664052286,
-    "within_flight_rises_gt_2pct": 1073
+    "all_mae_pct": 5.117461420689024,
+    "gain_vs_calendar": 0.6106902049416125,
+    "within_flight_rises_gt_2pct": 1069
    }
   }
  },
