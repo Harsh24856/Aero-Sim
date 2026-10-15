@@ -38,7 +38,7 @@
   width: 100%;
   color: var(--bone);
   font-family: var(--body);
-  font-weight: 300;
+  font-weight: 400;          /* 300 on a dark page strained the eye */
   font-size: 16px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
@@ -69,20 +69,23 @@ html.lp-locked body { overflow: hidden; }
 /* ============================================================ type */
 .lp-eyebrow {
   display: flex; align-items: center; gap: 10px;
-  font-family: var(--mono); font-size: 10px; font-weight: 500; letter-spacing: 0.22em; text-transform: uppercase;
+  font-family: var(--mono); font-size: 11px; font-weight: 500; letter-spacing: 0.16em; text-transform: uppercase;
   color: var(--bone-dim); text-shadow: 0 1px 16px rgba(5, 4, 3, 0.9);
 }
-.lp-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px var(--accent); animation: lp-pulse 2.4s var(--ease-io) infinite; }
+.lp-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent-a55); animation: lp-pulse 3.2s var(--ease-io) infinite; }
 @keyframes lp-pulse { 50% { opacity: 0.35; } }
 .lp h1, .lp h2, .lp h3 { margin: 0; font-weight: 500; }
 .lp-display {
   font-family: var(--display); font-weight: 500; text-transform: uppercase;
-  line-height: 1.02; letter-spacing: -0.025em; text-shadow: 0 2px 34px rgba(5, 4, 3, 0.75);
+  line-height: 1.02; letter-spacing: -0.025em;
+  /* on the heading, not the words: each word's reveal mask clipped a text-shadow
+     into a dark box over the bright sky */
+  filter: drop-shadow(0 2px 22px rgba(5, 4, 3, 0.7));
 }
 .lp-h-hero { font-size: clamp(34px, 4.1vw, 66px); }
 .lp-h-sec { font-size: clamp(30px, 4.2vw, 64px); }
-.lp-body { font-size: 14px; line-height: 1.7; color: var(--fg-3); text-shadow: 0 1px 18px rgba(5, 4, 3, 0.9); }
-.lp-body-lg { font-size: clamp(14px, 1.05vw, 17px); line-height: 1.72; color: var(--fg-2); text-shadow: 0 1px 20px rgba(5, 4, 3, 0.9); }
+.lp-body { font-size: 15px; line-height: 1.7; color: var(--fg-3); text-shadow: 0 1px 18px rgba(5, 4, 3, 0.9); }
+.lp-body-lg { font-size: clamp(15px, 1.1vw, 17px); line-height: 1.72; color: var(--fg-2); text-shadow: 0 1px 20px rgba(5, 4, 3, 0.9); }
 .lp-lead { font-size: clamp(15px, 1.2vw, 19px); line-height: 1.66; color: var(--fg-1); text-shadow: 0 1px 20px rgba(5, 4, 3, 0.9); }
 
 /* ============================================================ reveal */
@@ -123,7 +126,7 @@ html.lp-locked body { overflow: hidden; }
 }
 .lp-pre-meta {
   display: flex; justify-content: space-between; margin-top: 12px;
-  font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted);
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted);
 }
 .lp-pre-meta b { font-weight: 500; color: var(--bone-dim); font-variant-numeric: tabular-nums; }
 
@@ -145,17 +148,19 @@ html.lp-locked body { overflow: hidden; }
 .lp-hero { position: relative; min-height: 100svh; padding: 0 var(--pad); display: flex; flex-direction: column; }
 .lp-hero::before {
   content: ""; position: absolute; left: 0; right: 0; top: 0; height: 46%; pointer-events: none;
-  background: linear-gradient(rgba(var(--shade), 0.72), rgba(var(--shade), 0.3) 46%, transparent);
+  background:
+    radial-gradient(52% 120% at 14% 40%, rgba(var(--shade), 0.5), transparent 72%),
+    linear-gradient(rgba(var(--shade), 0.72), rgba(var(--shade), 0.3) 46%, transparent);
 }
 .lp-hero-top { position: relative; z-index: 2; padding-top: calc(var(--nav-h) + clamp(22px, 5vh, 64px)); max-width: min(620px, 48vw); }
 .lp-hero-top .lp-eyebrow { margin-bottom: 22px; }
 .lp-hero h1 { margin-bottom: 20px; }
-.lp-hero-sub { max-width: 360px; text-shadow: 0 1px 26px rgba(5, 4, 3, 0.95); }
+.lp-hero-sub { max-width: 330px; text-shadow: 0 1px 26px rgba(5, 4, 3, 0.95); }
 .lp-hero-spacer { flex: 1 1 auto; min-height: clamp(140px, 26vh, 300px); }
 .lp-hero-foot { position: relative; z-index: 2; width: min(520px, 42vw); padding-bottom: clamp(22px, 4.2vh, 42px); }
 .lp-cue {
   display: flex; align-items: center; gap: 12px; margin-bottom: 14px;
-  font-family: var(--mono); font-size: 9px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--muted);
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted);
 }
 .lp-track { width: 54px; height: 1px; background: var(--line); position: relative; overflow: hidden; }
 .lp-track i { position: absolute; inset: 0; background: var(--accent); transform-origin: left; animation: lp-cue 2.8s var(--ease-io) infinite; }
@@ -168,7 +173,7 @@ html.lp-locked body { overflow: hidden; }
   transition: color 0.4s, transform 0.5s var(--ease-out);
 }
 .lp-tx b {
-  display: block; font-family: var(--mono); font-size: 9px; font-weight: 500; letter-spacing: 0.18em; text-transform: uppercase;
+  display: block; font-family: var(--mono); font-size: 11px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase;
   color: var(--bone-dim); transition: color 0.4s; text-shadow: 0 1px 16px rgba(5, 4, 3, 0.9);
 }
 .lp-tx span { display: none; }
@@ -188,12 +193,12 @@ html.lp-locked body { overflow: hidden; }
 .lp-peek:hover .lp-peek-fr { outline-color: var(--accent-a55); }
 .lp-rec {
   position: absolute; top: 8px; left: 9px; display: flex; align-items: center; gap: 6px;
-  font-family: var(--mono); font-size: 8px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--bone-dim);
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--bone-dim);
 }
-.lp-rec i { width: 5px; height: 5px; border-radius: 50%; background: var(--signal-rec); animation: lp-pulse 1.2s steps(2) infinite; }
+.lp-rec i { width: 5px; height: 5px; border-radius: 50%; background: var(--signal-rec); animation: lp-pulse 2.4s var(--ease-io) infinite; }
 .lp-peek-cap { display: flex; align-items: baseline; justify-content: space-between; gap: 9px; margin-top: 9px; }
-.lp-peek-cap b { font-family: var(--mono); font-size: 10px; font-weight: 500; letter-spacing: 0.22em; text-transform: uppercase; color: var(--bone); }
-.lp-peek-cap i { font-style: normal; font-family: var(--mono); font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.lp-peek-cap b { font-family: var(--mono); font-size: 11px; font-weight: 500; letter-spacing: 0.22em; text-transform: uppercase; color: var(--bone); }
+.lp-peek-cap i { font-style: normal; font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
 
 .lp-side {
   position: absolute; z-index: 2; right: var(--pad); top: calc(var(--nav-h) + clamp(18px, 4vh, 48px)); pointer-events: none;
@@ -217,7 +222,7 @@ html.lp-locked body { overflow: hidden; }
 .lp-fin::before { background: radial-gradient(82% 58% at 30% 50%, rgba(var(--shade), 0.7), rgba(var(--shade), 0.3) 56%, transparent 82%); }
 .lp-sec > * { position: relative; z-index: 2; }
 .lp-sec-head { display: flex; align-items: baseline; gap: 16px; margin-bottom: clamp(30px, 5vh, 66px); }
-.lp-k { font-family: var(--mono); font-size: 10px; font-weight: 500; letter-spacing: 0.24em; text-transform: uppercase; color: var(--muted); }
+.lp-k { font-family: var(--mono); font-size: 11px; font-weight: 500; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); text-shadow: 0 1px 14px rgba(5, 4, 3, 0.9); }
 .lp-k b { color: var(--accent); font-weight: 500; }
 .lp-rule { flex: 1 1 auto; height: 1px; background: var(--line-soft); }
 
@@ -231,7 +236,7 @@ html.lp-locked body { overflow: hidden; }
 .lp-gate-copy .lp-body { margin-top: 20px; }
 .lp-arrowlink {
   display: inline-flex; align-items: center; gap: 12px; margin-top: 34px;
-  font-family: var(--mono); font-size: 11px; font-weight: 500; letter-spacing: 0.2em; text-transform: uppercase;
+  font-family: var(--mono); font-size: 12px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase;
 }
 .lp-ar {
   width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 50%; display: grid; place-items: center;
@@ -251,7 +256,7 @@ html.lp-locked body { overflow: hidden; }
   letter-spacing: -0.02em; font-variant-numeric: tabular-nums; margin-bottom: 6px;
 }
 .lp-stats sup { font-size: 0.5em; vertical-align: 0.9em; color: var(--accent); }
-.lp-stats span { font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); }
+.lp-stats span { font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
 
 /* — 02 the fleet: the frames are holes; the engines are drawn by the
      page's own renderer straight into their rectangles */
@@ -275,7 +280,7 @@ html.lp-locked body { overflow: hidden; }
 }
 .lp-card-load {
   position: absolute; inset: 0; display: grid; place-items: center;
-  font-family: var(--mono); font-size: 9px; letter-spacing: 0.24em; text-transform: uppercase; color: var(--muted);
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted);
   transition: opacity 0.6s;
 }
 .lp-card-fr[data-state="ready"] .lp-card-load { opacity: 0; }
@@ -285,7 +290,7 @@ html.lp-locked body { overflow: hidden; }
 }
 .lp-card-lab b { font-family: var(--display); font-size: clamp(16px, 1.5vw, 24px); font-weight: 500; letter-spacing: -0.01em; text-transform: uppercase; }
 .lp-card.lead .lp-card-lab b { font-size: clamp(22px, 2.4vw, 40px); }
-.lp-card-lab span { font-family: var(--mono); font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--warm); text-align: right; }
+.lp-card-lab span { font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--warm); text-align: right; }
 .lp-card-ar {
   position: absolute; top: 14px; right: 14px; z-index: 2; color: var(--accent);
   opacity: 0; transform: translate3d(-4px, 4px, 0); transition: 0.5s var(--ease-out);
@@ -293,7 +298,7 @@ html.lp-locked body { overflow: hidden; }
 .lp-card:hover .lp-card-ar { opacity: 1; transform: none; }
 .lp-card-meta {
   display: flex; justify-content: space-between; margin-top: 10px;
-  font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted);
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted);
 }
 
 /* — 03 the watch: a plate atlas, two then three */
@@ -323,7 +328,7 @@ html.lp-locked body { overflow: hidden; }
 .lp-plate:hover .lp-k { color: var(--accent); }
 .lp-plate h3 { font-family: var(--display); font-size: clamp(20px, 2vw, 30px); font-weight: 500; letter-spacing: -0.01em; text-transform: uppercase; }
 .lp-plate h3 em { font-style: normal; font-family: var(--mono); font-size: 0.4em; color: var(--muted); margin-left: 12px; letter-spacing: 0.24em; vertical-align: 0.5em; }
-.lp-plate p { margin: 0; max-width: 36ch; font-size: 13px; line-height: 1.6; color: var(--fg-4); }
+.lp-plate p { margin: 0; max-width: 38ch; font-size: 14px; line-height: 1.62; color: var(--fg-3); }
 .lp-t { margin-top: auto; font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; color: var(--warm); }
 .lp-bar {
   position: absolute; left: 0; bottom: 0; height: 1px; width: 100%; background: var(--accent);
@@ -347,7 +352,7 @@ html.lp-locked body { overflow: hidden; }
 .lp-cta {
   position: relative; display: inline-flex; align-items: center; gap: 14px; overflow: hidden; isolation: isolate;
   padding: 17px 28px; border: 1px solid var(--accent); border-radius: 4px; color: #000; background: var(--accent);
-  font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase;
+  font-family: var(--mono); font-size: 12px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
   box-shadow: 2px 2px 0 #000, 0 18px 40px -18px var(--accent-a55); transition: color 0.45s var(--ease), border-color 0.45s, transform 0.3s, box-shadow 0.3s;
 }
 .lp-cta i { position: absolute; inset: 0; z-index: -1; background: var(--bone); transform: translate3d(0, 101%, 0); transition: transform 0.62s var(--ease-out); }
@@ -370,14 +375,14 @@ html.lp-locked body { overflow: hidden; }
 }
 .lp-foot-brand p { margin: 0; max-width: 48ch; font-family: var(--display); font-size: clamp(18px, 2vw, 30px); line-height: 1.35; color: var(--bone-dim); }
 .lp-foot-grid > div:nth-child(n + 3) { padding-left: clamp(18px, 2.2vw, 34px); border-left: 1px solid var(--line-soft); }
-.lp-foot h4 { margin: 0 0 16px; font-family: var(--mono); font-size: 10px; font-weight: 500; letter-spacing: 0.22em; text-transform: uppercase; color: var(--accent); }
+.lp-foot h4 { margin: 0 0 16px; font-family: var(--mono); font-size: 11px; font-weight: 500; letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent); }
 .lp-foot ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
-.lp-foot li a { font-size: 13px; color: var(--fg-4); transition: color 0.35s; }
+.lp-foot li a { font-size: 14px; color: var(--fg-4); transition: color 0.35s; }
 .lp-foot li a:hover { color: var(--accent); }
 .lp-foot-base {
   display: grid; grid-template-columns: 1fr auto 1fr; gap: 20px; align-items: center;
   margin-top: clamp(38px, 6vh, 74px); padding-top: 20px; border-top: 1px solid var(--line-soft);
-  font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted);
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted);
 }
 .lp-foot-base span:last-child { text-align: right; }
 .lp-status { display: flex; align-items: center; gap: 8px; color: var(--accent); }
@@ -442,7 +447,7 @@ html.lp-locked body { overflow: hidden; }
   .lp-chapters { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 14px; }
   .lp-chip { flex-direction: row; gap: 14px; align-items: flex-start; }
   .lp-num { font-size: clamp(26px, 8vw, 36px); }
-  .lp-tx span { display: block; margin-top: 6px; font-size: 11px; line-height: 1.5; color: var(--muted); }
+  .lp-tx span { display: block; margin-top: 6px; font-size: 13px; line-height: 1.5; color: var(--fg-4); }
   .lp-stats { grid-template-columns: repeat(2, 1fr); border-right: 1px solid var(--line-soft); }
   .lp-stats div { min-height: 88px; padding: 14px; }
   .lp-stats div:nth-child(-n + 2) { border-bottom: 1px solid var(--line-soft); }
