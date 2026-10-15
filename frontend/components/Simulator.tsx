@@ -2,6 +2,9 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import GamePlane from "@/components/GamePlane";
+import GreyPlane from "@/components/GreyPlane";
+import OrangePlane from "@/components/OrangePlane";
+import WhitePlane from "@/components/WhitePlane";
 
 type RidgePoint = [number, number];
 type Building = { x: number; w: number; h: number };
@@ -184,7 +187,125 @@ export type ResumeState = {
   pitch: number;      // degrees - this IS the twin's aoa, see SimTelemetry.pitch
 };
 
+/* ───────────────────────────────────────────────────────────────
+   Scenery per engine. One cockpit; each engine flies over its own landscape.
+   (These were four copies of this file differing only in these values.)
+─────────────────────────────────────────────────────────────── */
+type Stop = { color: string; opacity: number };
+type Ridge = {
+  /** tiledRidgePathData(seed, WORLD_W, segments, baseline, minAmp, maxAmp) - seeds are per layer */
+  shape: [segments: number, baseline: number, minAmp: number, maxAmp: number];
+  top: Stop;
+  bottom: Stop;
+  crest?: { stroke: string; width: number };
+};
+type Scene = {
+  Plane: React.ComponentType;
+  sky: string;
+  /** A sun disc, drawn behind the hills. */
+  sun?: React.CSSProperties;
+  /** Hills far/mid/near; without them the far layer is a starfield and a moon is drawn. */
+  ridges?: { far: Ridge; mid: Ridge; near: Ridge };
+  moon?: React.CSSProperties;
+  ground: string;
+  building: string;
+};
+
+const SCENES: Record<string, Scene> = {
+  // 914: sunset mountains
+  Rotax_914_ULF: {
+    Plane: GamePlane,
+    sky: "linear-gradient(to bottom, #b23c22 0%, #d9622f 20%, #ea8a41 40%, #f2a955 57%, #f6c877 72%, #f3c584 82%)",
+    ridges: {
+      far: { shape: [9, 300, 40, 110], top: { color: "#c8b8a8", opacity: 0.5 }, bottom: { color: "#a08878", opacity: 0.35 },
+             crest: { stroke: "rgba(255,245,235,0.28)", width: 2.5 } },
+      mid: { shape: [10, 340, 70, 170], top: { color: "#9a6858", opacity: 0.72 }, bottom: { color: "#6a4438", opacity: 0.6 },
+             crest: { stroke: "rgba(210,170,140,0.18)", width: 1.5 } },
+      near: { shape: [12, 400, 110, 260], top: { color: "#50303a", opacity: 0.92 }, bottom: { color: "#2c1820", opacity: 0.98 } },
+    },
+    ground: "linear-gradient(to bottom, #948656, #756a44)",
+    building: "rgba(45,38,28,0.85)",
+  },
+  // 912: desert dunes - gentler amplitude than mountains, dunes roll, they don't peak sharply
+  Rotax_912_ULS: {
+    Plane: OrangePlane,
+    sky: "linear-gradient(to bottom, #4a90c4 0%, #7bb3d9 25%, #a8cde0 45%, #d9c9a3 65%, #e8d4a8 80%, #ecd9ab 90%)",
+    sun: {
+      position: "absolute", top: "10%", right: "15%", width: "9%", aspectRatio: "1",
+      borderRadius: "50%",
+      background: "radial-gradient(circle, #fff6d8 0%, #ffe17a 55%, rgba(255,225,120,0) 75%)",
+      boxShadow: "0 0 40px 12px rgba(255,230,150,0.5)",
+    },
+    ridges: {
+      far: { shape: [7, 320, 20, 55], top: { color: "#e8c896", opacity: 0.55 }, bottom: { color: "#d4a868", opacity: 0.4 },
+             crest: { stroke: "rgba(255,225,180,0.22)", width: 2 } },
+      mid: { shape: [8, 360, 35, 85], top: { color: "#d4a05c", opacity: 0.78 }, bottom: { color: "#b57838", opacity: 0.65 },
+             crest: { stroke: "rgba(255,215,160,0.22)", width: 1.5 } },
+      near: { shape: [9, 420, 55, 130], top: { color: "#a86a34", opacity: 0.94 }, bottom: { color: "#7a4a24", opacity: 0.97 } },
+    },
+    ground: "linear-gradient(to bottom, #948656, #756a44)",
+    building: "rgba(45,38,28,0.85)",
+  },
+  // 915: ocean - much flatter than dunes or mountains, more segments for a choppy swell
+  Rotax_915_iS: {
+    Plane: GreyPlane,
+    sky: "linear-gradient(to bottom, #2f7fc9 0%, #4a9bd9 30%, #7cbde3 55%, #a8d8ea 72%, #cceaf0 85%, #e0f3f0 93%)",
+    sun: {
+      position: "absolute", top: "8%", right: "18%", width: "8%", aspectRatio: "1",
+      borderRadius: "50%",
+      background: "radial-gradient(circle, #fffef0 0%, #fff4b8 55%, rgba(255,244,184,0) 75%)",
+      boxShadow: "0 0 45px 14px rgba(255,250,220,0.55)",
+    },
+    ridges: {
+      far: { shape: [16, 350, 8, 22], top: { color: "#7ec8d4", opacity: 0.55 }, bottom: { color: "#4fa8bc", opacity: 0.5 },
+             crest: { stroke: "rgba(255,255,255,0.35)", width: 1.5 } },
+      mid: { shape: [18, 400, 14, 34], top: { color: "#2f9cae", opacity: 0.78 }, bottom: { color: "#1f7488", opacity: 0.72 },
+             crest: { stroke: "rgba(255,255,255,0.25)", width: 1.2 } },
+      near: { shape: [20, 460, 22, 55], top: { color: "#146078", opacity: 0.93 }, bottom: { color: "#0a3a4a", opacity: 0.97 } },
+    },
+    ground: "linear-gradient(to bottom, #e8d4a0, #d4b878)",
+    building: "rgba(180,150,110,0.75)",
+  },
+  // 916: night - no hills (an explicit request), a starfield and a moon instead
+  Rotax_916_iS: {
+    Plane: WhitePlane,
+    sky: "linear-gradient(to bottom, #050818 0%, #0a1030 25%, #131c42 48%, #1c2850 68%, #26305a 82%, #2f3a62 92%)",
+    moon: {
+      position: "absolute", top: "9%", left: "20%", width: "7%", aspectRatio: "1",
+      borderRadius: "50%",
+      background: "radial-gradient(circle at 38% 38%, #f5f6fa 0%, #d8dce8 55%, #b8bfd4 85%)",
+      boxShadow: "0 0 30px 8px rgba(220,225,245,0.35)",
+    },
+    ground: "linear-gradient(to bottom, #1c2030, #12141f)",
+    building: "rgba(15,15,25,0.9)",
+  },
+};
+const DEFAULT_ENGINE = "Rotax_914_ULF";
+
+/** One parallax ridge layer: gradient fill plus an optional crest highlight. */
+function RidgeSvg({ id, data, ridge, crestJoin }: {
+  id: string; data: { fill: string; crest: string }; ridge: Ridge; crestJoin?: boolean;
+}) {
+  return (
+    <svg viewBox={`0 0 ${WORLD_W * 2} ${SKY_H}`} preserveAspectRatio="none" width="100%" height="100%">
+      <defs>
+        <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={ridge.top.color} stopOpacity={ridge.top.opacity} />
+          <stop offset="100%" stopColor={ridge.bottom.color} stopOpacity={ridge.bottom.opacity} />
+        </linearGradient>
+      </defs>
+      <path d={data.fill} fill={`url(#${id})`} />
+      {ridge.crest && (
+        <path d={data.crest} fill="none" stroke={ridge.crest.stroke} strokeWidth={ridge.crest.width}
+              strokeLinejoin={crestJoin ? "round" : undefined} />
+      )}
+    </svg>
+  );
+}
+
 export type SimulatorProps = {
+  /** Which engine's scenery to fly over (SCENES); default the 914's. */
+  engine?: string;
   onTelemetryChange?: (t: SimTelemetry) => void;
   throttle: number;
   onThrottleChange: (v: number) => void;
@@ -207,6 +328,7 @@ export type SimulatorProps = {
    Main component
 ─────────────────────────────────────────────────────────────── */
 function FlightApproachGame({
+  engine = DEFAULT_ENGINE,
   onTelemetryChange,
   throttle,
   onThrottleChange,
@@ -219,10 +341,12 @@ function FlightApproachGame({
   altitudeTarget,
   autopilot = false,
 }: SimulatorProps) {
+  const scene = SCENES[engine] ?? SCENES[DEFAULT_ENGINE];
+  const { Plane, ridges } = scene;
   // Ridge data: filled shapes AND open crest paths for highlights
-  const farData = useMemo(() => tiledRidgePathData(11, WORLD_W, 9, 300, 40, 110), []);
-  const midData = useMemo(() => tiledRidgePathData(23, WORLD_W, 10, 340, 70, 170), []);
-  const nearData = useMemo(() => tiledRidgePathData(41, WORLD_W, 12, 400, 110, 260), []);
+  const farData = useMemo(() => ridges && tiledRidgePathData(11, WORLD_W, ...ridges.far.shape), [ridges]);
+  const midData = useMemo(() => ridges && tiledRidgePathData(23, WORLD_W, ...ridges.mid.shape), [ridges]);
+  const nearData = useMemo(() => ridges && tiledRidgePathData(41, WORLD_W, ...ridges.near.shape), [ridges]);
   const buildings = useMemo(() => buildBuildings(5, WORLD_W, 8), []);
 
   const [status, setStatus] = useState<FlightStatus>("flying");
@@ -566,62 +690,58 @@ function FlightApproachGame({
           style={{
             position: "absolute",
             inset: 0,
-            background:
-              "linear-gradient(to bottom, #b23c22 0%, #d9622f 20%, #ea8a41 40%, #f2a955 57%, #f6c877 72%, #f3c584 82%)",
+            background: scene.sky,
           }}
         />
+        {scene.sun && <div style={scene.sun} />}
 
-        {/* ── Far range (atmospheric haze, snow-capped peaks) ────── */}
-        <div ref={farRef} style={{ position: "absolute", left: 0, top: 0, width: "200%", height: "76%", willChange: "transform" }}>
-          <svg viewBox={`0 0 ${WORLD_W * 2} ${SKY_H}`} preserveAspectRatio="none" width="100%" height="100%">
-            <defs>
-              <linearGradient id="farGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#c8b8a8" stopOpacity="0.5" />
-                <stop offset="100%" stopColor="#a08878" stopOpacity="0.35" />
-              </linearGradient>
-            </defs>
-            <path d={farData.fill} fill="url(#farGrad)" />
-            {/* Snow-cap highlight: thin stroke along crest only (not
-                the flat baseline edge, which would look wrong) */}
-            <path d={farData.crest} fill="none" stroke="rgba(255,245,235,0.28)" strokeWidth="2.5" strokeLinejoin="round" />
-          </svg>
-        </div>
-
-        {/* ── Mid range (warmer, more saturated) ─────────────────── */}
-        <div ref={midRef} style={{ position: "absolute", left: 0, top: 0, width: "200%", height: "76%", willChange: "transform" }}>
-          <svg viewBox={`0 0 ${WORLD_W * 2} ${SKY_H}`} preserveAspectRatio="none" width="100%" height="100%">
-            <defs>
-              <linearGradient id="midGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#9a6858" stopOpacity="0.72" />
-                <stop offset="100%" stopColor="#6a4438" stopOpacity="0.6" />
-              </linearGradient>
-            </defs>
-            <path d={midData.fill} fill="url(#midGrad)" />
-            {/* Subtle ridge-edge highlight */}
-            <path d={midData.crest} fill="none" stroke="rgba(210,170,140,0.18)" strokeWidth="1.5" />
-          </svg>
-        </div>
-
-        {/* ── Near range (dark silhouette) ────────────────────────── */}
-        <div ref={nearRef} style={{ position: "absolute", left: 0, top: 0, width: "200%", height: "76%", willChange: "transform" }}>
-          <svg viewBox={`0 0 ${WORLD_W * 2} ${SKY_H}`} preserveAspectRatio="none" width="100%" height="100%">
-            <defs>
-              <linearGradient id="nearGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#50303a" stopOpacity="0.92" />
-                <stop offset="100%" stopColor="#2c1820" stopOpacity="0.98" />
-              </linearGradient>
-            </defs>
-            <path d={nearData.fill} fill="url(#nearGrad)" />
-          </svg>
-        </div>
+        {ridges && farData && midData && nearData ? (
+          <>
+            {/* ── Far range (atmospheric haze; the crest is a thin highlight along the
+                ridge only, not the flat baseline edge, which would look wrong) ── */}
+            <div ref={farRef} style={{ position: "absolute", left: 0, top: 0, width: "200%", height: "76%", willChange: "transform" }}>
+              <RidgeSvg id="farGrad" data={farData} ridge={ridges.far} crestJoin />
+            </div>
+            {/* ── Mid range ─────────────────────────────────────────── */}
+            <div ref={midRef} style={{ position: "absolute", left: 0, top: 0, width: "200%", height: "76%", willChange: "transform" }}>
+              <RidgeSvg id="midGrad" data={midData} ridge={ridges.mid} />
+            </div>
+            {/* ── Near range (dark silhouette) ──────────────────────── */}
+            <div ref={nearRef} style={{ position: "absolute", left: 0, top: 0, width: "200%", height: "76%", willChange: "transform" }}>
+              <RidgeSvg id="nearGrad" data={nearData} ridge={ridges.near} />
+            </div>
+          </>
+        ) : (
+          <>
+            {/* ── No hills: a starfield. The far/mid/near refs stay attached to
+                parallax layers so the tick loop's style updates have somewhere
+                harmless to write. ── */}
+            <div ref={farRef} style={{ position: "absolute", left: 0, top: 0, width: "200%", height: "76%", willChange: "transform" }}>
+              <svg viewBox={`0 0 ${WORLD_W * 2} ${SKY_H}`} preserveAspectRatio="none" width="100%" height="100%">
+                {/* Starfield - deterministic scatter via the same seeded PRNG used for terrain */}
+                {Array.from({ length: 90 }).map((_, i) => {
+                  const rand = mulberry32(1000 + i);
+                  const x = rand() * WORLD_W * 2;
+                  const y = rand() * SKY_H * 0.65;
+                  const r = 0.6 + rand() * 1.4;
+                  const op = 0.4 + rand() * 0.6;
+                  return <circle key={i} cx={x} cy={y} r={r} fill="#ffffff" opacity={op} />;
+                })}
+              </svg>
+            </div>
+            <div ref={midRef} style={{ position: "absolute", left: 0, top: 0, width: "200%", height: "76%", willChange: "transform" }} />
+            <div ref={nearRef} style={{ position: "absolute", left: 0, top: 0, width: "200%", height: "76%", willChange: "transform" }} />
+          </>
+        )}
+        {scene.moon && <div style={scene.moon} />}
 
         {/* ── Buildings ──────────────────────────────────────────── */}
-        <div style={{ position: "absolute", left: 0, top: "69%", width: "100%", height: "10.5%", background: "linear-gradient(to bottom, #948656, #756a44)", overflow: "hidden" }}>
+        <div style={{ position: "absolute", left: 0, top: "69%", width: "100%", height: "10.5%", background: scene.ground, overflow: "hidden" }}>
           <div ref={buildingsRef} style={{ position: "absolute", left: 0, top: 0, width: "200%", height: "100%", willChange: "transform" }}>
             <svg viewBox={`0 0 ${WORLD_W * 2} 100`} preserveAspectRatio="none" width="100%" height="100%">
               {[0, WORLD_W].map((offset) =>
                 buildings.map((b, i) => (
-                  <rect key={`${offset}-${i}`} x={b.x + offset} y={100 - b.h} width={b.w} height={b.h} fill="rgba(45,38,28,0.85)" />
+                  <rect key={`${offset}-${i}`} x={b.x + offset} y={100 - b.h} width={b.w} height={b.h} fill={scene.building} />
                 ))
               )}
             </svg>
@@ -641,14 +761,9 @@ function FlightApproachGame({
           </span>
         </div>
 
-        {/* ── UAV: real 3D model (BlackoutPlane), not an SVG silhouette.
-            interactive=false disables its auto-rotate/drag controls, since THIS
-            wrapper controls orientation via pitch (rotate) to reflect actual
-            flight attitude - an uncontrolled auto-rotate would fight against that.
-            The inner scaleX(-1) flips the model to face right, matching the
-            world's scroll direction (mountains move left = the UAV flies right).
-            If the model's default orientation turns out to already face right,
-            this flip should simply be removed. */}
+        {/* ── UAV: real 3D model (the scene's Plane), not an SVG silhouette.
+            The plane components are non-interactive: THIS wrapper sets the
+            orientation from pitch (rotate) to show the flight attitude. */}
         <div
           ref={planeRef}
           style={{
@@ -670,7 +785,7 @@ function FlightApproachGame({
               view down -Z, which was showing the nose instead of the wing
               profile - also confirmed via screenshot. */}
           <div style={{ width: "100%", height: "100%" }}>
-            <GamePlane />
+            <Plane />
           </div>
         </div>
 

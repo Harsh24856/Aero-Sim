@@ -4,10 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useSearchParams, useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import Sensr from "@/components/Sensr";
-import SimulatorDefault, { type SimTelemetry, type ResumeState } from "@/components/Simulator";
-import Simulator912 from "@/components/Simulator_912";
-import Simulator915 from "@/components/Simulator_915";
-import Simulator916 from "@/components/Simulator_916";
+import Simulator, { type SimTelemetry, type ResumeState } from "@/components/Simulator";
 import Meters, { ENGINE_INPUTS, type RawTelemetry, mpsToKnots } from "@/components/Meters";
 import Diagnostics, { failureWindow, type AiResult, type Advisory, type Residuals, type LinkState, type SimStatus } from "@/components/Diagnostics";
 import { envAt, eventRequest, eventsFor, getPreset, legAt, presetDuration } from "@/lib/missionPresets";
@@ -21,21 +18,11 @@ import type { V4Engine, V4Truth } from "@/lib/v4";
 import { EngineSound } from "@/lib/engineSound";
 import { API, WS_URL } from "@/lib/api";
 
-// Which themed Simulator variant to render, based on the ?engine= query param
-// set by /engine's selectEngine() navigation. Falls back to the base (914)
-// variant for the 914 itself or any unrecognized/missing value.
-const SIMULATOR_BY_ENGINE: Record<string, typeof SimulatorDefault> = {
-  Rotax_912_ULS: Simulator912,
-  Rotax_915_iS: Simulator915,
-  Rotax_916_iS: Simulator916,
-};
-
 
 function SimulatePageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const engineParam = searchParams.get("engine") ?? "";
-  const ActiveSimulator = SIMULATOR_BY_ENGINE[engineParam] ?? SimulatorDefault;
   // Set by /telemetry/[id]'s "Continue Simulation" button, which has already
   // called POST /resume (restoring the backend twin's exact altitude/throttle/
   // airspeed/wear/RUL) and started the physics loop before navigating here. This
@@ -773,7 +760,9 @@ function SimulatePageInner() {
                 Restoring flight state...
               </div>
             ) : (
-            <ActiveSimulator
+            <Simulator
+              // Each engine flies over its own scenery (?engine= from /engine); the 914's by default.
+              engine={engineParam}
               autopilot={!!preset && autopilotOn}
               altitudeTarget={activeLeg?.leg.altitude}
               onTelemetryChange={onTelemetryChange}
