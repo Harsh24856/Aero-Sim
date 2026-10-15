@@ -158,6 +158,33 @@ class TestLogbookTrend(unittest.TestCase):
         np.testing.assert_allclose(out, rul_v5.TREND_CAP)    # no visible past / no fault now / no growth
 
 
+class TestTrendGatedRUL(unittest.TestCase):
+    """Where the trained gate judges the engine fault-limited AND the logbook measured
+    the fault's growth, the measured time to removal answers (weight 1) or is blended."""
+
+    class Gated:
+        threshold = 0.5
+        class clf:
+            @staticmethod
+            def predict_proba(X):
+                return np.stack([1 - X[:, 0], X[:, 0]], 1)
+        def predict(self, X, p_wear_limited=None):
+            return np.full(len(X), 0.5)
+
+    def _X(self, p_wl, trend):
+        X = np.zeros((1, 40)); X[0, 0], X[0, -3] = p_wl, trend
+        return X
+
+    def test_uses_the_trend_only_when_fault_limited_and_measured(self):
+        m = rul_v5.TrendGatedRUL(self.Gated(), weight=1.0)
+        self.assertAlmostEqual(m.predict(self._X(0.9, 0.14))[0], 0.14)
+        self.assertAlmostEqual(m.predict(self._X(0.1, 0.14))[0], 0.5)                  # gate: not fault-limited
+        self.assertAlmostEqual(m.predict(self._X(0.9, rul_v5.TREND_CAP))[0], 0.5)      # not measured
+
+    def test_blend(self):
+        self.assertAlmostEqual(rul_v5.TrendGatedRUL(self.Gated(), weight=0.5).predict(self._X(0.9, 0.1))[0], 0.3)
+
+
 class TestRulScoredAsServed(unittest.TestCase):
     """RUL candidates are chosen on what is served: predictions smoothed within each
     flight (914 v6: raw scoring picked a model whose served TBO-limited error was
