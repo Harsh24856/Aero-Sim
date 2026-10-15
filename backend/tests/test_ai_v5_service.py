@@ -40,16 +40,28 @@ class TestAiV5(unittest.TestCase):
         cls.flight = samples(UAVEngineTwinV5(engine_model="Rotax_914_ULF", seed=11), 140)
         cls.results = [aiv5.step(p) for p in cls.flight]
 
-    def test_old_export_unchanged(self):
-        """The live 914 export predates hist_cols: a logbook in the payload changes nothing."""
-        self.assertFalse(aiv5.loaded_engines["Rotax_914_ULF"]["dep"].contract.get("hist_cols"))
-        aiv5.select_engine({"engine_model": "Rotax_914_ULF"})
-        plain = [aiv5.step(p) for p in self.flight[:128]][-1]
-        aiv5.select_engine({"engine_model": "Rotax_914_ULF"})
-        hist = {"lag_h": 80.0, "wear_ratio": 1.7, "sev_max": 0.4}
-        with_hist = [aiv5.step({**p, "engine_history": hist}) for p in self.flight[:128]][-1]
-        for k in ("rul_hours", "rul_hours_raw", "detection_confidence", "wear_condition"):
-            self.assertEqual(plain[k], with_hist[k], k)
+    def test_history_reaches_exactly_the_exports_that_read_it(self):
+        """The engine's logbook (engine_history) feeds RUL only. An export with hist_cols
+        gets the payload's history; one without (v5, the placeholders' source before v6)
+        gets none - and the networks' outputs never depend on it."""
+        from unittest import mock
+        dep = aiv5.loaded_engines["Rotax_914_ULF"]["dep"]
+        reads = bool(dep.contract.get("hist_cols"))
+        seen, real = [], dep.predict_window
+
+        def spy(seq, ctx, hours, tbo=None, hist=None):
+            seen.append(hist)
+            return real(seq, ctx, hours, tbo=tbo, hist=hist)
+        odd = {**self.flight[0]["engine_history"], "wear_ratio": 1.7, "sev_max": 0.4}
+        outs = []
+        for hist in (None, odd):
+            aiv5.select_engine({"engine_model": "Rotax_914_ULF"})
+            with mock.patch.object(dep, "predict_window", side_effect=spy):
+                outs.append([aiv5.step({**p, "engine_history": hist or p["engine_history"]})
+                             for p in self.flight[:128]][-1])
+        self.assertEqual(seen[-1], odd if reads else None)
+        for k in ("detection_confidence", "wear_condition", "faults_present"):
+            self.assertEqual(outs[0][k], outs[1][k], k)
 
     def test_warms_up_then_answers(self):
         self.assertEqual(self.results[0]["status"], "warming_up")
