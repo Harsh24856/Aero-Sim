@@ -45,6 +45,13 @@ TWIN = "calibrated_wear"
 # the twin is calibrated with hist_wear_ratio, and RUL reads all three.
 HIST_COLS = ["hist_lag_h", "hist_wear_ratio", "hist_sev_max"]
 HIST_NEUTRAL = [0.0, 1.0, 0.0]           # "no logbook": data and exports from before v6
+# W2: the inspection logbook (degradation_v5.engine_logbook), one value per flight per
+# inspection: the worst visible fault severity at the 25 / 50 / 100 / 200 h checks before
+# this flight, so RUL can MEASURE a fault's growth. One entry (hist_sev_max, at a random
+# 20-200 h lag) could not: a fault invisible then and at 0.35 now read as long-lived.
+LOG_LAGS_H = (25.0, 50.0, 100.0, 200.0)
+LOG_COLS = [f"log_sev_{int(h)}h" for h in LOG_LAGS_H]
+LOG_NEUTRAL = [0.0] * len(LOG_COLS)      # data and exports from before W2
 
 FLIGHT_COLS = ["altitude", "airspeed", "aoa", "throttle",
                "ambient_temp_c", "air_density", "isa_dev_c", "humidity_frac"]

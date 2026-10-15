@@ -180,7 +180,9 @@ class Deployed(Assembly):
         s, c = seq[None], ctx[None]
         o = self({"seq": s, "ctx": c})
         h = None if not hist else np.array([[hist["lag_h"], hist["wear_ratio"], hist["sev_max"]]], np.float64)
-        X = rul_v5.rul_inputs(o, s, c, self.contract, h)
+        log = (np.array([[hist[k] for k in self.contract["log_cols"]]], np.float64)
+               if hist and self.contract.get("log_cols") and all(k in hist for k in self.contract["log_cols"]) else None)
+        X = rul_v5.rul_inputs(o, s, c, self.contract, h, log)
         calendar = max(0.0, tbo - engine_hours)
         rul_h = float(min(max(float(self.rul.predict(X)[0]), 0.0) * tbo, calendar))
         return {**{k: v[0] for k, v in o.items()}, "rul_hours": rul_h, "rul_calendar_hours": calendar}

@@ -58,13 +58,52 @@ def measured_margin(contract: dict, seq: np.ndarray) -> np.ndarray:
                      for i in range(len(seq))])
 
 
+# W2: a fault's growth MEASURED across the inspection logbook. A fault grows as
+# s = 1 - exp(-a x^b) (degradation_v4._progress, x = age in % of TBO), so
+# G(s) = (-ln(1-s))^(1/b) is linear in age: least squares through the visible
+# inspections and now gives the rate, and the time left to removal (s = 0.8) needs
+# neither a nor the onset. Severities are effective (progress x depth/spec depth): the
+# typical depth fraction converts them. One logbook entry could only GUESS the rate when
+# the fault was invisible then (v6: +155 h on such test windows).
+# ponytail: b and depth fixed at the fleet means. Depth is nearly all of the error (median
+# 32% -> 4% if it were known), but fitting it from the line's straightness overfits the
+# logbook's 10% noise (57%, biased +56%); fixed it stays unbiased (-3%).
+TREND_B, TREND_DEPTH, TREND_CAP = 1.5, 0.775, 2.0     # TREND_CAP: fraction of TBO, "not measured"
+_REMOVAL_SEV, _SEV_FLOOR = 0.8, 0.08
+
+
+def logbook_trend(sev_now: np.ndarray, logbook: np.ndarray, tbo: float) -> np.ndarray:
+    """Time to removal / TBO from the severity now and the logbook [n, len(LOG_LAGS_H)];
+    TREND_CAP where growth is not measured (no fault now, no visible past entry, no growth)."""
+    def g(progress):
+        p = np.clip(np.asarray(progress, np.float64), 0.0, 0.999)
+        return (-np.log1p(-p)) ** (1.0 / TREND_B)
+    def g_eff(s):                                    # effective severity -> progress -> G
+        return g(np.asarray(s, np.float64) / TREND_DEPTH)
+    now = np.asarray(sev_now, np.float64)
+    log = np.asarray(logbook, np.float64)
+    t = -np.asarray(F.LOG_LAGS_H, np.float64)[None, :].repeat(len(now), 0)
+    seen = log > 0.0
+    # points: the visible inspections and now (t = 0)
+    T = np.concatenate([np.where(seen, t, np.nan), np.zeros((len(now), 1))], 1)
+    Y = np.concatenate([np.where(seen, g_eff(log), np.nan), g_eff(now)[:, None]], 1)
+    n = np.sum(~np.isnan(T), 1)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        tm, ym = np.nanmean(T, 1), np.nanmean(Y, 1)
+        slope = np.nansum((T - tm[:, None]) * (Y - ym[:, None]), 1) / np.nansum((T - tm[:, None]) ** 2, 1)
+    ok = (now >= _SEV_FLOOR) & (n >= 2) & (slope > 1e-6)
+    rem = np.where(ok, (g(_REMOVAL_SEV) - g_eff(now)) / np.where(ok, slope, 1.0), 0.0) / float(tbo)
+    return np.where(ok, np.clip(rem, 0.0, TREND_CAP), TREND_CAP)
+
+
 def rul_inputs(o: dict, seq: np.ndarray, ctx: np.ndarray, contract: dict,
-               hist: np.ndarray | None = None) -> np.ndarray:
+               hist: np.ndarray | None = None, logbook: np.ndarray | None = None) -> np.ndarray:
     """RUL model inputs from the assembled outputs `o` and the scaled window/context
     - one definition for fitting, scoring and serving. When the contract has
     `hist_cols` (v6), the engine's logbook history [n, 3] in F.HIST_COLS order adds
     its wear ratio, past worst severity and severity progression per hour; missing
-    history counts as none. Without hist_cols the inputs are exactly as before."""
+    history counts as none. With `log_cols` (W2) the inspection logbook [n, 4] adds its
+    four severities and logbook_trend. Without them the inputs are exactly as before."""
     marg = measured_margin(contract, seq)
     thr_mean = seq[:, :, F.FEATURE_COLS.index("throttle")].mean(1)
     # Engine-fault evidence only: `detection` also fires on SENSOR faults, and fed to
@@ -78,7 +117,12 @@ def rul_inputs(o: dict, seq: np.ndarray, ctx: np.ndarray, contract: dict,
     h = np.tile(F.HIST_NEUTRAL, (len(X), 1)) if hist is None else np.asarray(hist, np.float64)
     lag, ratio, sev = h[:, 0], h[:, 1], h[:, 2]
     progression = (np.asarray(o["severity"]).max(1) - sev) / np.maximum(lag, 1.0)
-    return np.concatenate([X, ratio[:, None], sev[:, None], progression[:, None]], 1)
+    X = np.concatenate([X, ratio[:, None], sev[:, None], progression[:, None]], 1)
+    if not contract.get("log_cols"):
+        return X
+    log = (np.tile(F.LOG_NEUTRAL, (len(X), 1)) if logbook is None else np.asarray(logbook, np.float64))
+    trend = logbook_trend(np.asarray(o["severity"]).max(1), log, contract["tbo_hours"])
+    return np.concatenate([X, log, trend[:, None]], 1)
 
 
 def features(trainer, ids: np.ndarray, bs: int = 512):
@@ -92,7 +136,9 @@ def features(trainer, ids: np.ndarray, bs: int = 512):
         o = trainer.model({"seq": seq, "ctx": ctx}, training=False)
         hist = (np.stack([cache.labels(Er, c) for c in F.HIST_COLS], 1)
                 if cache.contract.get("hist_cols") else None)
-        Xs.append(rul_inputs(o, seq, ctx, cache.contract, hist))
+        log = (np.stack([cache.labels(Er, c) for c in F.LOG_COLS], 1)
+               if cache.contract.get("log_cols") else None)
+        Xs.append(rul_inputs(o, seq, ctx, cache.contract, hist, log))
         rul = cache.labels(Er, "rul_hours")
         calh = cache.labels(Er, "rul_calendar_hours")
         ys.append(rul / tbo)
