@@ -30,6 +30,8 @@ test("/ redirects to /home", async ({ page }) => {
 test("unknown route is a 404", async ({ page, consoleErrors }) => {
   const res = await page.goto("/no-such-page");
   expect(res?.status()).toBe(404);
+  // the themed page, readable on the dark body (Next's default was black on black)
+  await expect(page.getByRole("heading", { name: "Page not found" })).toBeVisible();
   consoleErrors.length = 0;   // the browser logs the 404 itself
 });
 

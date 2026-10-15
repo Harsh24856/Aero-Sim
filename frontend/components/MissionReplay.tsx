@@ -158,7 +158,7 @@ export default function MissionReplay({ rows, modelVersion = "v2" }: { rows: Rep
               <button
                 key={s}
                 onClick={() => setSpeed(s)}
-                className={`rounded px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.1em] transition-all ${
+                className={`rounded px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.1em] transition-all ${
                   speed === s ? "bg-tertiary text-black" : "bg-surface/60 border border-outline-variant/30 text-on-surface-variant hover:text-primary"
                 }`}
               >
@@ -231,7 +231,7 @@ export default function MissionReplay({ rows, modelVersion = "v2" }: { rows: Rep
           <div className="text-[11px] uppercase tracking-[0.1em] text-on-surface-variant">RUL at T</div>
           <div className="text-3xl font-bold text-primary">{fmt(cur.rul_percent_remaining, 1, "%")}</div>
           {v4 && cur.rul_hours != null && (
-            <div className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mt-1">
+            <div className="text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mt-1">
               {cur.rul_hours.toFixed(0)}{cur.rul_band_hours != null ? ` \u00b1${cur.rul_band_hours.toFixed(0)}` : ""} h
               {cur.rul_calendar_hours != null ? ` \u00b7 calendar ${cur.rul_calendar_hours.toFixed(0)} h` : ""}
               {cur.wear_limited ? " \u00b7 wear-limited" : ""}
@@ -244,7 +244,7 @@ export default function MissionReplay({ rows, modelVersion = "v2" }: { rows: Rep
             {cur.fault_detected === null ? "--" : cur.fault_detected ? "DETECTED" : "CLEAR"}
           </div>
           {cur.detection_confidence !== null && (
-            <div className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mt-1">
+            <div className="text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mt-1">
               {(cur.detection_confidence * 100).toFixed(0)}% conf
             </div>
           )}
@@ -266,7 +266,7 @@ export default function MissionReplay({ rows, modelVersion = "v2" }: { rows: Rep
                     </div>));
             })()}
             {cur.margin_min != null && (
-              <div className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mt-2">
+              <div className="text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mt-2">
                 operating margin {(cur.margin_min * 100).toFixed(0)}%
               </div>
             )}
@@ -284,7 +284,7 @@ export default function MissionReplay({ rows, modelVersion = "v2" }: { rows: Rep
               </div>
             )}
             {cur.truth?.wear_condition != null && (
-              <div className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mt-2">
+              <div className="text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mt-2">
                 true wear condition {(cur.truth.wear_condition * 100).toFixed(0)}%
                 {cur.truth.rul_hours != null ? ` \u00b7 true RUL ${cur.truth.rul_hours.toFixed(0)} h` : ""}
               </div>
@@ -329,7 +329,7 @@ export default function MissionReplay({ rows, modelVersion = "v2" }: { rows: Rep
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {groups.map((g) => (
             <div key={g.title} className="bg-surface/60 border border-outline-variant/30 rounded-lg p-4">
-              <div className="text-[10px] uppercase tracking-[0.1em] text-tertiary/80 mb-2">{g.title}</div>
+              <div className="text-[11px] uppercase tracking-[0.1em] text-tertiary/80 mb-2">{g.title}</div>
               <dl className="space-y-1.5">
                 {g.items.map(([label, value, secondary]) => (
                   <div key={label} className="flex items-start justify-between gap-2 text-[12px]">
@@ -337,7 +337,7 @@ export default function MissionReplay({ rows, modelVersion = "v2" }: { rows: Rep
                     <dd className="text-right">
                       <span className="text-primary font-mono">{value}</span>
                       {secondary && (
-                        <span className="block text-[10px] text-on-surface-variant/70 font-mono">{secondary}</span>
+                        <span className="block text-[11px] text-on-surface-variant/80 font-mono">{secondary}</span>
                       )}
                     </dd>
                   </div>

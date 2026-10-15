@@ -103,7 +103,7 @@ export default function MissionPage() {
         {e.label}
       </span>
       {e.engines && (
-        <span className="shrink-0 text-[10px] text-on-surface-variant/70">{e.engines.map(engineLabel).join(" / ")} only</span>
+        <span className="shrink-0 text-[11px] text-on-surface-variant/80">{e.engines.map(engineLabel).join(" / ")} only</span>
       )}
     </li>
   );
@@ -168,17 +168,17 @@ export default function MissionPage() {
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <h3 className="text-primary font-bold text-[15px] leading-tight">{p.name}</h3>
-                          <span className="rounded border border-tertiary/40 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.1em] text-tertiary">
+                          <span className="rounded border border-tertiary/40 px-1.5 py-0.5 text-[11px] uppercase tracking-[0.1em] text-tertiary">
                             {p.requirement}
                           </span>
                         </div>
-                        <div className="text-[10px] uppercase tracking-[0.1em] text-tertiary/80 mt-0.5">{p.tagline}</div>
+                        <div className="text-[11px] uppercase tracking-[0.1em] text-tertiary/80 mt-0.5">{p.tagline}</div>
                       </div>
                     </div>
 
                     <p className="text-[12px] leading-relaxed text-on-surface-variant mb-3">{p.description}</p>
 
-                    <div className="mb-3 flex flex-wrap gap-1.5 text-[10px]">
+                    <div className="mb-3 flex flex-wrap gap-1.5 text-[11px]">
                       <span className="rounded bg-black/40 px-2 py-0.5 text-on-surface-variant">
                         {SCENARIO_LABEL[p.scenario] ?? p.scenario.replace(/_/g, " ")}
                       </span>
@@ -188,7 +188,7 @@ export default function MissionPage() {
                     </div>
 
                     <div className="bg-surface/60 border border-outline-variant/30 rounded p-3 mb-3">
-                      <div className="text-[10px] uppercase tracking-[0.1em] text-tertiary/80 mb-2">Legs</div>
+                      <div className="text-[11px] uppercase tracking-[0.1em] text-tertiary/80 mb-2">Legs</div>
                       <ol className="space-y-1">
                         {p.legs.map((l, i) => (
                           <li key={i} className="flex items-center justify-between gap-3 text-[11px]">
@@ -204,7 +204,7 @@ export default function MissionPage() {
                       </ol>
                       {(p.events?.length ?? 0) > 0 && (
                         <>
-                          <div className="mt-3 mb-2 flex items-center gap-1.5 text-[10px] uppercase tracking-[0.1em] text-tertiary/80">
+                          <div className="mt-3 mb-2 flex items-center gap-1.5 text-[11px] uppercase tracking-[0.1em] text-tertiary/80">
                             <Zap className="h-3 w-3" /> Events
                           </div>
                           <ol className="space-y-1">{p.events!.map(eventLine)}</ol>
@@ -213,12 +213,12 @@ export default function MissionPage() {
                     </div>
 
                     <div className="text-[11px] text-on-surface-variant mb-4">
-                      <span className="text-[10px] uppercase tracking-[0.1em] text-tertiary/80">Watch for </span>
+                      <span className="text-[11px] uppercase tracking-[0.1em] text-tertiary/80">Watch for </span>
                       {p.watchFor}
                     </div>
 
                     <div className="mt-auto flex items-center justify-between gap-3">
-                      <span className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant">
+                      <span className="text-[11px] uppercase tracking-[0.1em] text-on-surface-variant">
                         {formatSimClock(dur)} flight
                         {lifeScale != null && <> &middot; +{Math.round(presetEngineHours(p, lifeScale))} engine h</>}
                       </span>
@@ -270,13 +270,13 @@ export default function MissionPage() {
                       </span>
                       <Link
                         href={`/mission/replay/${r.id}`}
-                        className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-tertiary hover:brightness-125"
+                        className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-tertiary hover:brightness-125"
                       >
                         <Film className="h-3.5 w-3.5" /> Replay
                       </Link>
                       <Link
                         href={`/mission/report/${r.id}`}
-                        className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-on-surface-variant hover:text-primary"
+                        className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-on-surface-variant hover:text-primary"
                       >
                         <FileText className="h-3.5 w-3.5" /> Report <ChevronRight className="h-3 w-3" />
                       </Link>
@@ -308,11 +308,11 @@ export default function MissionPage() {
                 className="w-full max-w-md rounded-lg border border-tertiary/40 bg-[#0d0e0d] p-6"
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="text-[10px] uppercase tracking-[0.1em] text-tertiary mb-1">Launch sortie &middot; {pending.requirement}</div>
+                <div className="text-[11px] uppercase tracking-[0.1em] text-tertiary mb-1">Launch sortie &middot; {pending.requirement}</div>
                 <h3 className="text-primary font-bold text-[18px] mb-1">{pending.name}</h3>
                 <p className="text-[12px] text-on-surface-variant mb-5">{pending.tagline}</p>
 
-                <div className="text-[10px] uppercase tracking-[0.1em] text-tertiary/80 mb-2">Select engine</div>
+                <div className="text-[11px] uppercase tracking-[0.1em] text-tertiary/80 mb-2">Select engine</div>
                 <div className="grid grid-cols-2 gap-2 mb-5">
                   {ENGINES.map((e) => (
                     <button

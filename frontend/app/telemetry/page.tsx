@@ -134,7 +134,7 @@ export default function TelemetryListPage() {
             </div>
           ) : (
             <div className="border border-outline-variant/30 rounded-lg overflow-hidden">
-              <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-4 px-4 py-2.5 bg-surface-container-highest/40 text-[10px] uppercase tracking-[0.1em] text-on-surface-variant border-b border-outline-variant/30">
+              <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-4 px-4 py-2.5 bg-surface-container-highest/40 text-[11px] uppercase tracking-[0.1em] text-on-surface-variant border-b border-outline-variant/30">
                 <span>Engine / Started</span>
                 <span className="w-24 text-right">Outcome</span>
                 <span className="w-16 text-right">Health</span>
@@ -158,7 +158,7 @@ export default function TelemetryListPage() {
                         {new Date(sim.started_at).toLocaleString()}
                       </div>
                     </div>
-                    <span className={`w-24 justify-self-end text-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.05em] ${outcomeBadgeClass(sim.outcome)}`}>
+                    <span className={`w-24 justify-self-end text-center rounded-full border px-2 py-0.5 text-[11px] uppercase tracking-[0.05em] ${outcomeBadgeClass(sim.outcome)}`}>
                       {sim.outcome ?? "active"}
                     </span>
                     <span className="w-16 text-right text-[13px] text-primary font-mono">{sim.final_health_percent != null ? `${sim.final_health_percent.toFixed(0)}%` : "--"}</span>

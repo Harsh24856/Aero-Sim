@@ -135,7 +135,7 @@ export default function EnginePage() {
               <div>
                 <div className="mb-2 flex items-center gap-3">
                   <span className="h-px w-8 bg-tertiary" />
-                  <span className="font-mono text-[10px] font-bold tracking-[0.24em] text-tertiary uppercase">
+                  <span className="font-mono text-[11px] font-bold tracking-[0.16em] text-tertiary uppercase">
                     PROPULSION CATALOGUE // REV 4.2
                   </span>
                 </div>
@@ -147,7 +147,7 @@ export default function EnginePage() {
                 </p>
               </div>
 
-              <div className="flex flex-wrap items-center gap-3 font-mono text-[10px] uppercase tracking-[0.14em]">
+              <div className="flex flex-wrap items-center gap-3 font-mono text-[11px] uppercase tracking-[0.14em]">
                 <button
                   onClick={() => setCompareOpen(true)}
                   className="flex items-center gap-2 border border-outline-variant/50 bg-surface-container-highest/60 text-on-surface-variant px-3.5 py-2 rounded hover:border-tertiary hover:text-tertiary transition-colors"
@@ -162,7 +162,7 @@ export default function EnginePage() {
                   <FileText size={13} />
                   <span>Technical Report</span>
                 </Link>
-                <div className="flex items-center gap-2 text-on-surface-variant/60 border border-outline-variant/30 px-3 py-2 rounded bg-black/30">
+                <div className="flex items-center gap-2 text-on-surface-variant/80 border border-outline-variant/30 px-3 py-2 rounded bg-black/30">
                   <span className="h-1.5 w-1.5 rounded-full bg-tertiary animate-pulse shadow-[0_0_8px_#ff9100]" />
                   {ai === null ? "Checking AI..." : ai.online ? `${readyCount} of ${ENGINES.length} AI twins ready` : "AI offline"}
                 </div>
@@ -190,7 +190,7 @@ export default function EnginePage() {
 
                   {/* Card header meta */}
                   <div className="flex items-center justify-between px-4 pt-3.5 pb-2 border-b border-outline-variant/20">
-                    <span className="font-mono text-[10px] font-bold tracking-[0.16em] text-on-surface-variant/50 uppercase">
+                    <span className="font-mono text-[11px] font-bold tracking-[0.16em] text-on-surface-variant/80 uppercase">
                       {engine.code}
                     </span>
                     {(() => {
@@ -198,8 +198,8 @@ export default function EnginePage() {
                       return (
                         <span
                           title={badge.title}
-                          className={`font-mono text-[9px] font-bold tracking-[0.12em] uppercase px-2 py-0.5 rounded flex items-center gap-1 border ${
-                            badge.ready ? "text-tertiary bg-tertiary/10 border-tertiary/30" : "text-on-surface-variant/70 border-outline-variant/40"
+                          className={`font-mono text-[11px] font-bold tracking-[0.12em] uppercase px-2 py-0.5 rounded flex items-center gap-1 border ${
+                            badge.ready ? "text-tertiary bg-tertiary/10 border-tertiary/30" : "text-on-surface-variant/80 border-outline-variant/40"
                           }`}
                         >
                           {badge.ready && <span className="h-1 w-1 rounded-full bg-tertiary animate-pulse" />}
@@ -212,7 +212,7 @@ export default function EnginePage() {
                   {/* 3D Viewer */}
                   <div className="relative h-44 bg-[radial-gradient(ellipse_at_center,rgba(103,51,22,0.3),transparent_65%),linear-gradient(145deg,#18130f,#0b0c0c)] border-b border-outline-variant/20 overflow-hidden">
                     <engine.Viewer />
-                    <span className="pointer-events-none absolute bottom-2 left-3 font-mono text-[9px] uppercase tracking-wider text-on-surface-variant/40 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <span className="pointer-events-none absolute bottom-2 left-3 font-mono text-[11px] uppercase tracking-wider text-on-surface-variant/80 opacity-0 group-hover:opacity-100 transition-opacity">
                       drag to rotate
                     </span>
                   </div>
@@ -221,19 +221,19 @@ export default function EnginePage() {
                   <div className="flex flex-col flex-grow p-4">
                     {/* Engine name */}
                     <div className="mb-3">
-                      <p className="font-mono text-[9px] font-bold tracking-[0.18em] text-on-surface-variant/45 uppercase mb-0.5">
+                      <p className="font-mono text-[11px] font-bold tracking-[0.18em] text-on-surface-variant/80 uppercase mb-0.5">
                         ROTAX // {engine.tag}
                       </p>
                       <h2 className="font-headline-display text-xl font-bold tracking-tight uppercase text-primary group-hover:text-tertiary transition-colors">
                         {engine.name}
                       </h2>
-                      <p className="font-mono text-[10px] text-on-surface-variant/60 mt-0.5">{engine.role}</p>
+                      <p className="font-mono text-[11px] text-on-surface-variant/80 mt-0.5">{engine.role}</p>
                     </div>
 
                     {/* Power gauge */}
                     <div className="mb-3">
                       <div className="flex items-center justify-between mb-1">
-                        <span className="font-mono text-[9px] uppercase tracking-wider text-on-surface-variant/50 flex items-center gap-1">
+                        <span className="font-mono text-[11px] uppercase tracking-wider text-on-surface-variant/80 flex items-center gap-1">
                           <Gauge size={10} className="text-tertiary" /> Power Output
                         </span>
                         <span className="font-mono text-[11px] font-bold text-white">{engine.maxPower}</span>
@@ -244,7 +244,7 @@ export default function EnginePage() {
                           style={{ width: `${engine.powerPct}%` }}
                         />
                       </div>
-                      <div className="flex justify-between mt-0.5 font-mono text-[8px] text-on-surface-variant/40">
+                      <div className="flex justify-between mt-0.5 font-mono text-[11px] text-on-surface-variant/80">
                         <span>{engine.maxRpm}</span>
                         <span>{engine.powerPct.toFixed(0)}% of lineup max</span>
                       </div>
@@ -258,16 +258,16 @@ export default function EnginePage() {
                     {/* Spec row */}
                     <div className="grid grid-cols-3 border-y border-outline-variant/20 py-2.5 mb-4 font-mono">
                       <div className="border-r border-outline-variant/20 pr-2">
-                        <span className="block text-[8px] tracking-[0.12em] text-on-surface-variant/50 uppercase">Torque</span>
+                        <span className="block text-[11px] tracking-[0.12em] text-on-surface-variant/80 uppercase">Torque</span>
                         <span className="block text-[11px] font-bold text-white mt-0.5">{engine.maxTorque}</span>
                       </div>
                       <div className="border-r border-outline-variant/20 px-2">
-                        <span className="block text-[8px] tracking-[0.12em] text-on-surface-variant/50 uppercase">Dry Mass</span>
+                        <span className="block text-[11px] tracking-[0.12em] text-on-surface-variant/80 uppercase">Dry Mass</span>
                         <span className="block text-[11px] font-bold text-white mt-0.5">{engine.dryMass}</span>
                       </div>
                       <div className="pl-2">
-                        <span className="block text-[8px] tracking-[0.12em] text-on-surface-variant/50 uppercase">Ceiling</span>
-                        <span className="block text-[10px] font-bold text-white mt-0.5 truncate leading-tight" title={engine.ceiling}>
+                        <span className="block text-[11px] tracking-[0.12em] text-on-surface-variant/80 uppercase">Ceiling</span>
+                        <span className="block text-[11px] font-bold text-white mt-0.5 truncate leading-tight" title={engine.ceiling}>
                           {engine.ceiling.split(" ")[0]} {engine.ceiling.split(" ")[1]}
                         </span>
                       </div>
@@ -356,7 +356,7 @@ export default function EnginePage() {
             {/* Modal header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-outline-variant/30 bg-surface-container-highest/40">
               <div>
-                <div className="font-mono text-[10px] text-tertiary font-bold tracking-[0.2em] uppercase mb-0.5 flex items-center gap-2">
+                <div className="font-mono text-[11px] text-tertiary font-bold tracking-[0.2em] uppercase mb-0.5 flex items-center gap-2">
                   <Scale size={12} />
                   AERO-SIM // SPECIFICATION MATRIX
                 </div>
@@ -378,10 +378,10 @@ export default function EnginePage() {
               <table className="w-full font-mono text-xs border-collapse">
                 <thead>
                   <tr className="border-b border-outline-variant/25 bg-surface-container-highest/30">
-                    <th className="py-3 px-5 text-left text-on-surface-variant/50 uppercase tracking-widest text-[10px] font-bold w-32">Spec</th>
+                    <th className="py-3 px-5 text-left text-on-surface-variant/80 uppercase tracking-widest text-[11px] font-bold w-32">Spec</th>
                     {ENGINES.map((e) => (
                       <th key={e.id} className="py-3 px-4 text-left">
-                        <div className="font-mono text-[9px] text-tertiary uppercase tracking-wider">{e.code}</div>
+                        <div className="font-mono text-[11px] text-tertiary uppercase tracking-wider">{e.code}</div>
                         <div className="font-headline-display text-sm font-bold text-white mt-0.5">{e.name}</div>
                       </th>
                     ))}
@@ -397,7 +397,7 @@ export default function EnginePage() {
                     { label: "Ceiling", key: "ceiling" as const },
                   ].map(({ label, key }) => (
                     <tr key={key} className="hover:bg-surface-container-highest/20 transition-colors">
-                      <td className="py-3 px-5 text-on-surface-variant/60 font-bold uppercase text-[10px] tracking-wider">{label}</td>
+                      <td className="py-3 px-5 text-on-surface-variant/80 font-bold uppercase text-[11px] tracking-wider">{label}</td>
                       {ENGINES.map((e) => (
                         <td key={e.id} className={`py-3 px-4 text-[11px] font-semibold ${key === "maxPower" ? "text-tertiary" : "text-on-surface"}`}>
                           {e[key]}
@@ -407,7 +407,7 @@ export default function EnginePage() {
                   ))}
                   {/* Power bar row */}
                   <tr className="hover:bg-surface-container-highest/20 transition-colors">
-                    <td className="py-3 px-5 text-on-surface-variant/60 font-bold uppercase text-[10px] tracking-wider">vs Apex</td>
+                    <td className="py-3 px-5 text-on-surface-variant/80 font-bold uppercase text-[11px] tracking-wider">vs Apex</td>
                     {ENGINES.map((e) => (
                       <td key={e.id} className="py-3 px-4">
                         <div className="flex items-center gap-2">
@@ -417,19 +417,19 @@ export default function EnginePage() {
                               style={{ width: `${e.powerPct}%` }}
                             />
                           </div>
-                          <span className="text-[10px] text-white/60 w-8">{e.powerPct.toFixed(0)}%</span>
+                          <span className="text-[11px] text-white/75 w-8">{e.powerPct.toFixed(0)}%</span>
                         </div>
                       </td>
                     ))}
                   </tr>
                   {/* Action row */}
                   <tr className="bg-surface-container-highest/20">
-                    <td className="py-4 px-5 text-on-surface-variant/60 font-bold uppercase text-[10px] tracking-wider">Launch</td>
+                    <td className="py-4 px-5 text-on-surface-variant/80 font-bold uppercase text-[11px] tracking-wider">Launch</td>
                     {ENGINES.map((e) => (
                       <td key={e.id} className="py-4 px-4">
                         <button
                           onClick={() => { setCompareOpen(false); selectEngine(e.id); }}
-                          className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded bg-tertiary text-black font-bold uppercase tracking-wider text-[10px] shadow-[1px_1px_0px_#000000] hover:-translate-y-0.5 hover:shadow-[2px_2px_0px_#000000] transition-all"
+                          className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded bg-tertiary text-black font-bold uppercase tracking-wider text-[11px] shadow-[1px_1px_0px_#000000] hover:-translate-y-0.5 hover:shadow-[2px_2px_0px_#000000] transition-all"
                         >
                           <Zap size={11} className="fill-black" />
                           <span>{e.name.replace("ROTAX ", "")}</span>

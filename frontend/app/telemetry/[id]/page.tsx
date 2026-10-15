@@ -201,7 +201,7 @@ export default function TelemetryDetailPage() {
                       {sim.engine_model.replace(/_/g, " ")}
                       <ModelBadge version={modelVersionOf(sim)} />
                     </h1>
-                    <span className="text-[11px] font-mono text-on-surface-variant/60 border border-outline-variant/30 rounded px-2 py-0.5">
+                    <span className="text-[11px] font-mono text-on-surface-variant/80 border border-outline-variant/30 rounded px-2 py-0.5">
                       ID #{sim.id}
                     </span>
                   </div>
@@ -222,14 +222,14 @@ export default function TelemetryDetailPage() {
                     <Play size={14} className="fill-current" /> {resuming ? "Resuming..." : "Continue Simulation"}
                   </button>
                   {!sim.final_telemetry && (
-                    <span className="text-[11px] text-on-surface-variant/60">No saved state to resume from</span>
+                    <span className="text-[11px] text-on-surface-variant/80">No saved state to resume from</span>
                   )}
                   {resumeError && <span className="text-[11px] text-red-400">{resumeError}</span>}
                   <div className="flex gap-3">
-                    <Link href={`/mission/replay/${sim.id}`} className="text-[10px] font-bold uppercase tracking-[0.1em] text-tertiary hover:brightness-125">
+                    <Link href={`/mission/replay/${sim.id}`} className="text-[11px] font-bold uppercase tracking-[0.1em] text-tertiary hover:brightness-125">
                       Replay
                     </Link>
-                    <Link href={`/mission/report/${sim.id}`} className="text-[10px] font-bold uppercase tracking-[0.1em] text-on-surface-variant hover:text-primary">
+                    <Link href={`/mission/report/${sim.id}`} className="text-[11px] font-bold uppercase tracking-[0.1em] text-on-surface-variant hover:text-primary">
                       Full report
                     </Link>
                   </div>
@@ -252,7 +252,7 @@ export default function TelemetryDetailPage() {
                     })()}
                   </div>
                   {sim.final_rul_hours != null && (
-                    <div className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mt-1">
+                    <div className="text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mt-1">
                       {formatRul(sim.final_rul_hours, modelVersionOf(sim))}
                       {isRulOutOfRange(sim.final_rul_hours, modelVersionOf(sim), tboHoursOf(sim)) && (
                         <span className="text-tertiary"> &middot; extrapolated</span>
@@ -267,7 +267,7 @@ export default function TelemetryDetailPage() {
                   <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
                     <h2 className="text-sm font-bold text-primary uppercase tracking-[0.1em]">Post-Flight Analysis</h2>
                     {sim.groq_result.risk && (
-                      <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-tertiary">
+                      <span className="text-[11px] font-bold uppercase tracking-[0.1em] text-tertiary">
                         {sim.groq_result.risk} risk
                       </span>
                     )}
@@ -275,7 +275,7 @@ export default function TelemetryDetailPage() {
                   {/* Plain text - third-party model output. */}
                   <p className="text-[14px] font-bold text-primary leading-snug mb-1.5">{sim.groq_result.headline}</p>
                   <p className="text-[13px] leading-relaxed text-on-surface-variant">{sim.groq_result.summary}</p>
-                  <Link href={`/mission/report/${sim.id}`} className="mt-3 inline-block text-[10px] font-bold uppercase tracking-[0.1em] text-tertiary hover:brightness-125">
+                  <Link href={`/mission/report/${sim.id}`} className="mt-3 inline-block text-[11px] font-bold uppercase tracking-[0.1em] text-tertiary hover:brightness-125">
                     Findings and recommendations &rarr;
                   </Link>
                 </div>
@@ -305,7 +305,7 @@ export default function TelemetryDetailPage() {
                   <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
                     <h2 className="text-sm font-bold text-primary uppercase tracking-[0.1em]">Engine Health (AI)</h2>
                     {firstAi > 0 && (
-                      <span className="text-[11px] text-on-surface-variant/70">
+                      <span className="text-[11px] text-on-surface-variant/80">
                         from t = {aiData[0].t}s &middot; the AI answers once its 128 s window is full
                       </span>
                     )}
@@ -324,7 +324,7 @@ export default function TelemetryDetailPage() {
                         <Legend wrapperStyle={{ fontSize: 11 }} />
                         {aiGaps.map((g) => (
                           <ReferenceArea key={g.x1} x1={g.x1} x2={g.x2} fill="#352722" fillOpacity={0.5}
-                                         label={{ value: "AI refilling after resume", fill: "#8a7f6a", fontSize: 10 }} />
+                                         label={{ value: "AI refilling after resume", fill: "#8a7f6a", fontSize: 11 }} />
                         ))}
                         <Line type="monotone" dataKey="health" name="Health %" stroke="#7fc87f" dot={aiData.length < 4} strokeWidth={2} />
                         <Line type="monotone" dataKey="rul" name="RUL %" stroke="#ff9f42" dot={aiData.length < 4} strokeWidth={2} />
@@ -340,7 +340,7 @@ export default function TelemetryDetailPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     {sensorGroups.map(({ title, icon: Icon, fields }) => (
                       <div key={title} className="bg-surface/60 border border-outline-variant/30 rounded-lg p-4">
-                        <div className="flex items-center gap-1.5 mb-3 text-[10px] uppercase tracking-[0.1em] text-tertiary/80">
+                        <div className="flex items-center gap-1.5 mb-3 text-[11px] uppercase tracking-[0.1em] text-tertiary/80">
                           <Icon size={13} /> {title}
                         </div>
                         <div className="space-y-2">
@@ -355,7 +355,7 @@ export default function TelemetryDetailPage() {
                                 <span className="text-right">
                                   <span className="text-primary font-mono">{shown.value}</span>
                                   {shown.secondary && (
-                                    <span className="block text-[10px] text-on-surface-variant/70 font-mono">{shown.secondary}</span>
+                                    <span className="block text-[11px] text-on-surface-variant/80 font-mono">{shown.secondary}</span>
                                   )}
                                 </span>
                               </div>
