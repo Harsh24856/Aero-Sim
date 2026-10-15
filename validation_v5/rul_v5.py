@@ -212,6 +212,9 @@ def fit_rul(trainer, out_dir: str | None = None, cal_ids: np.ndarray | None = No
     thr = min(np.linspace(0.05, 0.95, 19),
               key=lambda t: score(report(GatedRUL(cands["gbt"], clf, t).predict(Xv, pwl))))
     cands["gated_gbt"] = GatedRUL(cands["gbt"], clf, float(thr))
+    if cache.contract.get("log_cols"):              # W2: the measured trend where fault-limited
+        for w in (0.5, 1.0):
+            cands[f"gated_gbt+trend{w:g}"] = TrendGatedRUL(cands["gated_gbt"], w)
     for name, m in cands.items():
         res[name] = report(m.predict(Xv))
     res["gated_gbt"]["threshold"] = float(thr)
@@ -236,6 +239,26 @@ class GatedRUL:
     def predict(self, X, p_wear_limited=None):
         p = self.clf.predict_proba(X)[:, 1] if p_wear_limited is None else p_wear_limited
         return np.where(p >= self.threshold, self.reg.predict(X), 1e3)
+
+
+class TrendGatedRUL:
+    """W2: `gated`'s RUL, except where its own classifier judges the engine fault-limited
+    AND the logbook measured the fault's growth (logbook_trend < TREND_CAP, rul_inputs'
+    third-last column): there the measured time to removal, blended with `weight`.
+    Live presets showed why: trend 258/353 h against 282 h true, the regressor 576/606 h -
+    on the fleet the trend is noisier (unknown fault depth) and the trees ignored it.
+    Kept only if it wins on validation (fit_rul)."""
+
+    def __init__(self, gated, weight: float):
+        self.gated, self.weight = gated, weight
+
+    def predict(self, X):
+        X = np.asarray(X)
+        p = self.gated.clf.predict_proba(X)[:, 1]
+        base = self.gated.predict(X, p)
+        trend = X[:, -3]
+        use = (p >= self.gated.threshold) & (trend < TREND_CAP)
+        return np.where(use, self.weight * trend + (1.0 - self.weight) * base, base)
 
 
 class RulSmoother:
