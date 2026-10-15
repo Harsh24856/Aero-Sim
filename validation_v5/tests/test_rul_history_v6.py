@@ -67,11 +67,62 @@ class TestHistoryInCacheAndRul(unittest.TestCase):
         hist = np.stack([self.v6.labels(E, c) for c in F.HIST_COLS], 1)
         X = rul_v5.rul_inputs(o, seq, ctx, self.v6.contract, hist=hist)
         base = rul_v5.rul_inputs(o, seq, ctx, self.v5.contract)
-        self.assertEqual(X.shape[1], base.shape[1] + 3)
+        self.assertEqual(X.shape[1], base.shape[1] + 4)
         lag, ratio, sev = hist[:, 0], hist[:, 1], hist[:, 2]
-        np.testing.assert_allclose(X[:, -3], ratio)
-        np.testing.assert_allclose(X[:, -2], sev)
-        np.testing.assert_allclose(X[:, -1], (o["severity"].max(1) - sev) / np.maximum(lag, 1.0))
+        np.testing.assert_allclose(X[:, -4], ratio)
+        np.testing.assert_allclose(X[:, -3], sev)
+        np.testing.assert_allclose(X[:, -2], (o["severity"].max(1) - sev) / np.maximum(lag, 1.0))
+        then = np.where(sev <= 0.0, 0.04, sev)
+        np.testing.assert_allclose(X[:, -1], rul_v5.two_point_remaining(o["severity"].max(1) / 0.775, then / 0.775,
+                                                                         lag, self.v6.contract["tbo_hours"]))
+
+
+class TestTwoPointRemaining(unittest.TestCase):
+    """A fault's remaining life from two points on its growth curve (the logbook and
+    now). The v6 RUL regressor under-learnt this from data where the logbook showed no
+    fault: test windows read +155 h long there, -51 h elsewhere."""
+    TBO = 2000.0
+
+    @staticmethod
+    def _sev(age_h, a, b, tbo=2000.0):
+        from degradation_v4 import DegradationState
+        return DegradationState._progress(age_h / tbo * 100.0, a, b)
+
+    def _true_remaining(self, age_now, a, b):
+        lo, hi = age_now, 50 * self.TBO
+        for _ in range(80):
+            m = (lo + hi) / 2
+            lo, hi = (m, hi) if self._sev(m, a, b) < 0.8 else (lo, m)
+        return hi - age_now
+
+    def test_recovers_remaining_life_of_typical_faults(self):
+        from degradation_v4 import A_RANGE, B_RANGE
+        rng = np.random.default_rng(1)
+        errs = []
+        for _ in range(300):
+            a = rng.uniform(*A_RANGE) * rng.uniform(2.0, 9.0)
+            b = rng.uniform(*B_RANGE)
+            age = rng.uniform(150.0, 900.0); lag = rng.uniform(20.0, 200.0)
+            s1, s0 = self._sev(age, a, b), self._sev(age - lag, a, b)
+            if not (0.15 <= s1 <= 0.7 and s0 >= 0.08):          # a visible past point
+                continue
+            est = rul_v5.two_point_remaining(np.array([s1]), np.array([s0]), np.array([lag]), self.TBO)[0] * self.TBO
+            errs.append(abs(est - self._true_remaining(age, a, b)) / self._true_remaining(age, a, b))
+        self.assertGreater(len(errs), 50)
+        self.assertLess(np.median(errs), 0.15)                 # b varies 1.3-1.7; the estimate assumes 1.5
+
+    def test_a_fault_absent_from_the_logbook_reads_as_fast(self):
+        # Invisible (progress ~0.05) 134 h ago, 0.44 now (0.34 effective): test-set labels average 170 h.
+        fast = rul_v5.two_point_remaining(np.array([0.44]), np.array([0.05]), np.array([134.0]), self.TBO)[0] * self.TBO
+        slow = rul_v5.two_point_remaining(np.array([0.44]), np.array([0.32]), np.array([134.0]), self.TBO)[0] * self.TBO
+        self.assertLess(fast, slow)
+        self.assertLess(fast, 400.0)
+
+    def test_no_growth_or_no_logbook_is_capped_not_infinite(self):
+        out = rul_v5.two_point_remaining(np.array([0.3, 0.3, 0.02]), np.array([0.3, 0.05, 0.0]),
+                                         np.array([100.0, 0.0, 100.0]), self.TBO)
+        self.assertTrue(np.all(np.isfinite(out)))
+        np.testing.assert_allclose(out, rul_v5.TWO_POINT_CAP)
 
 
 class TestRulScoredAsServed(unittest.TestCase):
