@@ -1,0 +1,21 @@
+{
+ "channels": 96,
+ "layers": 6,
+ "dropout": 0.2,
+ "input_dropout": 0.03,
+ "head_hidden": 96,
+ "lr": 0.0003,
+ "weight_decay": 0.0001,
+ "balance": "sum",
+ "batch": 128,
+ "seed": 0,
+ "lr_schedule": "cosine",
+ "heads": [
+  "severity"
+ ],
+ "select": {
+  "sev_on_fault_mae": -1.0,
+  "sev_clean_mae": -0.5
+ },
+ "linear": true
+}
