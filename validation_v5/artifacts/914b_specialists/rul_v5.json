@@ -1,30 +1,46 @@
 {
  "candidates": {
   "gbt": {
-   "wear_limited_mae_pct": 9.994653590440038,
-   "tbo_limited_mae_pct": 3.7658198170930293,
+   "wear_limited_mae_pct": 8.707281241802123,
+   "tbo_limited_mae_pct": 3.9618100557872977,
    "calendar_wear_limited_mae_pct": 26.889206193524522,
-   "all_mae_pct": 5.629916901913434,
-   "gain_vs_calendar": 0.6283023932165406,
-   "within_flight_rises_gt_2pct": 1014
+   "all_mae_pct": 5.381982647613607,
+   "gain_vs_calendar": 0.6761793122811108,
+   "within_flight_rises_gt_2pct": 0
   },
   "mlp": {
-   "wear_limited_mae_pct": 12.48477647081594,
-   "tbo_limited_mae_pct": 4.725001357675013,
+   "wear_limited_mae_pct": 9.906395527785648,
+   "tbo_limited_mae_pct": 8.16780377215134,
    "calendar_wear_limited_mae_pct": 26.889206193524522,
-   "all_mae_pct": 7.0472617829191595,
-   "gain_vs_calendar": 0.5356956103143524,
-   "within_flight_rises_gt_2pct": 2169
+   "all_mae_pct": 8.688110452550879,
+   "gain_vs_calendar": 0.6315846791278162,
+   "within_flight_rises_gt_2pct": 0
   },
   "gated_gbt": {
-   "wear_limited_mae_pct": 10.477488303024092,
-   "tbo_limited_mae_pct": 2.83900330655507,
+   "wear_limited_mae_pct": 9.124983218501452,
+   "tbo_limited_mae_pct": 2.869452811704466,
    "calendar_wear_limited_mae_pct": 26.889206193524522,
-   "all_mae_pct": 5.124965355388358,
-   "gain_vs_calendar": 0.6103459422484816,
-   "within_flight_rises_gt_2pct": 977,
+   "all_mae_pct": 4.741539372307893,
+   "gain_vs_calendar": 0.6606451245593506,
+   "within_flight_rises_gt_2pct": 0,
    "threshold": 0.05
+  },
+  "gated_gbt+trend0.5": {
+   "wear_limited_mae_pct": 9.063588335318403,
+   "tbo_limited_mae_pct": 2.9249027481863394,
+   "calendar_wear_limited_mae_pct": 26.889206193524522,
+   "all_mae_pct": 4.762021272133249,
+   "gain_vs_calendar": 0.6629283783951532,
+   "within_flight_rises_gt_2pct": 0
+  },
+  "gated_gbt+trend1": {
+   "wear_limited_mae_pct": 9.749392828438777,
+   "tbo_limited_mae_pct": 3.0113525284740628,
+   "calendar_wear_limited_mae_pct": 26.889206193524522,
+   "all_mae_pct": 5.027839360136201,
+   "gain_vs_calendar": 0.6374235535898181,
+   "within_flight_rises_gt_2pct": 0
   }
  },
- "chosen": "gated_gbt"
+ "chosen": "gated_gbt+trend0.5"
 }

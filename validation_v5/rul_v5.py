@@ -58,17 +58,103 @@ def measured_margin(contract: dict, seq: np.ndarray) -> np.ndarray:
                      for i in range(len(seq))])
 
 
-def rul_inputs(o: dict, seq: np.ndarray, ctx: np.ndarray, contract: dict) -> np.ndarray:
+# W2: a fault's growth MEASURED across the inspection logbook. A fault grows as
+# s = 1 - exp(-a x^b) (degradation_v4._progress, x = age in % of TBO), so
+# G(s) = (-ln(1-s))^(1/b) is linear in age: least squares through the visible
+# inspections and now gives the rate, and the time left to removal (s = 0.8) needs
+# neither a nor the onset. Severities are effective (progress x depth/spec depth): the
+# typical depth fraction converts them. One logbook entry could only GUESS the rate when
+# the fault was invisible then (v6: +155 h on such test windows).
+# ponytail: b and depth fixed at the fleet means. Depth is nearly all of the error (median
+# 32% -> 4% if it were known), but fitting it from the line's straightness overfits the
+# logbook's 10% noise (57%, biased +56%); fixed it stays unbiased (-3%).
+TREND_B, TREND_DEPTH, TREND_CAP = 1.5, 0.775, 2.0     # TREND_CAP: fraction of TBO, "not measured"
+_REMOVAL_SEV, _SEV_FLOOR = 0.8, 0.08
+
+
+def logbook_trend(sev_now: np.ndarray, logbook: np.ndarray, tbo: float,
+                  elapsed_h: np.ndarray | None = None) -> np.ndarray:
+    """Time to removal / TBO from the severity now and the logbook [n, len(LOG_LAGS_H)];
+    TREND_CAP where growth is not measured (no fault now, no visible past entry, no growth).
+    elapsed_h: engine hours since the flight started - the logbook is from the start, and
+    one flight ages the engine up to ~225 h on the x180 life clock."""
+    def g(progress):
+        p = np.clip(np.asarray(progress, np.float64), 0.0, 0.999)
+        return (-np.log1p(-p)) ** (1.0 / TREND_B)
+    def g_eff(s):                                    # effective severity -> progress -> G
+        return g(np.asarray(s, np.float64) / TREND_DEPTH)
+    now = np.asarray(sev_now, np.float64)
+    log = np.asarray(logbook, np.float64)
+    el = np.zeros(len(now)) if elapsed_h is None else np.asarray(elapsed_h, np.float64)
+    t = -(np.asarray(F.LOG_LAGS_H, np.float64)[None, :] + el[:, None])
+    seen = log > 0.0
+    # points: the visible inspections and now (t = 0)
+    T = np.concatenate([np.where(seen, t, np.nan), np.zeros((len(now), 1))], 1)
+    Y = np.concatenate([np.where(seen, g_eff(log), np.nan), g_eff(now)[:, None]], 1)
+    n = np.sum(~np.isnan(T), 1)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        tm, ym = np.nanmean(T, 1), np.nanmean(Y, 1)
+        slope = np.nansum((T - tm[:, None]) * (Y - ym[:, None]), 1) / np.nansum((T - tm[:, None]) ** 2, 1)
+    ok = (now >= _SEV_FLOOR) & (n >= 2) & (slope > 1e-6)
+    rem = np.where(ok, (g(_REMOVAL_SEV) - g_eff(now)) / np.where(ok, slope, 1.0), 0.0) / float(tbo)
+    return np.where(ok, np.clip(rem, 0.0, TREND_CAP), TREND_CAP)
+
+
+def logbook_bound(sev_now: np.ndarray, logbook: np.ndarray, tbo: float,
+                  elapsed_h: np.ndarray | None = None) -> np.ndarray:
+    """A fault newer than the logbook (invisible at every inspection, present now) grew
+    from under the visibility floor within (25 h + elapsed): taking it from half the floor
+    then gives a bound on its rate, so on the time left. TREND_CAP otherwise. A separate
+    input from logbook_trend - as an override this guess lost on validation (PR #16)."""
+    now = np.asarray(sev_now, np.float64)
+    el = np.zeros(len(now)) if elapsed_h is None else np.asarray(elapsed_h, np.float64)
+    newer = (np.asarray(logbook, np.float64) <= 0.0).all(1) & (now >= _SEV_FLOOR)
+    then = np.full((len(now), len(F.LOG_LAGS_H)), 0.0)
+    then[:, 0] = _SEV_FLOOR / 2                       # the most recent inspection, as a point
+    est = logbook_trend(now, then, tbo, el)
+    return np.where(newer, est, TREND_CAP)
+
+
+def flight_elapsed_h(ctx: np.ndarray, contract: dict) -> np.ndarray:
+    """Engine hours since the flight started, from the (scaled) context: the flight's
+    duty-weighted hours x the life scale (x180 on the live and training life clock)."""
+    sc = contract["ctx_scaler"]
+    i_used, i_scale = CTX_COLS.index("life_used_hours"), CTX_COLS.index("life_scale_180")
+    used = np.asarray(ctx)[:, i_used] * sc["std"][i_used] + sc["mean"][i_used]
+    flag = np.asarray(ctx)[:, i_scale] * sc["std"][i_scale] + sc["mean"][i_scale]
+    return np.maximum(used, 0.0) * np.where(flag > 0.5, 180.0, 1.0)
+
+
+def rul_inputs(o: dict, seq: np.ndarray, ctx: np.ndarray, contract: dict,
+               hist: np.ndarray | None = None, logbook: np.ndarray | None = None) -> np.ndarray:
     """RUL model inputs from the assembled outputs `o` and the scaled window/context
-    - one definition for fitting, scoring and serving."""
+    - one definition for fitting, scoring and serving. When the contract has
+    `hist_cols` (v6), the engine's logbook history [n, 3] in F.HIST_COLS order adds
+    its wear ratio, past worst severity and severity progression per hour; missing
+    history counts as none. With `log_cols` (W2) the inspection logbook [n, 4] adds its
+    four severities, logbook_trend, logbook_bound and the hours flown since the logbook.
+    Without them the inputs are exactly as before."""
     marg = measured_margin(contract, seq)
     thr_mean = seq[:, :, F.FEATURE_COLS.index("throttle")].mean(1)
     # Engine-fault evidence only: `detection` also fires on SENSOR faults, and fed to
     # RUL it took 7-14% off a healthy engine's life when one instrument failed.
     engine_fault = np.asarray(o["diagnosis"]).max(1, keepdims=True)
-    return np.concatenate([np.asarray(o["health"]), np.asarray(o["severity"]),
-                           engine_fault, np.asarray(o["family"]),
-                           marg[:, None], thr_mean[:, None], ctx], 1)
+    X = np.concatenate([np.asarray(o["health"]), np.asarray(o["severity"]),
+                        engine_fault, np.asarray(o["family"]),
+                        marg[:, None], thr_mean[:, None], ctx], 1)
+    if not contract.get("hist_cols"):
+        return X
+    h = np.tile(F.HIST_NEUTRAL, (len(X), 1)) if hist is None else np.asarray(hist, np.float64)
+    lag, ratio, sev = h[:, 0], h[:, 1], h[:, 2]
+    progression = (np.asarray(o["severity"]).max(1) - sev) / np.maximum(lag, 1.0)
+    X = np.concatenate([X, ratio[:, None], sev[:, None], progression[:, None]], 1)
+    if not contract.get("log_cols"):
+        return X
+    log = (np.tile(F.LOG_NEUTRAL, (len(X), 1)) if logbook is None else np.asarray(logbook, np.float64))
+    sev_now, elapsed = np.asarray(o["severity"]).max(1), flight_elapsed_h(ctx, contract)
+    trend = logbook_trend(sev_now, log, contract["tbo_hours"], elapsed)
+    bound = logbook_bound(sev_now, log, contract["tbo_hours"], elapsed)
+    return np.concatenate([X, log, trend[:, None], bound[:, None], elapsed[:, None]], 1)
 
 
 def features(trainer, ids: np.ndarray, bs: int = 512):
@@ -80,7 +166,11 @@ def features(trainer, ids: np.ndarray, bs: int = 512):
     for i in range(0, len(ids), bs):
         seq, ctx, Er = cache.batch(ids[i:i + bs])
         o = trainer.model({"seq": seq, "ctx": ctx}, training=False)
-        Xs.append(rul_inputs(o, seq, ctx, cache.contract))
+        hist = (np.stack([cache.labels(Er, c) for c in F.HIST_COLS], 1)
+                if cache.contract.get("hist_cols") else None)
+        log = (np.stack([cache.labels(Er, c) for c in F.LOG_COLS], 1)
+               if cache.contract.get("log_cols") else None)
+        Xs.append(rul_inputs(o, seq, ctx, cache.contract, hist, log))
         rul = cache.labels(Er, "rul_hours")
         calh = cache.labels(Er, "rul_calendar_hours")
         ys.append(rul / tbo)
@@ -116,12 +206,15 @@ def fit_rul(trainer, out_dir: str | None = None, cal_ids: np.ndarray | None = No
     clf = HistGradientBoostingClassifier(max_iter=400, learning_rate=0.05, max_leaf_nodes=31,
                                          l2_regularization=1.0, random_state=0).fit(Xc, wlc)
     pwl = clf.predict_proba(Xv)[:, 1]
-    report = lambda pred: E.rul_report(yv * tbo, np.minimum(np.clip(pred, 0, None) * tbo, calv),  # noqa: E731
-                                       calv, tbo, wlv, flv, tv)
+    # Candidates are judged on what is served: predictions smoothed within each flight.
+    report = lambda pred: served_report(pred, yv, calv, tbo, wlv, flv, tv)  # noqa: E731
     score = lambda r: max(r["wear_limited_mae_pct"] / 12.0, r["tbo_limited_mae_pct"] / 4.0)  # noqa: E731
     thr = min(np.linspace(0.05, 0.95, 19),
               key=lambda t: score(report(GatedRUL(cands["gbt"], clf, t).predict(Xv, pwl))))
     cands["gated_gbt"] = GatedRUL(cands["gbt"], clf, float(thr))
+    if cache.contract.get("log_cols"):              # W2: the measured trend where fault-limited
+        for w in (0.5, 1.0):
+            cands[f"gated_gbt+trend{w:g}"] = TrendGatedRUL(cands["gated_gbt"], w)
     for name, m in cands.items():
         res[name] = report(m.predict(Xv))
     res["gated_gbt"]["threshold"] = float(thr)
@@ -148,6 +241,26 @@ class GatedRUL:
         return np.where(p >= self.threshold, self.reg.predict(X), 1e3)
 
 
+class TrendGatedRUL:
+    """W2: `gated`'s RUL, except where its own classifier judges the engine fault-limited
+    AND the logbook measured the fault's growth (logbook_trend < TREND_CAP, rul_inputs'
+    third-last column): there the measured time to removal, blended with `weight`.
+    Live presets showed why: trend 258/353 h against 282 h true, the regressor 576/606 h -
+    on the fleet the trend is noisier (unknown fault depth) and the trees ignored it.
+    Kept only if it wins on validation (fit_rul)."""
+
+    def __init__(self, gated, weight: float):
+        self.gated, self.weight = gated, weight
+
+    def predict(self, X):
+        X = np.asarray(X)
+        p = self.gated.clf.predict_proba(X)[:, 1]
+        base = self.gated.predict(X, p)
+        trend = X[:, -3]
+        use = (p >= self.gated.threshold) & (trend < TREND_CAP)
+        return np.where(use, self.weight * trend + (1.0 - self.weight) * base, base)
+
+
 class RulSmoother:
     """smooth_within_flight one prediction at a time, for the live service. Same
     EMA on the removal time and the same non-increasing clamp; `update` with the
@@ -167,6 +280,27 @@ class RulSmoother:
             out = min(out, self.out - max(0.0, float(hours) - self.hours))
         self.out, self.hours = out, float(hours)
         return max(out, 0.0)
+
+
+def smooth_by_flight(pred_h: np.ndarray, flights: np.ndarray, hours: np.ndarray) -> np.ndarray:
+    """smooth_within_flight applied to each flight's windows in time order, whatever
+    order they come in - the one definition for choosing, scoring and serving."""
+    out = np.asarray(pred_h, float).copy()
+    flights, hours = np.asarray(flights), np.asarray(hours, float)
+    for f in np.unique(flights):
+        g = np.where(flights == f)[0]
+        g = g[np.argsort(hours[g], kind="stable")]
+        out[g] = smooth_within_flight(out[g], hours[g])
+    return out
+
+
+def served_report(pred_frac: np.ndarray, true_frac: np.ndarray, calendar_h: np.ndarray, tbo: float,
+                  wear_limited: np.ndarray, flights: np.ndarray, hours: np.ndarray) -> dict:
+    """evaluate.rul_report on SERVED predictions: capped at the calendar, then smoothed
+    within each flight, as score_v5 and the live service do."""
+    raw = np.minimum(np.clip(np.asarray(pred_frac, float), 0, None) * tbo, calendar_h)
+    return E.rul_report(np.asarray(true_frac) * tbo, smooth_by_flight(raw, flights, hours),
+                        calendar_h, tbo, wear_limited, flights, hours)
 
 
 def smooth_within_flight(pred_h: np.ndarray, hours: np.ndarray, alpha: float = 0.2) -> np.ndarray:

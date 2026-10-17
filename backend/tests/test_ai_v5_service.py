@@ -13,6 +13,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
 
 import aiv5  # noqa: E402  (loads backend/models_v5)
+import twin_v5  # noqa: E402
 from twin_v5 import UAVEngineTwinV5  # noqa: E402
 from sensors_v5 import FAULTABLE_CHANNELS, SENSOR_SPEC  # noqa: E402
 
@@ -25,7 +26,7 @@ AIV4_KEYS = {"status", "model_version", "engine_model", "placeholder_models", "m
              "faulty_sensors", "wear_condition", "health_percent", "margin_min", "rul_hours",
              "rul_mae_hours", "tbo_hours", "rul_calendar_hours", "rul_percent_remaining",
              "wear_limited", "rul_out_of_range", "steps_collected", "steps_needed"}
-PAYLOAD = aiv5.F.FEATURE_COLS + ["engine_hours", "life_used_hours", "ai_context", "time"]
+PAYLOAD = twin_v5.AI_PAYLOAD + ["time"]
 
 
 def samples(tw, n):
@@ -43,6 +44,29 @@ class TestAiV5(unittest.TestCase):
         aiv5.select_engine({"engine_model": "Rotax_914_ULF"})
         cls.flight = samples(UAVEngineTwinV5(engine_model="Rotax_914_ULF", seed=11), 140)
         cls.results = [aiv5.step(p) for p in cls.flight]
+
+    def test_history_reaches_exactly_the_exports_that_read_it(self):
+        """The engine's logbook (engine_history) feeds RUL only. An export with hist_cols
+        gets the payload's history; one without (v5, the placeholders' source before v6)
+        gets none - and the networks' outputs never depend on it."""
+        from unittest import mock
+        dep = aiv5.loaded_engines["Rotax_914_ULF"]["dep"]
+        reads = bool(dep.contract.get("hist_cols"))
+        seen, real = [], dep.predict_window
+
+        def spy(seq, ctx, hours, tbo=None, hist=None):
+            seen.append(hist)
+            return real(seq, ctx, hours, tbo=tbo, hist=hist)
+        odd = {**self.flight[0]["engine_history"], "wear_ratio": 1.7, "sev_max": 0.4}
+        outs = []
+        for hist in (None, odd):
+            aiv5.select_engine({"engine_model": "Rotax_914_ULF"})
+            with mock.patch.object(dep, "predict_window", side_effect=spy):
+                outs.append([aiv5.step({**p, "engine_history": hist or p["engine_history"]})
+                             for p in self.flight[:128]][-1])
+        self.assertEqual(seen[-1], odd if reads else None)
+        for k in ("detection_confidence", "wear_condition", "faults_present"):
+            self.assertEqual(outs[0][k], outs[1][k], k)
 
     def test_warms_up_then_answers(self):
         self.assertEqual(self.results[0]["status"], "warming_up")
@@ -70,8 +94,8 @@ class TestAiV5(unittest.TestCase):
         real = e["dep"].predict_window
         outs = iter([300.0, 900.0])                      # a low ground-roll guess, then the real one
 
-        def fake(seq, ctx, hours, tbo=None):
-            o = real(seq, ctx, hours, tbo) if tbo is not None else real(seq, ctx, hours)
+        def fake(seq, ctx, hours, tbo=None, hist=None):
+            o = real(seq, ctx, hours, tbo, hist) if tbo is not None else real(seq, ctx, hours, hist=hist)
             return {**o, "rul_hours": next(outs), "rul_calendar_hours": 1500.0}
         with mock.patch.object(e["dep"], "predict_window", side_effect=fake):
             aiv5.run_inference()
@@ -152,6 +176,17 @@ class TestAiV5(unittest.TestCase):
 
     def test_stuck_rule_on_a_real_healthy_flight_calls_nothing(self):
         self.assertEqual(aiv5.stuck_by_flatline(self._rows(), list(FAULTABLE_CHANNELS)), set())
+
+    def test_offline_harness_sends_what_the_live_stack_sends(self):
+        # e2e_v5 / ab_v5 left engine_history out, so a v6 export's RUL ran on neutral
+        # history in every A/B flight while main.py sent the real one.
+        sys.path.insert(0, os.path.join(os.path.dirname(HERE), "scripts"))
+        import e2e_v5
+        import twin_v5
+        self.assertTrue(set(twin_v5.AI_PAYLOAD) <= set(e2e_v5.PAYLOAD))
+        self.assertTrue(set(twin_v5.AI_PAYLOAD) <= set(PAYLOAD))
+        out = UAVEngineTwinV5(engine_model="Rotax_914_ULF", seed=3).step()
+        self.assertTrue(set(twin_v5.AI_PAYLOAD) <= set(out))
 
     def test_null_input_is_an_error_not_a_crash(self):
         """A NaN in the twin reaches aiv5 as null (safety.json_safe)."""

@@ -51,6 +51,7 @@ from degradation_v4 import (  # noqa: F401  re-exported
     A_RANGE, B_RANGE, BASE_SCALE_RANGE, BASELINE_MODS, FAULT_MODES, FAULT_NAMES, N_FAULTS,
     DegradationState, FaultEvent, applicable_faults,
 )
+from features_v5 import LOG_COLS, LOG_LAGS_H
 from physics_v4 import Health
 
 REMOVAL_SEVERITY = 0.8
@@ -66,16 +67,25 @@ BASELINE_MODS_V5 = {
 
 
 
-def baseline_health(hours: float, tbo_hours: float, a: float, b: float, scale: float) -> Health:
-    """Health after baseline wear alone, for a wear curve (a, b, scale)."""
+def wear_fraction(hours: float, tbo_hours: float, a: float, b: float, scale: float) -> float:
+    """How far baseline wear has gone (0 new .. 1 worn out) on the curve (a, b, scale)."""
+    return min(DegradationState._progress(hours / max(tbo_hours, 1.0) * 100.0, a, b) * scale, 1.0)
+
+
+def health_from_wear(frac: float) -> Health:
+    """Health with BASELINE_MODS_V5 applied at wear fraction `frac`."""
     h = Health()
-    frac = min(DegradationState._progress(hours / max(tbo_hours, 1.0) * 100.0, a, b) * scale, 1.0)
     for mod, depth in BASELINE_MODS_V5.items():
         cur = getattr(h, mod)
         setattr(h, mod, cur + depth * frac if mod == "friction_mod" else cur - depth * frac)
     for k, v in h.as_dict().items():
         setattr(h, k, float(min(max(v, 0.05), 2.5)))
     return h
+
+
+def baseline_health(hours: float, tbo_hours: float, a: float, b: float, scale: float) -> Health:
+    """Health after baseline wear alone, for a wear curve (a, b, scale)."""
+    return health_from_wear(wear_fraction(hours, tbo_hours, a, b, scale))
 
 
 # The middle of every per-engine wear parameter range.
@@ -90,6 +100,68 @@ def fleet_wear_health(hours: float, tbo_hours: float) -> Health:
     engine's own wear rate. Residuals against it keep how far this engine has aged
     away from the fleet and drop the wear clock everyone shares."""
     return baseline_health(hours, tbo_hours, *FLEET_WEAR)
+
+
+def calibrated_wear_health(hours: float, tbo_hours: float, ratio: float) -> Health:
+    """The fleet wear curve scaled to THIS engine: `ratio` (from engine_history) is how
+    far it had worn compared with the fleet when its logbook baseline was taken."""
+    return health_from_wear(min(max(wear_fraction(hours, tbo_hours, *FLEET_WEAR) * ratio, 0.0), 1.0))
+
+
+HIST_LAG_H = (20.0, 200.0)        # the logbook baseline is from a flight this many hours ago
+HIST_NOISE = 0.10                 # relative error of that wear estimate
+HIST_CONTAMINATION = 0.5          # a fault active then reads as this much extra wear per unit severity
+HIST_RATIO = (0.5, 2.0)
+HIST_YOUNG = 0.02                 # below this fleet wear the ratio carries no information
+HIST_SEV_FLOOR = 0.08             # a past fault weaker than this was not visible (FAULT_PRESENT_SEV)
+
+
+def visible_severity(deg: "DegradationStateV5", at_hours: float, noise: float) -> float:
+    """The worst fault severity an inspection at `at_hours` could see: EFFECTIVE units
+    (progress x depth / spec depth - what the severity head reports), zero below
+    HIST_SEV_FLOOR, scaled by (1 + noise), within [0, 1]."""
+    seen = [DegradationState._progress((at_hours - f.onset_h) / max(deg.tbo, 1.0) * 100.0, f.a, f.b)
+            * f.depth / FAULT_MODES[f.name]["depth"] for f in deg.faults if f.onset_h < at_hours]
+    true_sev = max(seen, default=0.0)
+    return 0.0 if true_sev < HIST_SEV_FLOOR else min(max(true_sev * (1.0 + noise), 0.0), 1.0)
+
+
+def engine_logbook(deg: "DegradationStateV5", hours: float, rng: np.random.Generator) -> dict:
+    """W2: the worst visible fault severity at each inspection in features_v5.LOG_LAGS_H
+    (25 / 50 / 100 / 200 h before `hours`), with engine_history's units, floor and
+    relative noise. An inspection before the engine's hour zero reads nothing. Pass its
+    OWN random stream: every other draw (and so the telemetry) stays as it was."""
+    return {col: (visible_severity(deg, float(hours) - lag, float(rng.normal(0.0, HIST_NOISE)))
+                  if lag <= float(hours) else 0.0)
+            for col, lag in zip(LOG_COLS, LOG_LAGS_H)}
+
+
+def engine_history(deg: "DegradationStateV5", hours: float, rng: np.random.Generator,
+                   lag_h: float | None = None) -> dict:
+    """A logbook-style baseline for an engine at `hours`: its wear compared with the
+    fleet, and its worst fault severity, as measured on a flight `lag_h` hours ago
+    (default: drawn from HIST_LAG_H; never before the engine's hour zero). The wear
+    estimate is noisy and a fault already active then inflates it - what calibration
+    from real past flights would give. The past severity is what that flight could see:
+    EFFECTIVE units (progress x depth / spec depth - the units the severity head
+    reports), zero below HIST_SEV_FLOOR, with the same relative noise. Never reads the
+    current flight.
+    ponytail: HIST_NOISE and HIST_CONTAMINATION are modelling knobs; tune them if live
+    calibration data ever exists."""
+    lag = float(rng.uniform(*HIST_LAG_H)) if lag_h is None else float(lag_h)
+    lag = min(lag, float(hours))
+    h0 = float(hours) - lag
+    fleet = wear_fraction(h0, deg.tbo, *FLEET_WEAR)
+    noise = float(rng.normal(0.0, HIST_NOISE))
+    sev_noise = float(rng.normal(0.0, HIST_NOISE))      # drawn last: earlier draws unchanged
+    sev_max = visible_severity(deg, h0, sev_noise)
+    if fleet < HIST_YOUNG:
+        ratio = 1.0
+    else:
+        observed = wear_fraction(h0, deg.tbo, deg.base_a, deg.base_b, deg.base_scale) * (1.0 + noise) \
+            + HIST_CONTAMINATION * sev_max
+        ratio = min(max(observed / fleet, HIST_RATIO[0]), HIST_RATIO[1])
+    return {"lag_h": lag, "wear_ratio": float(ratio), "sev_max": float(sev_max)}
 
 
 WEAR_OUT_FAULTS = {"bearing_wear", "compression_loss", "valve_leakage",
