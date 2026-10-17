@@ -29,6 +29,3 @@
   .ei-swap, .ei-reveal { animation: none; }
   .ei-bar { transition: none; }
 }
-
-/* keyboard focus: the page had none */
-.ei :is(a, button):focus-visible { outline: 2px solid var(--color-tertiary); outline-offset: 2px; }

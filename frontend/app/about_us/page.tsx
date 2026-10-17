@@ -142,8 +142,8 @@ function ContactForm() {
   }
 
   const inputClass =
-    "mt-1.5 w-full border border-outline-variant/50 bg-surface-container-highest/60 px-3 py-2.5 text-sm text-white placeholder:text-on-surface-variant/40 focus:outline-none focus:border-tertiary focus:ring-1 focus:ring-tertiary/30 rounded transition-colors";
-  const labelClass = "block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-on-surface-variant";
+    "mt-1.5 w-full border border-outline-variant/50 bg-surface-container-highest/60 px-3 py-2.5 text-sm text-white placeholder:text-on-surface-variant/80 focus:outline-none focus:border-tertiary focus:ring-1 focus:ring-tertiary/30 rounded transition-colors";
+  const labelClass = "block font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-on-surface-variant";
 
   return (
     <form onSubmit={handleContactSubmit} className="bg-surface/80 border border-outline-variant/30 rounded-lg p-6 shadow-[2px_2px_0px_#000000] grid gap-4 md:grid-cols-2">
@@ -171,12 +171,12 @@ function ContactForm() {
         <div className="text-[12px] leading-relaxed">
           {status === "success" && <p className="text-emerald-400">Message sent. We&apos;ll get back to you soon.</p>}
           {status === "error" && <p className="text-red-400">{errorMessage}</p>}
-          {status === "idle" && <p className="text-on-surface-variant/60 font-mono text-[11px]">Delivered securely via EmailJS.</p>}
+          {status === "idle" && <p className="text-on-surface-variant/80 font-mono text-[11px]">Delivered securely via EmailJS.</p>}
         </div>
         <button
           disabled={isSending}
           type="submit"
-          className="flex items-center justify-center gap-2 bg-tertiary px-6 py-3 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-black rounded shadow-[2px_2px_0px_#000000] hover:-translate-y-0.5 hover:shadow-[4px_4px_0px_#000000] active:translate-y-0 active:shadow-[1px_1px_0px_#000000] transition-all disabled:opacity-60 disabled:cursor-wait"
+          className="flex items-center justify-center gap-2 bg-tertiary px-6 py-3 font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-black rounded shadow-[2px_2px_0px_#000000] hover:-translate-y-0.5 hover:shadow-[4px_4px_0px_#000000] active:translate-y-0 active:shadow-[1px_1px_0px_#000000] transition-all disabled:opacity-60 disabled:cursor-wait"
         >
           {isSending ? "Sending..." : "Send Message"}
           <ArrowRight size={14} />
@@ -200,7 +200,7 @@ export default function AboutUsPage() {
             <div className="max-w-4xl">
               <div className="mb-3 flex items-center gap-3">
                 <span className="h-px w-8 bg-tertiary" />
-                <span className="font-mono text-[10px] font-bold tracking-[0.24em] text-tertiary uppercase">
+                <span className="font-mono text-[11px] font-bold tracking-[0.16em] text-tertiary uppercase">
                   ABOUT AERO-SIM // SYSTEM BRIEF
                 </span>
               </div>
@@ -217,13 +217,13 @@ export default function AboutUsPage() {
               <div className="mt-8 flex flex-wrap gap-3">
                 <Link
                   href="/engine_info"
-                  className="inline-flex items-center gap-2 bg-tertiary px-6 py-3 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-black rounded shadow-[2px_2px_0px_#000000] hover:-translate-y-0.5 hover:shadow-[4px_4px_0px_#000000] active:translate-y-0 active:shadow-[1px_1px_0px_#000000] transition-all"
+                  className="inline-flex items-center gap-2 bg-tertiary px-6 py-3 font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-black rounded shadow-[2px_2px_0px_#000000] hover:-translate-y-0.5 hover:shadow-[4px_4px_0px_#000000] active:translate-y-0 active:shadow-[1px_1px_0px_#000000] transition-all"
                 >
                   Explore engine data <ArrowRight size={14} />
                 </Link>
                 <Link
                   href="/engine"
-                  className="inline-flex items-center gap-2 border border-outline-variant/50 bg-surface-container-highest/60 px-6 py-3 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-white rounded hover:border-tertiary hover:text-tertiary transition-colors"
+                  className="inline-flex items-center gap-2 border border-outline-variant/50 bg-surface-container-highest/60 px-6 py-3 font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-white rounded hover:border-tertiary hover:text-tertiary transition-colors"
                 >
                   Open simulator <Gauge size={14} />
                 </Link>
@@ -236,12 +236,12 @@ export default function AboutUsPage() {
         <section className="relative z-10 mx-auto max-w-7xl px-4 md:px-6 py-12 md:py-16">
           <div className="mb-8 flex flex-col md:flex-row md:items-end md:justify-between gap-3">
             <div>
-              <span className="font-mono text-[10px] font-bold tracking-[0.2em] text-tertiary uppercase">WHAT THE PLATFORM DOES</span>
+              <span className="font-mono text-[11px] font-bold tracking-[0.2em] text-tertiary uppercase">WHAT THE PLATFORM DOES</span>
               <h2 className="mt-1.5 font-headline-display text-2xl md:text-3xl font-bold uppercase text-white tracking-tight">
                 One system, six connected jobs
               </h2>
             </div>
-            <p className="max-w-sm text-xs leading-relaxed text-on-surface-variant/70">
+            <p className="max-w-sm text-xs leading-relaxed text-on-surface-variant/80">
               Built for simulation, calibration, demonstration, and repeatable engineering analysis.
             </p>
           </div>
@@ -255,7 +255,7 @@ export default function AboutUsPage() {
                   className="bg-surface/80 border border-outline-variant/30 rounded-lg p-5 shadow-[2px_2px_0px_#000000] hover:border-tertiary/50 hover:-translate-y-0.5 hover:shadow-[4px_4px_0px_#000000] transition-all min-h-[220px] flex flex-col"
                 >
                   <Icon size={20} className="text-tertiary mb-5" />
-                  <p className="font-mono text-[9px] font-bold tracking-[0.16em] text-tertiary/70 uppercase mb-1">{cap.label}</p>
+                  <p className="font-mono text-[11px] font-bold tracking-[0.16em] text-tertiary/70 uppercase mb-1">{cap.label}</p>
                   <h3 className="font-headline-display text-base font-bold uppercase text-white mb-2">{cap.title}</h3>
                   <p className="text-xs leading-relaxed text-on-surface-variant/80 mt-auto">{cap.text}</p>
                 </article>
@@ -268,7 +268,7 @@ export default function AboutUsPage() {
         <section className="relative z-10 border-y border-outline-variant/30 bg-black/20">
           <div className="mx-auto grid max-w-7xl gap-8 px-4 md:px-6 py-12 md:py-16 md:grid-cols-[1fr_0.85fr]">
             <div>
-              <span className="font-mono text-[10px] font-bold tracking-[0.2em] text-tertiary uppercase">HOW A SESSION WORKS</span>
+              <span className="font-mono text-[11px] font-bold tracking-[0.2em] text-tertiary uppercase">HOW A SESSION WORKS</span>
               <h2 className="mt-1.5 font-headline-display text-2xl md:text-3xl font-bold uppercase text-white tracking-tight mb-7">
                 From setup to insight
               </h2>
@@ -296,7 +296,7 @@ export default function AboutUsPage() {
                 ))}
               </ul>
 
-              <div className="mt-6 pt-5 border-t border-outline-variant/25 flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-on-surface-variant/60">
+              <div className="mt-6 pt-5 border-t border-outline-variant/25 flex items-center gap-2 font-mono text-[11px] uppercase tracking-wider text-on-surface-variant/80">
                 <Wrench size={13} className="text-tertiary" />
                 PHYSICS V4 // FOUR ROTAX ENGINES
               </div>
@@ -307,7 +307,7 @@ export default function AboutUsPage() {
         {/* Runtime architecture - what actually runs, as opposed to the plant model below */}
         <section className="relative z-10 mx-auto max-w-7xl px-4 md:px-6 py-12 md:py-16">
           <div className="mb-8">
-            <span className="font-mono text-[10px] font-bold tracking-[0.2em] text-tertiary uppercase">HOW IT FITS TOGETHER</span>
+            <span className="font-mono text-[11px] font-bold tracking-[0.2em] text-tertiary uppercase">HOW IT FITS TOGETHER</span>
             <h2 className="mt-1.5 font-headline-display text-2xl md:text-3xl font-bold uppercase text-white tracking-tight">
               System architecture
             </h2>
@@ -343,8 +343,8 @@ export default function AboutUsPage() {
             ].map((b) => (
               <div key={b.n} className="bg-surface/80 border border-outline-variant/30 rounded-lg p-5 shadow-[2px_2px_0px_#000000] flex flex-col">
                 <div className="flex items-baseline justify-between">
-                  <span className="font-mono text-[10px] tracking-[0.18em] text-tertiary font-bold">{b.n}</span>
-                  <span className="font-mono text-[9px] text-on-surface-variant/50">{b.file}</span>
+                  <span className="font-mono text-[11px] tracking-[0.18em] text-tertiary font-bold">{b.n}</span>
+                  <span className="font-mono text-[11px] text-on-surface-variant/80">{b.file}</span>
                 </div>
                 <h3 className="font-headline-display text-lg text-white uppercase tracking-tight mt-2">{b.name}</h3>
                 <ul className="mt-3 space-y-1.5">
@@ -354,14 +354,14 @@ export default function AboutUsPage() {
                     </li>
                   ))}
                 </ul>
-                <p className="mt-4 pt-3 border-t border-outline-variant/20 text-[11px] leading-relaxed text-on-surface-variant/70">{b.note}</p>
+                <p className="mt-4 pt-3 border-t border-outline-variant/20 text-[11px] leading-relaxed text-on-surface-variant/80">{b.note}</p>
               </div>
             ))}
           </div>
 
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <div className="bg-surface/60 border border-outline-variant/25 rounded-lg p-5">
-              <h3 className="font-mono text-[10px] uppercase tracking-[0.16em] text-tertiary font-bold">Physics against physics</h3>
+              <h3 className="font-mono text-[11px] uppercase tracking-[0.16em] text-tertiary font-bold">Physics against physics</h3>
               <p className="mt-2 text-[13px] leading-relaxed text-on-surface-variant">
                 The healthy twin is the same engine with no wear and no faults, flown on the same
                 inputs. Its difference from the instruments on six channels - EGT, CHT, oil
@@ -370,7 +370,7 @@ export default function AboutUsPage() {
               </p>
             </div>
             <div className="bg-surface/60 border border-outline-variant/25 rounded-lg p-5">
-              <h3 className="font-mono text-[10px] uppercase tracking-[0.16em] text-tertiary font-bold">On real hardware</h3>
+              <h3 className="font-mono text-[11px] uppercase tracking-[0.16em] text-tertiary font-bold">On real hardware</h3>
               <p className="mt-2 text-[13px] leading-relaxed text-on-surface-variant">
                 <span className="font-mono text-white">can_ingest.py</span> bridges a SocketCAN bus into the
                 same endpoints the simulator uses, so the twin can shadow a real engine without any
@@ -384,7 +384,7 @@ export default function AboutUsPage() {
         {/* Results */}
         <section className="relative z-10 mx-auto max-w-7xl px-4 md:px-6 py-12 md:py-16">
           <div className="mb-8">
-            <span className="font-mono text-[10px] font-bold tracking-[0.2em] text-tertiary uppercase">HOW WELL IT WORKS</span>
+            <span className="font-mono text-[11px] font-bold tracking-[0.2em] text-tertiary uppercase">HOW WELL IT WORKS</span>
             <h2 className="mt-1.5 font-headline-display text-2xl md:text-3xl font-bold uppercase text-white tracking-tight">
               Results on unseen flights
             </h2>
@@ -396,11 +396,11 @@ export default function AboutUsPage() {
           <div className="overflow-x-auto bg-surface/80 border border-outline-variant/30 rounded-lg shadow-[2px_2px_0px_#000000]">
             <table className="w-full min-w-[560px] text-left">
               <thead>
-                <tr className="border-b border-outline-variant/30 font-mono text-[10px] uppercase tracking-[0.14em] text-on-surface-variant">
+                <tr className="border-b border-outline-variant/30 font-mono text-[11px] uppercase tracking-[0.14em] text-on-surface-variant">
                   <th className="px-5 py-3 font-bold">Engine</th>
-                  <th className="px-5 py-3 font-bold">Anything wrong? <span className="normal-case tracking-normal text-on-surface-variant/60">AUC</span></th>
-                  <th className="px-5 py-3 font-bold">Which part? <span className="normal-case tracking-normal text-on-surface-variant/60">F1</span></th>
-                  <th className="px-5 py-3 font-bold">How worn? <span className="normal-case tracking-normal text-on-surface-variant/60">error</span></th>
+                  <th className="px-5 py-3 font-bold">Anything wrong? <span className="normal-case tracking-normal text-on-surface-variant/80">AUC</span></th>
+                  <th className="px-5 py-3 font-bold">Which part? <span className="normal-case tracking-normal text-on-surface-variant/80">F1</span></th>
+                  <th className="px-5 py-3 font-bold">How worn? <span className="normal-case tracking-normal text-on-surface-variant/80">error</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -408,7 +408,7 @@ export default function AboutUsPage() {
                   <tr key={r.engine} className="border-b border-outline-variant/20 last:border-b-0">
                     <td className="px-5 py-3 font-headline-display text-sm uppercase text-white">{r.engine}</td>
                     {r.note ? (
-                      <td colSpan={3} className="px-5 py-3 text-[12px] text-on-surface-variant/70">{r.note}</td>
+                      <td colSpan={3} className="px-5 py-3 text-[12px] text-on-surface-variant/80">{r.note}</td>
                     ) : (
                       <>
                         <td className="px-5 py-3 font-mono text-sm text-tertiary">{r.auc}</td>
@@ -421,7 +421,7 @@ export default function AboutUsPage() {
               </tbody>
             </table>
           </div>
-          <p className="mt-3 max-w-3xl text-[12px] leading-relaxed text-on-surface-variant/70">
+          <p className="mt-3 max-w-3xl text-[12px] leading-relaxed text-on-surface-variant/80">
             Said plainly: remaining life is the open problem. On engines that wear out before their
             overhaul, the estimate made from what an aircraft can actually measure is off by about 19-21% of
             the overhaul interval - better than counting down the calendar, but not yet our 15% target.
@@ -431,7 +431,7 @@ export default function AboutUsPage() {
         {/* Inside the engine */}
         <section className="relative z-10 mx-auto max-w-7xl px-4 md:px-6 py-12 md:py-16">
           <div className="mb-8">
-            <span className="font-mono text-[10px] font-bold tracking-[0.2em] text-tertiary uppercase">INSIDE THE ENGINE</span>
+            <span className="font-mono text-[11px] font-bold tracking-[0.2em] text-tertiary uppercase">INSIDE THE ENGINE</span>
             <h2 className="mt-1.5 font-headline-display text-2xl md:text-3xl font-bold uppercase text-white tracking-tight">
               Physics v4, layer by layer
             </h2>
@@ -446,13 +446,13 @@ export default function AboutUsPage() {
               <li key={l.name} className="flex items-center gap-2">
                 <span className={`rounded border px-3 py-2 ${l.on ? "border-tertiary/40 bg-tertiary/5" : "border-outline-variant/30 bg-surface/80"}`}>
                   <span className="block font-mono text-[11px] text-white">{l.name}</span>
-                  {l.on && <span className="block font-mono text-[9px] text-tertiary/80">{l.on} only</span>}
+                  {l.on && <span className="block font-mono text-[11px] text-tertiary/80">{l.on} only</span>}
                 </span>
                 {i < layers.length - 1 && <span className="text-tertiary/50">&rsaquo;</span>}
               </li>
             ))}
           </ol>
-          <p className="mt-4 font-mono text-[10px] uppercase tracking-wider text-on-surface-variant/60">
+          <p className="mt-4 font-mono text-[11px] uppercase tracking-wider text-on-surface-variant/80">
             The earlier (v3) plant model is still here:{" "}
             <a href="/uav-piston-engine-diagram.html" target="_blank" rel="noopener noreferrer" className="text-tertiary hover:underline">
               open its full diagram
@@ -463,7 +463,7 @@ export default function AboutUsPage() {
         {/* Contact CTA + Direct */}
         <section className="relative z-10 mx-auto max-w-7xl px-4 md:px-6 py-12 md:py-16 grid grid-cols-1 md:grid-cols-[1fr_1.2fr] gap-8">
           <div>
-            <span className="font-mono text-[10px] font-bold tracking-[0.2em] text-tertiary uppercase">CONTACT AERO-SIM</span>
+            <span className="font-mono text-[11px] font-bold tracking-[0.2em] text-tertiary uppercase">CONTACT AERO-SIM</span>
             <h2 className="mt-1.5 font-headline-display text-3xl font-bold uppercase text-white tracking-tight">
               Let&apos;s talk propulsion.
             </h2>
@@ -473,7 +473,7 @@ export default function AboutUsPage() {
             </p>
 
             <div className="mt-8 bg-surface/80 border border-outline-variant/30 rounded-lg p-5 shadow-[2px_2px_0px_#000000]">
-              <p className="font-mono text-[9px] font-bold tracking-[0.18em] text-tertiary/70 uppercase mb-2">PRIMARY CONTACT</p>
+              <p className="font-mono text-[11px] font-bold tracking-[0.18em] text-tertiary/70 uppercase mb-2">PRIMARY CONTACT</p>
               <a
                 href="mailto:contact@aero-sim.com"
                 className="flex items-center gap-3 text-base font-bold text-white hover:text-tertiary transition-colors"
@@ -481,7 +481,7 @@ export default function AboutUsPage() {
                 <Mail size={18} className="text-tertiary shrink-0" />
                 contact@aero-sim.com
               </a>
-              <p className="mt-1.5 text-xs text-on-surface-variant/70">For technical questions, demonstrations, and project collaboration.</p>
+              <p className="mt-1.5 text-xs text-on-surface-variant/80">For technical questions, demonstrations, and project collaboration.</p>
             </div>
           </div>
 

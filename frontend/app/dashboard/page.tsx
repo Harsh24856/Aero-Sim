@@ -289,7 +289,7 @@ export default function DashboardPage() {
           <div className="mt-10 flex justify-end border-t border-outline-variant/30 pt-6">
             <button
               onClick={handleSignOut}
-              className="inline-flex items-center gap-2 border border-outline-variant/50 px-4 py-2 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-on-surface-variant transition-colors hover:border-tertiary hover:text-tertiary"
+              className="inline-flex items-center gap-2 border border-outline-variant/50 px-4 py-2 font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-on-surface-variant transition-colors hover:border-tertiary hover:text-tertiary"
             >
               <LogOut size={14} /> Sign out
             </button>

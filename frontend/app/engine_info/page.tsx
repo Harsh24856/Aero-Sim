@@ -240,7 +240,7 @@ export default function EngineInfoPage() {
     <>
       <Navbar />
 
-      <main className="ei flex-grow pt-16 relative min-h-screen">
+      <main className="flex-grow pt-16 relative min-h-screen">
         <div className="absolute inset-0 grid-bg pointer-events-none opacity-50 z-0" />
 
         {/* ── HERO ──────────────────────────────────────────────────────────── */}
@@ -255,7 +255,7 @@ export default function EngineInfoPage() {
                   AERO-SIM // TECHNICAL REPORT TR-ROTAX-2026-01
                 </span>
               </div>
-              <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-on-surface-variant/70 border border-outline-variant/30 bg-surface/80 px-3 py-1.5 rounded">
+              <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-on-surface-variant/80 border border-outline-variant/30 bg-surface/80 px-3 py-1.5 rounded">
                 <ShieldCheck size={13} className="text-tertiary" />
                 SPECIFICATION & DIGITAL-TWIN STANDARD
               </div>
@@ -291,7 +291,7 @@ export default function EngineInfoPage() {
                     {eng.code} // {eng.powerHp} HP
                   </div>
                   <div className="font-headline-display font-bold text-sm text-primary group-hover:text-tertiary transition-colors truncate">{eng.name}</div>
-                  <div className="font-mono text-[11px] text-on-surface-variant/75 mt-0.5 truncate">{eng.tag}</div>
+                  <div className="font-mono text-[11px] text-on-surface-variant/80 mt-0.5 truncate">{eng.tag}</div>
                 </button>
               ))}
             </div>
@@ -366,7 +366,7 @@ export default function EngineInfoPage() {
                         <CheckCircle2 size={13} className="text-tertiary shrink-0" />
                         {item.title}
                       </div>
-                      <p className="text-xs text-on-surface-variant/75 leading-relaxed">{item.desc}</p>
+                      <p className="text-xs text-on-surface-variant/80 leading-relaxed">{item.desc}</p>
                     </div>
                   ))}
                 </div>
@@ -395,7 +395,7 @@ export default function EngineInfoPage() {
                     </div>
                   ))}
                 </div>
-                <p className="font-mono text-[11px] text-on-surface-variant/70 uppercase tracking-wider">REF: BRP-Rotax 2026 Engine Maintenance & Spec Standard</p>
+                <p className="font-mono text-[11px] text-on-surface-variant/80 uppercase tracking-wider">REF: BRP-Rotax 2026 Engine Maintenance & Spec Standard</p>
               </div>
             </div>
           </section>
@@ -431,7 +431,7 @@ export default function EngineInfoPage() {
                     <span className="font-mono text-[11px] font-bold tracking-widest text-tertiary border border-tertiary/30 bg-black/60 px-2.5 py-1 rounded uppercase">
                       3D DIGITAL TWIN VIEW
                     </span>
-                    <span className="font-mono text-[11px] text-on-surface-variant/70 uppercase tracking-wide">
+                    <span className="font-mono text-[11px] text-on-surface-variant/80 uppercase tracking-wide">
                       DRAG TO ROTATE
                     </span>
                   </div>
@@ -440,7 +440,7 @@ export default function EngineInfoPage() {
                   </div>
                   <div className="z-10 relative bg-black/70 backdrop-blur-sm border border-outline-variant/25 p-3 rounded font-mono text-[11px] flex justify-between items-center">
                     <div>
-                      <span className="text-on-surface-variant/70 text-[11px] block uppercase tracking-wider">AI STATUS</span>
+                      <span className="text-on-surface-variant/80 text-[11px] block uppercase tracking-wider">AI STATUS</span>
                       <span className="font-bold text-primary flex items-center gap-1.5">
                         <span className={`h-1.5 w-1.5 rounded-full ${trained ? "bg-tertiary animate-pulse" : "bg-on-surface-variant/60"}`} />
                         {trained ? "AI READY · V4 MODELS LIVE" : "AI TRAINING · 914 MODELS STAND IN"}
@@ -460,7 +460,7 @@ export default function EngineInfoPage() {
                   <div>
                     <div className="flex items-start justify-between gap-3 mb-1">
                       <span className="font-mono text-[11px] font-bold text-tertiary tracking-widest uppercase">{selectedEngine.role}</span>
-                      <span className="font-mono text-[11px] text-on-surface-variant/70 shrink-0">{selectedEngine.powerHp} HP / {selectedEngine.powerKw} kW</span>
+                      <span className="font-mono text-[11px] text-on-surface-variant/80 shrink-0">{selectedEngine.powerHp} HP / {selectedEngine.powerKw} kW</span>
                     </div>
                     <h3 className="font-headline-display text-2xl sm:text-3xl font-bold uppercase tracking-tight text-primary mb-2">
                       {selectedEngine.name}
@@ -471,7 +471,7 @@ export default function EngineInfoPage() {
                   {/* Power bar */}
                   <div>
                     <div className="flex items-center justify-between mb-1">
-                      <span className="font-mono text-[11px] uppercase tracking-wider text-on-surface-variant/70 flex items-center gap-1">
+                      <span className="font-mono text-[11px] uppercase tracking-wider text-on-surface-variant/80 flex items-center gap-1">
                         <Gauge size={10} className="text-tertiary" /> Power vs lineup apex
                       </span>
                       <span className="font-mono text-[11px] font-bold text-primary">{selectedEngine.powerPct.toFixed(0)}%</span>
@@ -495,9 +495,9 @@ export default function EngineInfoPage() {
                       { label: "FAULT TYPES", value: String(selectedEngine.v4.faultTypes), sub: "the AI can name", hi: true },
                     ].map((spec) => (
                       <div key={spec.label} className="border border-outline-variant/25 bg-surface-container-highest/60 p-3 rounded-lg">
-                        <span className="text-[11px] text-on-surface-variant/70 block uppercase tracking-wider">{spec.label}</span>
+                        <span className="text-[11px] text-on-surface-variant/80 block uppercase tracking-wider">{spec.label}</span>
                         <span className="font-bold text-primary text-sm mt-0.5 block truncate">{spec.value}</span>
-                        <span className={`text-[11px] ${spec.hi ? "text-tertiary" : "text-on-surface-variant/70"}`}>{spec.sub}</span>
+                        <span className={`text-[11px] ${spec.hi ? "text-tertiary" : "text-on-surface-variant/80"}`}>{spec.sub}</span>
                       </div>
                     ))}
                   </div>
@@ -509,20 +509,20 @@ export default function EngineInfoPage() {
                       <p className="font-sans text-on-surface-variant leading-relaxed text-sm">{selectedEngine.simulationModel}</p>
                     </div>
                     <div className="border-l-2 border-outline-variant/50 bg-white/[0.02] p-3 pl-4 rounded-r-lg">
-                      <span className="text-on-surface-variant/70 font-bold uppercase tracking-wider block text-[11px] mb-1">CERTIFIED LIMITS (PHYSICS V4)</span>
+                      <span className="text-on-surface-variant/80 font-bold uppercase tracking-wider block text-[11px] mb-1">CERTIFIED LIMITS (PHYSICS V4)</span>
                       <div className="text-on-surface-variant text-[11px]">
                         CHT 135 &deg;C &middot; EGT {selectedEngine.v4.egtLimit} &middot; oil temp 130 &deg;C &middot; oil pressure min 0.8 bar below 3,500 RPM, 2.0 bar above
                       </div>
                     </div>
                     <div className="border-l-2 border-outline-variant/50 bg-white/[0.02] p-3 pl-4 rounded-r-lg">
-                      <span className="text-on-surface-variant/70 font-bold uppercase tracking-wider block text-[11px] mb-1">SIGNAL CHAIN</span>
+                      <span className="text-on-surface-variant/80 font-bold uppercase tracking-wider block text-[11px] mb-1">SIGNAL CHAIN</span>
                       <div className="text-tertiary/90 tracking-wide text-[11px]">{selectedEngine.signalChain}</div>
                     </div>
                   </div>
 
                   {/* Footer CTA */}
                   <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-3 border-t border-outline-variant/25">
-                    <span className="font-mono text-[11px] text-on-surface-variant/75 uppercase">
+                    <span className="font-mono text-[11px] text-on-surface-variant/80 uppercase">
                       USE CASE: <strong className="text-primary">{selectedEngine.bestUseCase}</strong>
                     </span>
                     <Link
@@ -667,7 +667,7 @@ export default function EngineInfoPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="border-r border-outline-variant/25 pr-4">
-                    <span className="text-[11px] text-on-surface-variant/70 uppercase block mb-2 font-bold">INPUT WINDOW — 25 CH × 128 STEPS</span>
+                    <span className="text-[11px] text-on-surface-variant/80 uppercase block mb-2 font-bold">INPUT WINDOW — 25 CH × 128 STEPS</span>
                     <ul className="space-y-1.5 text-on-surface-variant/90">
                       {["Flight state — altitude, throttle, airspeed, AoA", "Powerplant — RPM, torque, power, fuel flow", "Aero — thrust, lift, drag, thrust/lift margins", "Thermal — EGT, CHT, oil pressure, oil temp", "Vibration — X / Y / Z axis accelerometers", "Injection timing — carries misfire and injector signatures", "25 features, 128-second rolling window, plus 10 aux"].map((item) => (
                         <li key={item} className="flex items-start gap-1.5 text-[11px]">
@@ -688,7 +688,7 @@ export default function EngineInfoPage() {
                         "Fault types: Bias, Drift, Spike, Stuck-At, Noise",
                         "RUL: LSTM + window statistics, started at a ridge fit",
                       ].map((item, i) => (
-                        <li key={item} className={`flex items-start gap-1.5 font-bold text-[11px] ${i < 5 ? "text-tertiary" : "text-on-surface-variant/70"}`}>
+                        <li key={item} className={`flex items-start gap-1.5 font-bold text-[11px] ${i < 5 ? "text-tertiary" : "text-on-surface-variant/80"}`}>
                           <CheckCircle2 size={11} className="shrink-0 mt-0.5" />{item}
                         </li>
                       ))}
@@ -879,7 +879,7 @@ export default function EngineInfoPage() {
       </main>
 
       {/* ── FOOTER ────────────────────────────────────────────────────────────── */}
-      <footer className="ei bg-surface-container-lowest w-full border-t border-outline-variant/30 relative z-10">
+      <footer className="bg-surface-container-lowest w-full border-t border-outline-variant/30 relative z-10">
         <div className="flex flex-col md:flex-row justify-between items-center px-6 py-6 gap-4 max-w-7xl mx-auto w-full">
           <div className="text-[11px] tracking-[0.1em] font-bold uppercase text-tertiary text-center md:text-left flex items-center gap-2 font-mono">
             <span className="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse" />

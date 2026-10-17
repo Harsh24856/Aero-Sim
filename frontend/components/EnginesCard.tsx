@@ -66,7 +66,7 @@ export default function EnginesCard() {
                 <span className="text-[13px] font-medium text-primary">
                   {e.name} <span className="text-[11px] text-on-surface-variant">{e.engine_model.replace(/_/g, " ")}</span>
                 </span>
-                <span className={`text-[10px] uppercase tracking-[0.1em] ${e.status === "worn_out" ? "text-[#ff9a72]" : "text-[#7fc87f]"}`}>
+                <span className={`text-[11px] uppercase tracking-[0.1em] ${e.status === "worn_out" ? "text-[#ff9a72]" : "text-[#7fc87f]"}`}>
                   {e.status.replace(/_/g, " ")}
                 </span>
               </div>
@@ -83,7 +83,7 @@ export default function EnginesCard() {
                 </div>
               )}
               <Link href={`/simulate?engine=${e.engine_model}`}
-                    className="mt-2 inline-block text-[10px] font-bold uppercase tracking-[0.1em] text-tertiary hover:brightness-125">
+                    className="mt-2 inline-block text-[11px] font-bold uppercase tracking-[0.1em] text-tertiary hover:brightness-125">
                 Fly this engine &rarr;
               </Link>
             </div>
