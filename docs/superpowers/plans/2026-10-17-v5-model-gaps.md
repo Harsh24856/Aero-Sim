@@ -300,3 +300,20 @@ Neither cause dominates: about half the bias comes from cells the gate zeroes, h
 3. Task 4: about 30 min per engine.
 4. Task 3B, only if Task 1 says so: about 3 h per engine, overnight.
 5. Tasks 5 and 6: any time, independent of the rest.
+
+## Outcome (2026-10-17)
+
+Executed in order. **No model export changed.** The live 912, 915 and 916 models stay as they were.
+
+| Task | Result |
+|---|---|
+| 1. Gap report | Shipped: `validation_v5/gaps_v5.py` plus each engine's `gaps.json`. Findings are in the table above. |
+| 2. Severity bias | `gate_cost` and a kept-cell offset brought 912 test bias from 0.057 to 0.032 (error 0.082 to 0.076), but left 915 and 916 unchanged. Severity feeds the RUL inputs, and the refit RUL lost its A/B (912: 90 to 97 h), so the change was dropped. The bias that remains is faults diagnosis does not fire on, which the gate zeroes. |
+| 3A. Air-filter cut-offs | Pooling 81,864 jittered val windows moved the 916 cut-off from 0.59 to 0.60 and test recall from 0.33 to 0.32. The val/test gap is flight-level, so this was reverted. 3B's trigger was not met. |
+| 4. Accept per engine | Every rebuilt export failed its A/B against the live one (912 and 916 on RUL error; 915 identical), so none shipped. Parity on GPU and CPU and `e2e_v5` were as before. |
+| 5. 915 turbo_high | The RUL gate is right (p = 0.99) and the base regressor is accurate: 150 h against 147-160 h true, below the calendar on 100% of windows. `TrendGatedRUL`'s logbook trend reads about 340 h for turbo degradation and drags RUL up to the calendar cap. The likely cause is that this fault is visible only above critical altitude, so inspections under-see its growth. The fix (no trend for altitude-gated faults, or a refit per family) needs its own plan. |
+| 6. Docs | `docs/architecture.md` now shows v5 as the default. The branch cleanup is listed for the owner. |
+
+**Next real levers:**
+1. More air-filter flights in val and test, or a diagnosis retrain with `fault_weight`.
+2. Remove the logbook trend for altitude-gated faults, then refit RUL and run the A/B.
