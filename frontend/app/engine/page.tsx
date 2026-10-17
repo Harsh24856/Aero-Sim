@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
@@ -9,8 +9,8 @@ import EngineViewer912 from "@/components/EngineViewer912";
 import EngineViewer915 from "@/components/EngineViewer915";
 import EngineViewer916 from "@/components/EngineViewer916";
 import { Zap, FileText, ChevronRight, Gauge, Scale, X } from "lucide-react";
+import { API } from "@/lib/api";
 
-const API = "http://localhost:8000";
 
 const ENGINES = [
   {
@@ -27,7 +27,6 @@ const ENGINES = [
     powerPct: 71.9,
     induction: "Turbo + TCU Wastegate",
     ceiling: "16,000 ft critical altitude",
-    aiValid: true,
     Viewer: EngineViewer,
   },
   {
@@ -44,7 +43,6 @@ const ENGINES = [
     powerPct: 62.5,
     induction: "Naturally Aspirated",
     ceiling: "Air-density limited ~10,000 ft",
-    aiValid: true,
     Viewer: EngineViewer912,
   },
   {
@@ -61,7 +59,6 @@ const ENGINES = [
     powerPct: 88.1,
     induction: "Turbo + Air-to-Air Intercooler",
     ceiling: "Takeoff power to 15,000 ft",
-    aiValid: true,
     Viewer: EngineViewer915,
   },
   {
@@ -78,15 +75,36 @@ const ENGINES = [
     powerPct: 100.0,
     induction: "High-Boost Turbo + FADEC EFI",
     ceiling: "Takeoff power to 15,000 ft",
-    aiValid: true,
     Viewer: EngineViewer916,
   },
 ];
+
+// What the physics API says about the AI service (GET /engines). null while asking.
+type AiStatus = { online: boolean; valid: string[]; placeholders: string[] } | null;
+
+function aiBadge(ai: AiStatus, id: string): { label: string; ready: boolean; title?: string } {
+  if (!ai) return { label: "AI ...", ready: false };
+  if (!ai.online) return { label: "AI offline", ready: false, title: "The AI service is not running - flights still work, without diagnostics" };
+  if (!ai.valid.includes(id)) return { label: "No AI model", ready: false };
+  if (ai.placeholders.includes(id)) {
+    return { label: "AI stand-in", ready: false, title: "Diagnosed with the 914's models until this engine's own are trained" };
+  }
+  return { label: "AI ready", ready: true };
+}
 
 export default function EnginePage() {
   const router = useRouter();
   const [selecting, setSelecting] = useState<string | null>(null);
   const [compareOpen, setCompareOpen] = useState(false);
+  const [ai, setAi] = useState<AiStatus>(null);
+
+  useEffect(() => {
+    fetch(`${API}/engines`)
+      .then((r) => r.json())
+      .then((e) => setAi({ online: !!e.ai_online, valid: e.ai_valid_engines ?? [], placeholders: e.ai_placeholder_engines ?? [] }))
+      .catch(() => setAi({ online: false, valid: [], placeholders: [] }));   // backend down
+  }, []);
+  const readyCount = ENGINES.filter((e) => aiBadge(ai, e.id).ready).length;
 
   const selectEngine = async (engineId: string) => {
     setSelecting(engineId);
@@ -146,7 +164,7 @@ export default function EnginePage() {
                 </Link>
                 <div className="flex items-center gap-2 text-on-surface-variant/60 border border-outline-variant/30 px-3 py-2 rounded bg-black/30">
                   <span className="h-1.5 w-1.5 rounded-full bg-tertiary animate-pulse shadow-[0_0_8px_#ff9100]" />
-                  4 AI twins ready
+                  {ai === null ? "Checking AI..." : ai.online ? `${readyCount} of ${ENGINES.length} AI twins ready` : "AI offline"}
                 </div>
               </div>
             </div>
@@ -175,10 +193,20 @@ export default function EnginePage() {
                     <span className="font-mono text-[10px] font-bold tracking-[0.16em] text-on-surface-variant/50 uppercase">
                       {engine.code}
                     </span>
-                    <span className="font-mono text-[9px] font-bold tracking-[0.12em] uppercase text-tertiary bg-tertiary/10 border border-tertiary/30 px-2 py-0.5 rounded flex items-center gap-1">
-                      <span className="h-1 w-1 rounded-full bg-tertiary animate-pulse" />
-                      AI READY
-                    </span>
+                    {(() => {
+                      const badge = aiBadge(ai, engine.id);
+                      return (
+                        <span
+                          title={badge.title}
+                          className={`font-mono text-[9px] font-bold tracking-[0.12em] uppercase px-2 py-0.5 rounded flex items-center gap-1 border ${
+                            badge.ready ? "text-tertiary bg-tertiary/10 border-tertiary/30" : "text-on-surface-variant/70 border-outline-variant/40"
+                          }`}
+                        >
+                          {badge.ready && <span className="h-1 w-1 rounded-full bg-tertiary animate-pulse" />}
+                          {badge.label}
+                        </span>
+                      );
+                    })()}
                   </div>
 
                   {/* 3D Viewer */}
@@ -282,7 +310,7 @@ export default function EnginePage() {
               <span className="h-2 w-2 rounded-full bg-tertiary animate-pulse shadow-[0_0_8px_#ff9100]" />
               <span>Physics Engine: <span className="text-primary font-bold">100 Hz Kinematics Active</span></span>
               <span className="hidden md:inline text-outline-variant">|</span>
-              <span className="hidden md:inline">Neural Surrogates: <span className="text-primary font-bold">4 Checkpoints Loaded</span></span>
+              <span className="hidden md:inline">Neural Surrogates: <span className="text-primary font-bold">{ai === null ? "..." : !ai.online ? "Offline" : `${ai.valid.length - ai.placeholders.length} own, ${ai.placeholders.length} stand-in`}</span></span>
             </div>
             <button
               onClick={() => setCompareOpen(true)}

@@ -16,7 +16,7 @@ import threading
 import time
 import unittest
 
-os.environ.setdefault("AERO_PHYSICS_VERSION", "v3")
+os.environ.setdefault("AERO_PHYSICS_VERSION", "v3")   # the loop is version-agnostic: test_all.sh runs v3, v4 and v5
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import httpx                                     # noqa: E402
@@ -25,6 +25,10 @@ from fastapi.testclient import TestClient        # noqa: E402
 import main                                      # noqa: E402
 import safety                                    # noqa: E402
 from physics import UAVEngineTwin                # noqa: E402
+
+if main.PHYSICS_VERSION != os.environ["AERO_PHYSICS_VERSION"]:   # main reads it once, at import
+    raise ImportError(f"main is already loaded as physics {main.PHYSICS_VERSION}, this module needs "
+                      f"{os.environ['AERO_PHYSICS_VERSION']} - run it in its own process (scripts/test_all.sh)")
 
 
 def strict_json(text):
@@ -269,11 +273,12 @@ class SimulationSafetyTest(unittest.TestCase):
         self.ai.set(mode="down")
         self.start_cruise()
         self.assertTrue(self.wait_for(lambda: self.sim_time() > 1.0, timeout=8))
-        original = UAVEngineTwin.step
+        twin_cls = type(main.twin)      # whichever physics version main runs
+        original = twin_cls.step
 
         def broken(self_twin):
             raise RuntimeError("simulated solver blow-up")
-        UAVEngineTwin.step = broken
+        twin_cls.step = broken
         main.twin.step = broken.__get__(main.twin)
         try:
             self.assertTrue(self.wait_for(lambda: self.state()["sim_status"]["health"] == "halted", timeout=5))
@@ -282,7 +287,7 @@ class SimulationSafetyTest(unittest.TestCase):
             self.assertFalse(self.client.get("/health").json()["loop_alive"])
             self.assertIn("simulated solver blow-up", st["sim_status"]["last_error"])
         finally:
-            UAVEngineTwin.step = original
+            twin_cls.step = original
             if "step" in main.twin.__dict__:
                 del main.twin.__dict__["step"]
         r = self.client.post("/start", json={}).json()
@@ -315,6 +320,23 @@ class SimulationSafetyTest(unittest.TestCase):
                     self.assertIn(msg["sim_status"]["health"], ("running", "recovered", "halted"))
         self.assertEqual(frames, 6)
         self.assertTrue(self.wait_for(lambda: self.client.get("/health").json()["loop_alive"], timeout=3))
+
+    def test_warmup_fast_forward_keeps_the_stream_at_20_hz(self):
+        # A long warm-up: physics runs faster than real time while the AI window fills.
+        self.ai.set(mode="ok", warmup_calls=10_000)
+        self.start_cruise()
+        self.assertTrue(self.wait_for(lambda: self.sim_time() > 0.5, timeout=8))
+        frames, t_sim = 0, []
+        with self.client.websocket_connect("/ws") as ws:
+            t0 = time.monotonic()
+            while time.monotonic() - t0 < 1.5:
+                msg = json.loads(ws.receive_text())
+                frames += 1
+                t_sim.append(msg.get("time") or 0.0)
+        wall = time.monotonic() - t0
+        if t_sim[-1] - t_sim[0] <= 2.0 * wall:      # a busy machine: no fast-forward, nothing to cap
+            self.skipTest(f"physics ran {t_sim[-1] - t_sim[0]:.1f} s in {wall:.1f} s - not fast-forwarding")
+        self.assertLessEqual(frames / wall, 25.0, f"{frames} frames in {wall:.1f} s")
 
 
 if __name__ == "__main__":

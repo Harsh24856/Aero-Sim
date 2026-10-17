@@ -26,7 +26,6 @@ AERO_AI_DEVICE=gpu for the GPU.
 PLACEHOLDERS. As aiv4: an engine without its own export is served by the 914's, and
 every response says so.
 """
-import json
 import os
 import sys
 from collections import deque
@@ -60,7 +59,6 @@ threadpool_limits(1)
 
 import features_v5 as F                                        # noqa: E402
 import physics_v5 as V                                         # noqa: E402
-import rul_v5                                                  # noqa: E402
 import twin_v5                                                 # noqa: E402
 from assembly_v5 import Deployed, apply_temperature            # noqa: E402
 from degradation_v5 import FAULT_NAMES, applicable_faults      # noqa: E402

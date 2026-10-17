@@ -39,7 +39,7 @@ from . import damage as D
 from . import noise as N
 from . import parser as P
 from . import turbofan as TF
-from .surrogate import assign_health, assign_regimes, gkey, _raw_lag1_acf
+from .surrogate import assign_health, assign_regimes, gkey
 
 OUT_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),

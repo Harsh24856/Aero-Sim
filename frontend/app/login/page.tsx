@@ -277,7 +277,7 @@ export default function LoginPage() {
 
         <p className="mt-6 text-center">
           <Link href="/home" className="font-mono text-[11px] uppercase tracking-wider text-on-surface-variant/60 transition-colors hover:text-tertiary">
-            Continue without an account &rarr;
+            Browse without an account &rarr;
           </Link>
         </p>
       </div>

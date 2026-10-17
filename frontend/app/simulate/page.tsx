@@ -19,6 +19,7 @@ import SoundToggle from "@/components/SoundToggle";
 import ScenarioPanel from "@/components/ScenarioPanel";
 import type { V4Engine, V4Truth } from "@/lib/v4";
 import { EngineSound } from "@/lib/engineSound";
+import { API, WS_URL } from "@/lib/api";
 
 // Which themed Simulator variant to render, based on the ?engine= query param
 // set by /engine's selectEngine() navigation. Falls back to the base (914)
@@ -29,8 +30,6 @@ const SIMULATOR_BY_ENGINE: Record<string, typeof SimulatorDefault> = {
   Rotax_916_iS: Simulator916,
 };
 
-const API = "http://localhost:8000";
-const WS_URL = "ws://localhost:8000/ws";
 
 function SimulatePageInner() {
   const router = useRouter();
@@ -94,6 +93,12 @@ function SimulatePageInner() {
   const [airspeedTarget, setAirspeedTarget] = useState(35); // m/s
   const [started, setStarted] = useState(false);
   const [paused, setPaused] = useState(false);
+  // Frames arrive only while the backend is flying. A live feed on a page that has not
+  // started a flight means one is already running (another tab, a script):
+  // say so instead of "click Start". Once this page starts a flight, trailing frames
+  // after its own Stop must not read as someone else's.
+  const [feedLive, setFeedLive] = useState(false);
+  const everStartedRef = useRef(false);
   useEffect(() => { flyingRef.current = started && !paused; }, [started, paused]);
   const [liveTelemetry, setLiveTelemetry] = useState<SimTelemetry | null>(null);
   const [aiResult, setAiResult] = useState<AiResult | null>(null);
@@ -244,6 +249,7 @@ function SimulatePageInner() {
             speed: s.params.airspeed ?? 0,
             pitch: s.params.aoa ?? 0,
           });
+          everStartedRef.current = true;
           setStarted(true);
         }
       } catch {
@@ -286,6 +292,7 @@ function SimulatePageInner() {
     let retry = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let lastFrame = Date.now();
+    let feedTimer: ReturnType<typeof setTimeout> | null = null;
 
     const connect = () => {
       setLink((l) => (l === "open" ? "connecting" : l));
@@ -301,6 +308,9 @@ function SimulatePageInner() {
         }
         lastFrame = Date.now();
         setLink((l) => (l === "open" ? l : "open"));
+        setFeedLive(true);
+        if (feedTimer) clearTimeout(feedTimer);
+        feedTimer = setTimeout(() => setFeedLive(false), 2000);
         if ("ai" in data) setAiResult((data.ai as AiResult | null) ?? null);
         if (data.advisory) setAdvisory(data.advisory as Advisory);
         if ("residuals" in data) setResiduals((data.residuals as Residuals | null) ?? null);
@@ -343,6 +353,7 @@ function SimulatePageInner() {
     return () => {
       closedByPage = true;
       if (timer) clearTimeout(timer);
+      if (feedTimer) clearTimeout(feedTimer);
       clearInterval(watchdog);
       wsRef.current?.close();
     };
@@ -482,7 +493,7 @@ function SimulatePageInner() {
   // enforcement point) rather than only hiding/disabling the button, since a
   // disabled button alone would not stop a direct call to this handler. Not
   // signed in -> redirect to /login instead of starting anything, matching how
-  // the login page itself already has a "continue without an account" escape
+  // the login page itself already has a "browse without an account" escape
   // hatch for anyone who genuinely does not want to sign up.
   const onStart = useCallback(async () => {
     const { data } = await supabase.auth.getSession();
@@ -493,6 +504,7 @@ function SimulatePageInner() {
     }
     setStoppedSummary(null);   // dismiss any previous run's summary card
     void ensureSound();
+    everStartedRef.current = true;
     setStarted(true);
     try {
       const res = await fetch(`${API}/start`, {
@@ -668,9 +680,11 @@ function SimulatePageInner() {
     <>
       <Navbar />
       {/* mt-16 clears the fixed Navbar (h-16 = 4rem) WITHOUT eating into
-          the grid's own height. h-[calc(100vh-4rem)] is the actual
-          content area; overflow-hidden prevents page-level scroll. */}
-      <div className="mt-16 grid h-[calc(100vh-4rem)] grid-cols-1 gap-2 overflow-hidden bg-[#050403] p-2 md:grid-cols-[240px_1fr_240px]">
+          the grid's own height. From md up, h-[calc(100vh-4rem)] is the actual
+          content area and overflow-hidden prevents page-level scroll. On a phone the
+          three columns stack, and one fixed screen height squeezed the flight display
+          to a sliver: there the page scrolls and each panel keeps a minimum height. */}
+      <div className="mt-16 grid grid-cols-1 gap-2 bg-[#050403] p-2 md:h-[calc(100vh-4rem)] md:grid-cols-[240px_1fr_240px] md:overflow-hidden">
         <Sensr
           rawTelemetry={rawTelemetry}
         />
@@ -725,9 +739,11 @@ function SimulatePageInner() {
               initialScenario={preset?.scenario}
             />
           )}
-          <div className="relative min-h-0" style={{ flex: '50 1 0%' }}>
-            {/* Bottom-right: the top corners carry the HUD's HDG/ALT and TAS/R-C readouts. */}
-            <div className="absolute bottom-2 right-2 z-20">
+          <div data-testid="flight-display" className="relative h-[400px] pt-9 md:h-auto md:min-h-0 md:flex-[50_1_0%] md:pt-0">
+            {/* Bottom-right: the top corners carry the HUD's HDG/ALT and TAS/R-C readouts.
+                On a phone the hint text under the display wraps into that corner, so the
+                control sits above the display instead, in the box's top padding. */}
+            <div className="absolute right-0 top-0 z-20 md:bottom-2 md:right-2 md:top-auto">
               <SoundToggle
                 muted={soundMuted}
                 volume={soundVolume}
@@ -735,6 +751,23 @@ function SimulatePageInner() {
                 onVolume={(v) => { setSoundVolume(v); if (soundMuted) setSoundMuted(false); }}
               />
             </div>
+            {feedLive && !started && !everStartedRef.current && !resumePending && (
+              <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-[#050403]/95 px-4 text-center">
+                <div className="text-[13px] font-bold uppercase tracking-[0.14em] text-[#f8efdd] md:text-[16px]">
+                  A flight is already running
+                </div>
+                <div className="max-w-sm text-[11px] text-[#bca18e]">
+                  It was started outside this page (another tab or a script).
+                  The panels show it live. Stop it to fly from here.
+                </div>
+                <button
+                  onClick={onStopClick}
+                  className="rounded border border-[#7a3030] bg-[#5a2020] px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-[#f8efdd]"
+                >
+                  Stop that flight
+                </button>
+              </div>
+            )}
             {resumePending ? (
               <div className="flex h-full items-center justify-center rounded border border-outline-variant/30 bg-black/40 text-[11px] uppercase tracking-[0.15em] text-tertiary">
                 Restoring flight state...
@@ -755,7 +788,7 @@ function SimulatePageInner() {
             />
             )}
           </div>
-          <div className="min-h-0" style={{ flex: '50 1 0%' }}>
+          <div className="min-h-[360px] md:min-h-0 md:flex-[50_1_0%]">
             <Meters
               // While the aircraft is on the CAN bus it owns the set-points (main.py ignores
               // the sliders), so the gauges show its values from telemetry, not local state.

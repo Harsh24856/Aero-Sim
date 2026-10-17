@@ -173,7 +173,6 @@ def profile(n: int, dt: float) -> list:
     rows = []
     for k in range(n):
         f = k / max(n - 1, 1)
-        t = k * dt
         rows.append({
             "altitude_m": 6800.0 * max(0.0, min(1.0, (f - 0.35) / 0.35)) if f < 0.9 else 300.0,
             "airspeed_ms": 0.0 if f < 0.05 else 30.0 + 28.0 * math.sin(f * 7.0) ** 2,

@@ -757,9 +757,12 @@ function FlightApproachGame({
           <button className="fg-btn" {...heldPress("left")}>◀ SPD</button>
           <button className="fg-btn" {...heldPress("right")}>SPD ▶</button>
           <button className="fg-btn" onClick={restart}>RESTART</button>
-          <button className="fg-btn" style={{ background: "#5a2020", borderColor: "#7a3030" }} onClick={onStop}>STOP SIMULATION</button>
+          {/* Only a flight this page started can be stopped from here: idle, the button
+              ended nothing and still put up a "stopped" summary card. */}
+          {started && <button className="fg-btn" style={{ background: "#5a2020", borderColor: "#7a3030" }} onClick={onStop}>STOP SIMULATION</button>}
         </div>
-        <div>Click the display, then ↑↓ = altitude, ←→ = speed. Land under {Math.round(SAFE_LANDING_SPEED * 1.943844)} kt, gently.</div>
+        {/* md:pr-40 keeps clear of the volume control in the corner (simulate/page.tsx). */}
+        <div className="md:pr-40">Click the display, then ↑↓ = altitude, ←→ = speed. Land under {Math.round(SAFE_LANDING_SPEED * 1.943844)} kt, gently.</div>
       </div>
     </div>
   );

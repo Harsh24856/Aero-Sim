@@ -42,7 +42,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(HERE), "backend"))
 import evaluate as E  # noqa: E402
 import features_v5 as F  # noqa: E402
 import physics_v5 as P  # noqa: E402
-from pipeline_v5 import CTX_COLS, Cache  # noqa: E402
+from pipeline_v5 import CTX_COLS  # noqa: E402
 
 MARGIN_CH = ["cht", "egt", "oil_temp", "oil_pressure", "engine_rpm"]
 

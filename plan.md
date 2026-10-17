@@ -187,7 +187,7 @@ status per engine. Refresh the README, this plan, and a four-engine model-card s
 
 ### Housekeeping
 
-- Fix the three backend tests that fail only in a full-suite run (test-order state leak).
+- ~~Fix the three backend tests that fail only in a full-suite run (test-order state leak).~~ Done 2026-10-14: `scripts/test_all.sh`, and CI (reports/test_audit_2026-10-14.md).
 - Decide on the unmerged branch `claude/male-uav-digital-twin-validation-e0bbe4`.
 
 ### Later (v6)

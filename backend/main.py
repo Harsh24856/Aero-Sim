@@ -108,7 +108,9 @@ app = FastAPI(title="UAV Digital Twin API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # MVP only - lock this down before real deployment
+    # Comma-separated, e.g. AERO_CORS_ORIGINS=https://aero-sim.example.com. Default "*"
+    # is for local use only - set it before the API is reachable from anywhere else.
+    allow_origins=[o.strip() for o in os.environ.get("AERO_CORS_ORIGINS", "*").split(",") if o.strip()],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -262,6 +264,10 @@ def log_telemetry(simulation_id, time_offset_s, raw, ai):
         return db.log_telemetry(simulation_id, time_offset_s, raw, ai, residuals=state["residuals"])
     return db.log_telemetry(simulation_id, time_offset_s, raw, ai)
 STEPS_PER_BROADCAST = 5  # 0.01s * 5 = 20Hz telemetry rate
+# Warm-up fast-forward runs steps as fast as the CPU allows, and counting steps alone sent
+# ~500 frames/s (~5 MB/s per browser) until the AI window filled. While fast-forwarding,
+# frames are also spaced in wall-clock time; real-time pacing is left to the step count.
+BROADCAST_MIN_INTERVAL_S = 0.05
 
 # How often a telemetry_logs row is written, in SIMULATED seconds.
 #
@@ -890,6 +896,8 @@ async def simulation_loop():
     worker = asyncio.create_task(ai_worker(queue))
     step_count = 0
     next_tick = time.monotonic()
+    last_broadcast = 0.0
+    fast_forward = False        # the previous step's pacing decision
     if state["sim_health"] in ("idle", "halted"):
         state["sim_health"] = "running"
     try:
@@ -989,7 +997,9 @@ async def simulation_loop():
                         waited += 0.005
 
             # ---- broadcast at 20 Hz (guarded) ----
-            if step_count % STEPS_PER_BROADCAST == 0:
+            if (step_count % STEPS_PER_BROADCAST == 0
+                    and (not fast_forward or time.monotonic() - last_broadcast >= BROADCAST_MIN_INTERVAL_S)):
+                last_broadcast = time.monotonic()
                 try:
                     payload = client_frame(out)
                     payload["ai"] = state["last_ai_result"]
@@ -1398,10 +1408,16 @@ async def reset_sim():
 async def list_engines():
     """Single source of truth is physics.py's ENGINE_CONFIGS - the frontend never
     hardcodes a duplicate list, it just asks this endpoint."""
+    await refresh_ai_version()      # the engine list is read before any /start has asked
     return {
         "engines": list(ENGINE_CONFIGS.keys()),
         "current": CURRENT_ENGINE_MODEL,
         "ai_valid_engines": list(AI_VALID_ENGINES),
+        # From the AI service's last /health: engines it serves with another engine's
+        # models, and whether it answered at all (the cockpit list must not claim
+        # "AI ready" for either).
+        "ai_placeholder_engines": (state["ai_health"] or {}).get("placeholder_engines") or [],
+        "ai_online": state["ai_model_version"] is not None,
     }
 
 

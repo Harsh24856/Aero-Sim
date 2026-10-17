@@ -13,6 +13,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import main  # noqa: E402
 from twin_v5 import UAVEngineTwinV5  # noqa: E402
 
+if main.PHYSICS_VERSION != os.environ["AERO_PHYSICS_VERSION"]:   # main reads it once, at import
+    raise ImportError(f"main is already loaded as physics {main.PHYSICS_VERSION}, this module needs "
+                      f"{os.environ['AERO_PHYSICS_VERSION']} - run it in its own process (scripts/test_all.sh)")
+
 AI = {"status": "ok", "model_version": "v5", "fault_detected": True, "detection_confidence": 0.9,
       "fault_modes": {"oil_pump_degradation": {"probability": 0.9, "present": True, "threshold": 0.3,
                                                "severity": 0.4, "family": "oil"},

@@ -12,8 +12,8 @@ import {
 } from "@/lib/missionPresets";
 import { formatSimClock } from "@/lib/timeScale";
 import { Mountain, Clock, Thermometer, Activity, Crosshair, Play, Film, FileText, ChevronRight, Zap } from "lucide-react";
+import { API } from "@/lib/api";
 
-const API = "http://localhost:8000";
 
 const ENGINES = [
   { id: "Rotax_914_ULF", label: "914 ULF" },

@@ -3,7 +3,8 @@
 import { Suspense, useMemo } from "react";
 import { Canvas } from "@react-three/fiber";
 import * as THREE from "three";
-import { useGLTF, Environment, ContactShadows, Bounds, Center } from "@react-three/drei";
+import { useGLTF, ContactShadows, Bounds, Center } from "@react-three/drei";
+import SafeEnvironment from "@/components/SafeEnvironment";
 
 const MODEL_PATH = "/models/blackout-plane.glb";
 
@@ -79,7 +80,7 @@ export default function GamePlane({ tintColor }: GamePlaneProps) {
               <PlaneMesh tintColor={tintColor} />
             </Center>
           </Bounds>
-          <Environment preset="city" />
+          <SafeEnvironment preset="city" />
           <ContactShadows position={[0, -1.1, 0]} opacity={0.5} scale={10} blur={2} far={2} />
         </Suspense>
       </Canvas>
