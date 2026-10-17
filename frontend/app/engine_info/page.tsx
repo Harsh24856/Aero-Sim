@@ -29,7 +29,7 @@ import "./engine-info.css";
 const ENGINE_SPECS = [
   {
     id: "Rotax_912_ULS",
-    v4: { idle: "1,400", critAlt: "n/a (no turbo)", tbo: "2,000 h", egtLimit: "880 \u00b0C", faultTypes: 11, ai: "training" as "trained" | "training" },
+    twin: { idle: "1,400", critAlt: "n/a (no turbo)", tbo: "2,000 h", egtLimit: "880 \u00b0C", faultTypes: 11, ai: "trained" as "trained" | "training" },
     code: "01",
     name: "ROTAX 912 ULS",
     role: "Naturally Aspirated Baseline",
@@ -55,7 +55,7 @@ const ENGINE_SPECS = [
   },
   {
     id: "Rotax_914_ULF",
-    v4: { idle: "1,400", critAlt: "15,000 ft", tbo: "2,000 h", egtLimit: "950 \u00b0C", faultTypes: 13, ai: "trained" as "trained" | "training" },
+    twin: { idle: "1,400", critAlt: "15,000 ft", tbo: "2,000 h", egtLimit: "950 \u00b0C", faultTypes: 13, ai: "trained" as "trained" | "training" },
     code: "02",
     name: "ROTAX 914 F/UL",
     role: "Turbocharged Baseline",
@@ -81,7 +81,7 @@ const ENGINE_SPECS = [
   },
   {
     id: "Rotax_915_iS",
-    v4: { idle: "1,400", critAlt: "15,000 ft", tbo: "1,200 h", egtLimit: "950 \u00b0C", faultTypes: 14, ai: "training" as "trained" | "training" },
+    twin: { idle: "1,400", critAlt: "15,000 ft", tbo: "1,200 h", egtLimit: "950 \u00b0C", faultTypes: 14, ai: "trained" as "trained" | "training" },
     code: "03",
     name: "ROTAX 915 iS",
     role: "Advanced Turbocharged / EFI Model",
@@ -107,7 +107,7 @@ const ENGINE_SPECS = [
   },
   {
     id: "Rotax_916_iS",
-    v4: { idle: "1,400", critAlt: "15,000 ft", tbo: "2,000 h", egtLimit: "950 \u00b0C", faultTypes: 14, ai: "training" as "trained" | "training" },
+    twin: { idle: "1,400", critAlt: "15,000 ft", tbo: "2,000 h", egtLimit: "950 \u00b0C", faultTypes: 14, ai: "trained" as "trained" | "training" },
     code: "04",
     name: "ROTAX 916 iS",
     role: "High-Performance Flagship Model",
@@ -145,14 +145,14 @@ const SECTIONS = [
   { id: "sources",      label: "Sources" },
 ];
 
-// Physics-v4 models, scored on test flights they never saw (validation_v4, models_v4
-// manifests). RUL is quoted on the inputs a real aircraft has - predicted wear and
-// severity, measured margin - not on simulator labels.
+// Physics-v5 specialists, each scored on ~900 test flights it never saw
+// (validation_v5/artifacts/<engine>b_specialists/model_card.md). A/B: scripts/ab_v5.py,
+// 22-23 flights against the 914 stand-in each engine replaced (Harsh24856/Aero-Sim#16).
 const STAGES = [
-  { label: "914 F/UL \u2014 reference twin", done: true, desc: "Six models deployed. Detection AUC 0.879 (0.952 where the engine has drifted from its twin), fault naming F1 0.612 over 13 fault types, severity error 0.22 on real faults, sensor-condition F1 0.417, wear error 0.063. RUL 4.6% of TBO overall; on engines that wear out early 387 h against 462 h for counting down to overhaul." },
-  { label: "912 ULS", done: false, desc: "11 fault types (no turbo). Training on the v4 data; results appear here once all six models pass their gates." },
-  { label: "915 iS", done: false, desc: "14 fault types and a shorter 1,200 h TBO. Training on the v4 data; the 914's models stand in until it finishes." },
-  { label: "916 iS", done: false, desc: "14 fault types. Training on the v4 data. All four engines share one twin, one 29-input contract and one set of gates." },
+  { label: "914 F/UL \u2014 reference twin", done: true, desc: "13 fault types. Detection 0.978 (faults caught at 95% precision), fault naming F1 0.842, severity error 0.073, sensor F1 0.898, health error 0.029, remaining life 9.3% of TBO on engines that wear out early. 6 of 6 gates." },
+  { label: "912 ULS", done: true, desc: "11 fault types (no turbo). Detection 0.967, naming F1 0.834, severity 0.082, sensor 0.901, health 0.028, remaining life 10.9% of TBO. 5 of 6 gates (severity bias). Against the 914 stand-in: exact naming 80.9% \u2192 88.9%, false alarms 12.8% \u2192 0%." },
+  { label: "915 iS", done: true, desc: "14 fault types, 1,200 h TBO. Detection 0.975, naming F1 0.808, severity 0.090, sensor 0.900, health 0.030, remaining life 10.5% of TBO. 5 of 6 gates (severity bias). The 914 stand-in alarmed on 99% of healthy 915 flights; this model on none. Weak spot: air-filter fouling." },
+  { label: "916 iS", done: true, desc: "14 fault types. Detection 0.971, naming F1 0.803, severity 0.077, sensor 0.892, health 0.027, remaining life 11.1% of TBO. 4 of 6 gates (air-filter recall 0.33, severity bias). Against the 914 stand-in: exact naming 77.6% \u2192 94.1%, false alarms 100% \u2192 0%." },
 ];
 
 const PHYSICS_FORMULAS = [
@@ -174,13 +174,13 @@ const UAV_CASES = [
 ];
 
 const VALIDATION_LEVELS = [
-  { lvl: "L1", title: "Specification Validation", desc: "Verify OEM rated power, maximum continuous RPM, dry mass, and published torque points against certified BRP-Rotax flight manuals." },
-  { lvl: "L2", title: "Physics Validation", desc: "Verify P = T·ω conservation, ideal gas density lapse, and thermal dissipation rates in steady-state operation." },
-  { lvl: "L3", title: "Map Validation", desc: "Compare predicted torque and brake specific fuel consumption (BSFC) against trusted dynamometer operating points." },
-  { lvl: "L4", title: "Dynamic Validation", desc: "Test throttle transients, turbocharger spool-up lag, and cylinder thermal inertia where time-series test records exist." },
-  { lvl: "L5", title: "AI Validation", desc: "Every model ships only through its gates on flights it never saw, scored on the number that matters: detection where the engine has drifted, fault naming across every fault type, severity where a fault exists, sensor condition with every kind weighted equally, and RUL on engines that wear out early." },
-  { lvl: "L6", title: "Live-input honesty", desc: "The live window is proven identical to training (zero difference on real test flights), and RUL is re-scored on predicted wear and severity instead of simulator labels - the number an aircraft would actually get." },
-  { lvl: "L7", title: "Cross-implementation", desc: "The Simulink Rotax 914 v4 model is compared step for step with the Python twin: four reference flights, about 26,000 steps, every channel, worst relative error 2e-15." },
+  { lvl: "L1", status: "Sourced", ok: true, title: "Specification Validation", desc: "Rated power, maximum RPM, dry mass and torque are taken from BRP-Rotax's published specification sheets (see Sources)." },
+  { lvl: "L2", status: "Tested", ok: true, title: "Physics Validation", desc: "19 checks on physics v5 (backend/tests/test_physics_v5.py): rated power at rated RPM, ground idle, fuel flow against Rotax's 75% figures, boost held to the critical altitude, EGT rising with power, and temperatures and pressures inside the certified bands." },
+  { lvl: "L3", status: "Not run \u00b7 no dyno data", ok: false, title: "Map Validation", desc: "Compare predicted torque and brake specific fuel consumption (BSFC) against trusted dynamometer operating points." },
+  { lvl: "L4", status: "Not run \u00b7 no test records", ok: false, title: "Dynamic Validation", desc: "Test throttle transients, turbocharger spool-up lag, and cylinder thermal inertia where time-series test records exist." },
+  { lvl: "L5", status: "20 of 24 gates", ok: true, title: "AI Validation", desc: "Every engine's models are scored on about 900 flights they never saw: detection, fault naming across every fault type, severity where a fault exists, sensor condition with every kind weighted equally, and remaining life on engines that wear out early. 20 of 24 gates pass across the four engines; the misses (severity bias on the 912, 915 and 916, air-filter recall on the 916) are on each scorecard. An engine replaced the 914 stand-in only after a 22-flight A/B against it." },
+  { lvl: "L6", status: "Parity tested", ok: true, title: "Live-input honesty", desc: "The live window is proven identical to training (zero difference on real test flights), and RUL is re-scored on predicted wear and severity instead of simulator labels - the number an aircraft would actually get." },
+  { lvl: "L7", status: "Passed (914, v4)", ok: true, title: "Cross-implementation", desc: "The Simulink Rotax 914 v4 model is compared step for step with the Python twin: four reference flights, about 26,000 steps, every channel, worst relative error 2e-15." },
 ];
 
 /* ─── Section divider ───────────────────────────────────────────────────────── */
@@ -207,7 +207,7 @@ export default function EngineInfoPage() {
   const [activeEngineIndex, setActiveEngineIndex] = useState<number>(0);
   const [activeSection, setActiveSection] = useState<string>(SECTIONS[0].id);
   const selectedEngine = ENGINE_SPECS[activeEngineIndex];
-  const trained = selectedEngine.v4.ai === "trained";
+  const trained = selectedEngine.twin.ai === "trained";
 
   // The section nav follows the reader: the section crossing the band just
   // under the sticky bars is the current one.
@@ -443,7 +443,7 @@ export default function EngineInfoPage() {
                       <span className="text-on-surface-variant/80 text-[11px] block uppercase tracking-wider">AI STATUS</span>
                       <span className="font-bold text-primary flex items-center gap-1.5">
                         <span className={`h-1.5 w-1.5 rounded-full ${trained ? "bg-tertiary animate-pulse" : "bg-on-surface-variant/60"}`} />
-                        {trained ? "AI READY · V4 MODELS LIVE" : "AI TRAINING · 914 MODELS STAND IN"}
+                        {trained ? "AI READY · OWN V5 MODELS LIVE" : "AI TRAINING · 914 MODELS STAND IN"}
                       </span>
                     </div>
                     <button
@@ -488,11 +488,11 @@ export default function EngineInfoPage() {
                       { label: "RATED SPEED", value: selectedEngine.maxRpm, sub: "RPM", hi: false },
                       { label: "DRY MASS", value: `${selectedEngine.massKg} kg`, sub: selectedEngine.powerToMass, hi: true },
                       { label: "MAX TORQUE", value: selectedEngine.torque.split(" @")[0], sub: "@ 5,800 RPM", hi: false },
-                      // physics_v4, the model the twin and the AI run on
-                      { label: "IDLE", value: selectedEngine.v4.idle, sub: "RPM", hi: false },
-                      { label: "CRITICAL ALT", value: selectedEngine.v4.critAlt, sub: "full boost held to", hi: false },
-                      { label: "TBO", value: selectedEngine.v4.tbo, sub: "scheduled overhaul", hi: true },
-                      { label: "FAULT TYPES", value: String(selectedEngine.v4.faultTypes), sub: "the AI can name", hi: true },
+                      // physics_v5, the model the twin and the AI run on
+                      { label: "IDLE", value: selectedEngine.twin.idle, sub: "RPM", hi: false },
+                      { label: "CRITICAL ALT", value: selectedEngine.twin.critAlt, sub: "full boost held to", hi: false },
+                      { label: "TBO", value: selectedEngine.twin.tbo, sub: "scheduled overhaul", hi: true },
+                      { label: "FAULT TYPES", value: String(selectedEngine.twin.faultTypes), sub: "the AI can name", hi: true },
                     ].map((spec) => (
                       <div key={spec.label} className="border border-outline-variant/25 bg-surface-container-highest/60 p-3 rounded-lg">
                         <span className="text-[11px] text-on-surface-variant/80 block uppercase tracking-wider">{spec.label}</span>
@@ -509,9 +509,9 @@ export default function EngineInfoPage() {
                       <p className="font-sans text-on-surface-variant leading-relaxed text-sm">{selectedEngine.simulationModel}</p>
                     </div>
                     <div className="border-l-2 border-outline-variant/50 bg-white/[0.02] p-3 pl-4 rounded-r-lg">
-                      <span className="text-on-surface-variant/80 font-bold uppercase tracking-wider block text-[11px] mb-1">CERTIFIED LIMITS (PHYSICS V4)</span>
+                      <span className="text-on-surface-variant/80 font-bold uppercase tracking-wider block text-[11px] mb-1">CERTIFIED LIMITS (PHYSICS V5)</span>
                       <div className="text-on-surface-variant text-[11px]">
-                        CHT 135 &deg;C &middot; EGT {selectedEngine.v4.egtLimit} &middot; oil temp 130 &deg;C &middot; oil pressure min 0.8 bar below 3,500 RPM, 2.0 bar above
+                        CHT 135 &deg;C &middot; EGT {selectedEngine.twin.egtLimit} &middot; oil temp 130 &deg;C &middot; oil pressure min 0.8 bar below 3,500 RPM, 2.0 bar above
                       </div>
                     </div>
                     <div className="border-l-2 border-outline-variant/50 bg-white/[0.02] p-3 pl-4 rounded-r-lg">
@@ -580,8 +580,8 @@ export default function EngineInfoPage() {
                       <td className="p-4 font-bold text-tertiary">{eng.relativePower}</td>
                       <td className="p-4 text-primary font-bold">{eng.powerToMass}</td>
                       <td className="p-4">
-                        <span className={`px-2 py-0.5 rounded text-[11px] font-bold border ${eng.v4.ai === "trained" ? "bg-tertiary/15 text-tertiary border-tertiary/30" : "bg-black/30 text-on-surface-variant border-outline-variant/40"}`}>
-                          {eng.v4.ai === "trained" ? "V4 TRAINED" : "V4 TRAINING"}
+                        <span className={`px-2 py-0.5 rounded text-[11px] font-bold border ${eng.twin.ai === "trained" ? "bg-tertiary/15 text-tertiary border-tertiary/30" : "bg-black/30 text-on-surface-variant border-outline-variant/40"}`}>
+                          {eng.twin.ai === "trained" ? "V5 TRAINED" : "V5 TRAINING"}
                         </span>
                       </td>
                     </tr>
@@ -654,9 +654,9 @@ export default function EngineInfoPage() {
           <section id="ai-twin" className="scroll-mt-28 ei-reveal">
             <SectionHeader code="08 // ML PIPELINE">AI Digital-Twin Architecture</SectionHeader>
             <p className="text-sm text-on-surface-variant mb-5">
-              One TCN encoder over the window feeds four classification heads; RUL gets its own branch
-              and its own dataset, because in the shared one the label moved by 15.8 h inside a single
-              128-sample window — the same size as the head&apos;s own error.
+              Five specialist networks, one per question, read the same 128-second window. A separate
+              gradient-boosted model estimates remaining life from that window, the engine&apos;s history
+              and its inspection logbook. Every engine has its own set.
             </p>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -667,9 +667,9 @@ export default function EngineInfoPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="border-r border-outline-variant/25 pr-4">
-                    <span className="text-[11px] text-on-surface-variant/80 uppercase block mb-2 font-bold">INPUT WINDOW — 25 CH × 128 STEPS</span>
+                    <span className="text-[11px] text-on-surface-variant/80 uppercase block mb-2 font-bold">INPUT WINDOW — 39 CH × 128 STEPS</span>
                     <ul className="space-y-1.5 text-on-surface-variant/90">
-                      {["Flight state — altitude, throttle, airspeed, AoA", "Powerplant — RPM, torque, power, fuel flow", "Aero — thrust, lift, drag, thrust/lift margins", "Thermal — EGT, CHT, oil pressure, oil temp", "Vibration — X / Y / Z axis accelerometers", "Injection timing — carries misfire and injector signatures", "25 features, 128-second rolling window, plus 10 aux"].map((item) => (
+                      {["Flight state — altitude, airspeed, AoA, throttle", "Atmosphere — OAT, air density, ISA deviation, humidity", "Thermal — EGT, CHT, coolant, oil temp and pressure, airbox", "Powerplant — engine and prop RPM, fuel flow, MAP, wastegate, battery", "Vibration — X / Y / Z accelerometers; thrust and lift margins", "14 twin residuals — each instrument minus the healthy on-board twin", "Plus the flight's 60-minute trends as context"].map((item) => (
                         <li key={item} className="flex items-start gap-1.5 text-[11px]">
                           <span className="h-1 w-1 bg-tertiary rounded-full shrink-0 mt-1.5" />{item}
                         </li>
@@ -677,16 +677,16 @@ export default function EngineInfoPage() {
                     </ul>
                   </div>
                   <div>
-                    <span className="text-[11px] text-tertiary uppercase block mb-2 font-bold">OUTPUTS — 5 HEADS</span>
+                    <span className="text-[11px] text-tertiary uppercase block mb-2 font-bold">OUTPUTS — 5 SPECIALISTS + RUL</span>
                     <ul className="space-y-1.5">
                       {[
-                        "Fault Detection (binary, sigmoid)",
-                        "Per-Channel Diagnosis (8 ch × 6 fault types)",
-                        "Severity Score (0–100% per channel)",
-                        "Engine Failure Modes (4 modes, independent sigmoids)",
-                        "Remaining Useful Life (engine hours against TBO)",
-                        "Fault types: Bias, Drift, Spike, Stuck-At, Noise",
-                        "RUL: LSTM + window statistics, started at a ridge fit",
+                        "Detection — is anything wrong",
+                        "Diagnosis — which of 11–14 engine faults, and its family",
+                        "Severity — how bad, where a fault exists",
+                        "Sensor fault — 12 instruments × 6 kinds",
+                        "Health — wear condition, 0–1",
+                        "Sensor kinds: bias, drift, stuck, spike, noise, dropout",
+                        "Remaining life: gated gradient boosting on window, history and logbook",
                       ].map((item, i) => (
                         <li key={item} className={`flex items-start gap-1.5 font-bold text-[11px] ${i < 5 ? "text-tertiary" : "text-on-surface-variant/80"}`}>
                           <CheckCircle2 size={11} className="shrink-0 mt-0.5" />{item}
@@ -818,7 +818,7 @@ export default function EngineInfoPage() {
                       <p className="text-on-surface-variant text-xs mt-0.5 leading-relaxed">{item.desc}</p>
                     </div>
                   </div>
-                  <span className="font-mono text-[11px] text-tertiary/70 uppercase tracking-widest shrink-0 self-end sm:self-center">PASSED // NOMINAL</span>
+                  <span className={`font-mono text-[11px] uppercase tracking-widest shrink-0 self-end sm:self-center ${item.ok ? "text-tertiary" : "text-on-surface-variant/80"}`}>{item.status}</span>
                 </div>
               ))}
             </div>
