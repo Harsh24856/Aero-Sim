@@ -4,16 +4,16 @@
 # Each service is started only after the previous one passes its health check.
 # Logs go to .logs/. Ctrl-C (or any service exiting) stops everything.
 #
-#   scripts/start_stack.sh                          # physics v4 + aiv4.py (default)
-#   AERO_PHYSICS_VERSION=v5 scripts/start_stack.sh  # physics v5 + aiv5.py (the v5 specialists)
+#   scripts/start_stack.sh                          # physics v5 + aiv5.py (default)
+#   AERO_PHYSICS_VERSION=v4 scripts/start_stack.sh  # physics v4 + aiv4.py
 #   AERO_PHYSICS_VERSION=v3 scripts/start_stack.sh  # physics v3 + aiv3.py
 #   AERO_PHYSICS_VERSION=v2 scripts/start_stack.sh  # legacy v2 + ai.py
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LOG_DIR="${LOG_DIR:-$ROOT/.logs}"
-PHYSICS_VERSION="${AERO_PHYSICS_VERSION:-v4}"
-case "$PHYSICS_VERSION" in v2) AI_MODULE=ai ;; v3) AI_MODULE=aiv3 ;; v5) AI_MODULE=aiv5 ;; *) AI_MODULE=aiv4 ;; esac
+PHYSICS_VERSION="${AERO_PHYSICS_VERSION:-v5}"
+case "$PHYSICS_VERSION" in v2) AI_MODULE=ai ;; v3) AI_MODULE=aiv3 ;; v4) AI_MODULE=aiv4 ;; *) AI_MODULE=aiv5 ;; esac
 
 for port in 8100 8000 3000; do
   if lsof -ti:"$port" -sTCP:LISTEN >/dev/null 2>&1; then

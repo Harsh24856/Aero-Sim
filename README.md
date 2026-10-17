@@ -14,7 +14,7 @@ Browser  ─── Next.js (port 3000)
          FastAPI AI Service (port 8100)
                 │  TensorFlow/Keras heads (detection, diagnosis, severity,
                 │  sensor faults, health, RUL)
-              backend/models_v4/  (default)   backend/models_v5/  (v5)
+              backend/models_v5/  (default)   backend/models_v4/  (v4)
               backend/models_v3/, backend/models/  (legacy v3, v2)
 ```
 
@@ -31,8 +31,8 @@ Browser  ─── Next.js (port 3000)
 | `frontend/` | Next.js 16 App Router cockpit dashboard — see [frontend/README.md](frontend/README.md) |
 | `backend/main.py` | FastAPI physics API — simulation loop, REST endpoints, WebSocket stream |
 | `backend/physics.py` | Engine, propeller, aerodynamics, thermal, oil, vibration, wear, and fault models |
-| `backend/aiv4.py` | FastAPI AI inference service for physics v4, the default (port 8100) |
-| `backend/aiv5.py` | AI service for physics v5: the 914's specialist models (912/915/916 on the 914's until trained) |
+| `backend/aiv5.py` | FastAPI AI inference service for physics v5, the default (port 8100): every engine's own specialist models |
+| `backend/aiv4.py` | AI service for physics v4 |
 | `backend/twin_v4.py`, `backend/twin_v5.py` | The v4 / v5 flown engine + on-board twin + instruments |
 | `backend/aiv3.py`, `backend/ai.py` | Legacy v3 / v2 inference services. Same port; run one AI service at a time |
 | `backend/failure_modes.py` | Engine failure modes (misfire, injector fouling, cooling, combustion) |
@@ -179,8 +179,8 @@ that matches `main.py`'s physics version:
 
 ```bash
 cd backend
-../validation/venv/bin/uvicorn aiv4:app --host 127.0.0.1 --port 8100   # physics v4 (default)
-../validation/venv/bin/uvicorn aiv5:app --host 127.0.0.1 --port 8100   # AERO_PHYSICS_VERSION=v5
+../validation/venv/bin/uvicorn aiv5:app --host 127.0.0.1 --port 8100   # physics v5 (default)
+../validation/venv/bin/uvicorn aiv4:app --host 127.0.0.1 --port 8100   # AERO_PHYSICS_VERSION=v4
 ```
 
 No environment activation needed — calling the venv's `uvicorn` directly is
@@ -277,7 +277,7 @@ scripts/start_stack.sh
 
 It starts the AI service, physics backend and frontend in order, waits for each health check,
 writes logs to `.logs/`, and stops everything on Ctrl-C. Open <http://localhost:3000>.
-`AERO_PHYSICS_VERSION=v5 scripts/start_stack.sh` runs v5; `v3` and `v2` run the legacy stacks.
+It runs physics v5 by default; `AERO_PHYSICS_VERSION=v4 scripts/start_stack.sh` runs v4, and `v3` / `v2` the legacy stacks.
 
 Or by hand, in **three terminals**:
 
@@ -291,7 +291,7 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 **Terminal 2 — AI Service** (start this before Terminal 1, so the first simulated second has somewhere to go)
 ```bash
 cd backend
-../validation/venv/bin/uvicorn aiv4:app --host 127.0.0.1 --port 8100
+../validation/venv/bin/uvicorn aiv5:app --host 127.0.0.1 --port 8100
 ```
 Confirm `"backend_validated": true` at <http://localhost:8100/health> before trusting any diagnostics.
 
@@ -391,7 +391,7 @@ v3 responses carry `model_version`, `rul_hours` / `tbo_hours` (engine hours) and
 and have no `rul_hours_internal`. v3 runs persist through `backend/dbv3.py` with
 `simulations.model_version = 'v3'`.
 
-#### Physics v4 (the default)
+#### Physics v4 (superseded by v5; `AERO_PHYSICS_VERSION=v4`)
 
 Physics v4 (`backend/physics_v4.py`) runs a flown engine plus a healthy on-board twin, 12 instruments with
 their own faults, component-level degradation, and two clocks: flight time in real seconds and engine
@@ -421,7 +421,7 @@ cd ../backend && ../validation/venv/bin/python3 ../scripts/e2e_v4.py --engines 9
 
 Backend tests for v4 (from `backend/`): `.venv/bin/python -m unittest tests.test_twin_v4 tests.test_timescale_v4 tests.test_dbv4 tests.test_ai_v4_contract`.
 
-#### Physics v5 (opt-in; the 914 has its own models, other engines run on the 914's)
+#### Physics v5 (the default; every engine on its own models)
 
 Physics v5 (`backend/physics_v5.py`, `backend/twin_v5.py`) has 14 instruments, a residual on every one,
 and the flight's long-horizon context (60-minute trends). Its AI service is `backend/aiv5.py`, serving
@@ -431,10 +431,11 @@ RUL model. It answers in `aiv4`'s format plus fault families. v5 flights reuse v
 scenarios, clocks and storage.
 
 ```bash
-AERO_PHYSICS_VERSION=v5 scripts/start_stack.sh          # aiv5 :8100, physics :8000, frontend :3000
+scripts/start_stack.sh          # aiv5 :8100, physics :8000, frontend :3000
 ```
 
-The 914's v5 scorecard (900 held-out test flights) is `validation_v5/artifacts/914b_specialists/model_card.md`.
+Each engine's scorecard (about 900 held-out test flights) is `validation_v5/artifacts/<engine>b_specialists/model_card.md`
+(912, 914, 915, 916). The acceptance record, A/B tables and known gaps are on Harsh24856/Aero-Sim#16.
 v5 models do **not** need the Metal GPU: the CPU gives the same answers
 (`validation_v5/tests/test_export_parity_v5.py`), and `AERO_AI_DEVICE=cpu` is a valid choice.
 
