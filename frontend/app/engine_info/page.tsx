@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
@@ -189,7 +189,7 @@ function SectionHeader({ code, children }: { code: string; children: React.React
     <div className="mb-6">
       <div className="flex items-center gap-3 mb-1.5">
         <span className="h-px w-8 bg-tertiary shrink-0" />
-        <span className="font-mono text-[10px] font-bold text-tertiary tracking-[0.2em] uppercase shrink-0">
+        <span className="font-mono text-[11px] font-bold text-tertiary tracking-[0.16em] uppercase shrink-0">
           {code}
         </span>
         <span className="h-px flex-1 bg-outline-variant/30" />
@@ -220,6 +220,16 @@ export default function EngineInfoPage() {
     return () => io.disconnect();
   }, []);
 
+  // On a phone the nav scrolls sideways; keep the current chip in view. Scrolls only
+  // the nav: scrollIntoView would cancel the page's own smooth scroll.
+  const secNav = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const nav = secNav.current;
+    const chip = nav?.querySelector<HTMLElement>(`[data-sec="${activeSection}"]`);
+    if (nav && chip && nav.scrollWidth > nav.clientWidth)
+      nav.scrollTo({ left: chip.offsetLeft - (nav.clientWidth - chip.offsetWidth) / 2 });
+  }, [activeSection]);
+
   const scrollToSection = (id: string) => {
     const el = document.getElementById(id);
     const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -241,11 +251,11 @@ export default function EngineInfoPage() {
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
               <div className="flex items-center gap-3">
                 <span className="h-px w-8 bg-tertiary" />
-                <span className="font-mono text-[10px] font-bold tracking-[0.24em] text-tertiary uppercase">
+                <span className="font-mono text-[11px] font-bold tracking-[0.16em] text-tertiary uppercase">
                   AERO-SIM // TECHNICAL REPORT TR-ROTAX-2026-01
                 </span>
               </div>
-              <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.14em] text-on-surface-variant/70 border border-outline-variant/30 bg-surface/80 px-3 py-1.5 rounded">
+              <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-on-surface-variant/80 border border-outline-variant/30 bg-surface/80 px-3 py-1.5 rounded">
                 <ShieldCheck size={13} className="text-tertiary" />
                 SPECIFICATION & DIGITAL-TWIN STANDARD
               </div>
@@ -254,7 +264,7 @@ export default function EngineInfoPage() {
             <h1 className="font-headline-display text-[28px] sm:text-[36px] md:text-[46px] font-extrabold uppercase tracking-tight text-primary mb-2">
               Rotax Aircraft Engine Lineup
             </h1>
-            <p className="font-mono text-[10px] tracking-[0.16em] text-tertiary uppercase mb-4">
+            <p className="font-mono text-[11px] tracking-[0.16em] text-tertiary uppercase mb-4">
               ROTAX 912 ULS · ROTAX 914 F/UL · ROTAX 915 iS · ROTAX 916 iS
             </p>
             <p className="text-sm md:text-base leading-relaxed text-on-surface-variant max-w-4xl mb-8">
@@ -277,20 +287,20 @@ export default function EngineInfoPage() {
                       : "border-outline-variant/30 bg-surface/80 hover:border-tertiary/50 hover:-translate-y-0.5 hover:shadow-[2px_2px_0px_#000000]"
                   }`}
                 >
-                  <div className="font-mono text-[9px] text-tertiary font-bold tracking-widest uppercase mb-1">
+                  <div className="font-mono text-[11px] text-tertiary font-bold tracking-widest uppercase mb-1">
                     {eng.code} // {eng.powerHp} HP
                   </div>
                   <div className="font-headline-display font-bold text-sm text-primary group-hover:text-tertiary transition-colors truncate">{eng.name}</div>
-                  <div className="font-mono text-[10px] text-on-surface-variant/60 mt-0.5 truncate">{eng.tag}</div>
+                  <div className="font-mono text-[11px] text-on-surface-variant/80 mt-0.5 truncate">{eng.tag}</div>
                 </button>
               ))}
             </div>
 
             {/* Compliance note */}
-            <div className="flex items-start gap-3 border border-tertiary/25 bg-tertiary/[0.06] p-4 rounded-lg font-mono text-xs leading-relaxed text-on-surface-variant">
+            <div className="flex items-start gap-3 border border-tertiary/25 bg-tertiary/[0.06] p-4 rounded-lg text-sm leading-relaxed text-on-surface-variant">
               <Info size={16} className="text-tertiary shrink-0 mt-0.5" />
               <div>
-                <strong className="text-tertiary uppercase tracking-wider block mb-0.5">DATA BASIS & COMPLIANCE NOTE:</strong>
+                <strong className="font-mono text-[11px] text-tertiary uppercase tracking-wider block mb-1">DATA BASIS & COMPLIANCE NOTE:</strong>
                 Current BRP-Rotax product specifications verified against official technical documentation.
                 Where a value is not published in official OEM sheets, it is treated as a simulation-design
                 recommendation rather than an OEM certification value. Suitable for simulator design, physics
@@ -301,11 +311,12 @@ export default function EngineInfoPage() {
         </header>
 
         {/* Sticky section nav: a sibling of the header, so it stays pinned for the whole page */}
-        <div className="sticky top-16 z-30 bg-background/90 backdrop-blur-md border-b border-outline-variant/30 overflow-x-auto">
-          <div className="max-w-7xl mx-auto px-4 py-2 flex items-center gap-1 whitespace-nowrap font-mono text-[10px] uppercase tracking-wider">
+        <nav ref={secNav} aria-label="Report sections" className="sticky top-16 z-30 bg-background/90 backdrop-blur-md border-b border-outline-variant/30 overflow-x-auto">
+          <div className="max-w-7xl mx-auto px-4 md:px-6 py-2 flex items-center gap-1 whitespace-nowrap font-mono text-[11px] uppercase tracking-wider">
             {SECTIONS.map((sec) => (
               <button
                 key={sec.id}
+                data-sec={sec.id}
                 onClick={() => scrollToSection(sec.id)}
                 aria-current={activeSection === sec.id ? "true" : undefined}
                 className={`px-3 py-1.5 rounded transition-colors ${
@@ -324,7 +335,7 @@ export default function EngineInfoPage() {
               Propulsion Catalogue <ArrowRight size={11} />
             </Link>
           </div>
-        </div>
+        </nav>
 
         {/* ── CONTENT ───────────────────────────────────────────────────────── */}
         <div className="max-w-7xl mx-auto px-4 md:px-6 py-12 space-y-20 relative z-10">
@@ -351,11 +362,11 @@ export default function EngineInfoPage() {
                     { title: "916 iS Flagship", desc: "Strongest performance showcase with the highest power-to-mass ratio (1.86 HP/kg) for demanding high-altitude long-endurance UAV operations." },
                   ].map((item) => (
                     <div key={item.title} className="border border-outline-variant/30 bg-surface/80 p-4 rounded-lg">
-                      <div className="flex items-center gap-2 font-mono text-[10px] font-bold text-primary uppercase mb-1.5">
+                      <div className="flex items-center gap-2 font-mono text-[11px] font-bold text-primary uppercase mb-1.5">
                         <CheckCircle2 size={13} className="text-tertiary shrink-0" />
                         {item.title}
                       </div>
-                      <p className="text-xs text-on-surface-variant/75 leading-relaxed">{item.desc}</p>
+                      <p className="text-xs text-on-surface-variant/80 leading-relaxed">{item.desc}</p>
                     </div>
                   ))}
                 </div>
@@ -363,7 +374,7 @@ export default function EngineInfoPage() {
 
               {/* Critical correction card */}
               <div className="border border-tertiary/35 bg-surface/80 p-5 rounded-lg shadow-[2px_2px_0px_#000000] flex flex-col gap-3">
-                <div className="flex items-center gap-2 font-mono text-[10px] font-bold text-tertiary uppercase tracking-widest">
+                <div className="flex items-center gap-2 font-mono text-[11px] font-bold text-tertiary uppercase tracking-widest">
                   <AlertTriangle size={14} />
                   SPEC CORRECTION
                 </div>
@@ -384,7 +395,7 @@ export default function EngineInfoPage() {
                     </div>
                   ))}
                 </div>
-                <p className="font-mono text-[9px] text-on-surface-variant/50 uppercase tracking-wider">REF: BRP-Rotax 2026 Engine Maintenance & Spec Standard</p>
+                <p className="font-mono text-[11px] text-on-surface-variant/80 uppercase tracking-wider">REF: BRP-Rotax 2026 Engine Maintenance & Spec Standard</p>
               </div>
             </div>
           </section>
@@ -394,7 +405,7 @@ export default function EngineInfoPage() {
             <SectionHeader code="02–05 // PROPULSION">Technical Engine Profiles</SectionHeader>
 
             {/* Tab switcher */}
-            <div className="flex flex-wrap gap-2 mb-5 font-mono text-[10px] uppercase tracking-wider">
+            <div className="flex flex-wrap gap-2 mb-5 font-mono text-[11px] uppercase tracking-wider">
               {ENGINE_SPECS.map((eng, idx) => (
                 <button
                   key={eng.id}
@@ -417,10 +428,10 @@ export default function EngineInfoPage() {
                 {/* 3D viewer */}
                 <div className="lg:col-span-5 relative min-h-[320px] sm:min-h-[400px] bg-[radial-gradient(ellipse_at_center,rgba(100,45,15,0.18),transparent_50%),linear-gradient(145deg,#15120f,#0b0c0c)] border-b lg:border-b-0 lg:border-r border-outline-variant/25 flex flex-col justify-between p-4">
                   <div className="flex items-center justify-between z-10 relative">
-                    <span className="font-mono text-[9px] font-bold tracking-widest text-tertiary border border-tertiary/30 bg-black/60 px-2.5 py-1 rounded uppercase">
+                    <span className="font-mono text-[11px] font-bold tracking-widest text-tertiary border border-tertiary/30 bg-black/60 px-2.5 py-1 rounded uppercase">
                       3D DIGITAL TWIN VIEW
                     </span>
-                    <span className="font-mono text-[9px] text-on-surface-variant/40 uppercase tracking-wide">
+                    <span className="font-mono text-[11px] text-on-surface-variant/80 uppercase tracking-wide">
                       DRAG TO ROTATE
                     </span>
                   </div>
@@ -429,7 +440,7 @@ export default function EngineInfoPage() {
                   </div>
                   <div className="z-10 relative bg-black/70 backdrop-blur-sm border border-outline-variant/25 p-3 rounded font-mono text-[11px] flex justify-between items-center">
                     <div>
-                      <span className="text-on-surface-variant/50 text-[9px] block uppercase tracking-wider">AI STATUS</span>
+                      <span className="text-on-surface-variant/80 text-[11px] block uppercase tracking-wider">AI STATUS</span>
                       <span className="font-bold text-primary flex items-center gap-1.5">
                         <span className={`h-1.5 w-1.5 rounded-full ${trained ? "bg-tertiary animate-pulse" : "bg-on-surface-variant/60"}`} />
                         {trained ? "AI READY · V4 MODELS LIVE" : "AI TRAINING · 914 MODELS STAND IN"}
@@ -437,7 +448,7 @@ export default function EngineInfoPage() {
                     </div>
                     <button
                       onClick={() => router.push(`/simulate?engine=${selectedEngine.id}`)}
-                      className="bg-tertiary text-black text-[10px] font-bold px-3 py-1.5 rounded flex items-center gap-1 hover:brightness-110 active:translate-y-px transition-[filter,transform] uppercase tracking-wider shadow-[1px_1px_0px_#000000]"
+                      className="bg-tertiary text-black text-[11px] font-bold px-3 py-1.5 rounded flex items-center gap-1 hover:brightness-110 active:translate-y-px transition-[filter,transform] uppercase tracking-wider shadow-[1px_1px_0px_#000000]"
                     >
                       <Zap size={11} /> Launch
                     </button>
@@ -448,8 +459,8 @@ export default function EngineInfoPage() {
                 <div key={selectedEngine.id} className="ei-swap lg:col-span-7 p-6 flex flex-col gap-5">
                   <div>
                     <div className="flex items-start justify-between gap-3 mb-1">
-                      <span className="font-mono text-[10px] font-bold text-tertiary tracking-widest uppercase">{selectedEngine.role}</span>
-                      <span className="font-mono text-[10px] text-on-surface-variant/50 shrink-0">{selectedEngine.powerHp} HP / {selectedEngine.powerKw} kW</span>
+                      <span className="font-mono text-[11px] font-bold text-tertiary tracking-widest uppercase">{selectedEngine.role}</span>
+                      <span className="font-mono text-[11px] text-on-surface-variant/80 shrink-0">{selectedEngine.powerHp} HP / {selectedEngine.powerKw} kW</span>
                     </div>
                     <h3 className="font-headline-display text-2xl sm:text-3xl font-bold uppercase tracking-tight text-primary mb-2">
                       {selectedEngine.name}
@@ -460,7 +471,7 @@ export default function EngineInfoPage() {
                   {/* Power bar */}
                   <div>
                     <div className="flex items-center justify-between mb-1">
-                      <span className="font-mono text-[9px] uppercase tracking-wider text-on-surface-variant/50 flex items-center gap-1">
+                      <span className="font-mono text-[11px] uppercase tracking-wider text-on-surface-variant/80 flex items-center gap-1">
                         <Gauge size={10} className="text-tertiary" /> Power vs lineup apex
                       </span>
                       <span className="font-mono text-[11px] font-bold text-primary">{selectedEngine.powerPct.toFixed(0)}%</span>
@@ -484,9 +495,9 @@ export default function EngineInfoPage() {
                       { label: "FAULT TYPES", value: String(selectedEngine.v4.faultTypes), sub: "the AI can name", hi: true },
                     ].map((spec) => (
                       <div key={spec.label} className="border border-outline-variant/25 bg-surface-container-highest/60 p-3 rounded-lg">
-                        <span className="text-[9px] text-on-surface-variant/50 block uppercase tracking-wider">{spec.label}</span>
+                        <span className="text-[11px] text-on-surface-variant/80 block uppercase tracking-wider">{spec.label}</span>
                         <span className="font-bold text-primary text-sm mt-0.5 block truncate">{spec.value}</span>
-                        <span className={`text-[9px] ${spec.hi ? "text-tertiary" : "text-on-surface-variant/50"}`}>{spec.sub}</span>
+                        <span className={`text-[11px] ${spec.hi ? "text-tertiary" : "text-on-surface-variant/80"}`}>{spec.sub}</span>
                       </div>
                     ))}
                   </div>
@@ -494,29 +505,29 @@ export default function EngineInfoPage() {
                   {/* Signal chain */}
                   <div className="space-y-2 font-mono text-xs">
                     <div className="border-l-2 border-tertiary bg-white/[0.02] p-3 pl-4 rounded-r-lg">
-                      <span className="text-tertiary font-bold uppercase tracking-wider block text-[9px] mb-1">RECOMMENDED SIMULATION MODEL</span>
-                      <p className="text-on-surface-variant leading-relaxed text-[12px]">{selectedEngine.simulationModel}</p>
+                      <span className="text-tertiary font-bold uppercase tracking-wider block text-[11px] mb-1">RECOMMENDED SIMULATION MODEL</span>
+                      <p className="font-sans text-on-surface-variant leading-relaxed text-sm">{selectedEngine.simulationModel}</p>
                     </div>
                     <div className="border-l-2 border-outline-variant/50 bg-white/[0.02] p-3 pl-4 rounded-r-lg">
-                      <span className="text-on-surface-variant/50 font-bold uppercase tracking-wider block text-[9px] mb-1">CERTIFIED LIMITS (PHYSICS V4)</span>
+                      <span className="text-on-surface-variant/80 font-bold uppercase tracking-wider block text-[11px] mb-1">CERTIFIED LIMITS (PHYSICS V4)</span>
                       <div className="text-on-surface-variant text-[11px]">
                         CHT 135 &deg;C &middot; EGT {selectedEngine.v4.egtLimit} &middot; oil temp 130 &deg;C &middot; oil pressure min 0.8 bar below 3,500 RPM, 2.0 bar above
                       </div>
                     </div>
                     <div className="border-l-2 border-outline-variant/50 bg-white/[0.02] p-3 pl-4 rounded-r-lg">
-                      <span className="text-on-surface-variant/50 font-bold uppercase tracking-wider block text-[9px] mb-1">SIGNAL CHAIN</span>
+                      <span className="text-on-surface-variant/80 font-bold uppercase tracking-wider block text-[11px] mb-1">SIGNAL CHAIN</span>
                       <div className="text-tertiary/90 tracking-wide text-[11px]">{selectedEngine.signalChain}</div>
                     </div>
                   </div>
 
                   {/* Footer CTA */}
                   <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-3 border-t border-outline-variant/25">
-                    <span className="font-mono text-[10px] text-on-surface-variant/60 uppercase">
+                    <span className="font-mono text-[11px] text-on-surface-variant/80 uppercase">
                       USE CASE: <strong className="text-primary">{selectedEngine.bestUseCase}</strong>
                     </span>
                     <Link
                       href={`/simulate?engine=${selectedEngine.id}`}
-                      className="shrink-0 flex items-center gap-2 bg-tertiary text-black font-bold uppercase px-5 py-2.5 rounded text-[10px] tracking-wider shadow-[2px_2px_0px_#000000] hover:-translate-y-0.5 hover:shadow-[4px_4px_0px_#000000] active:translate-y-0 transition-[transform,box-shadow]"
+                      className="shrink-0 flex items-center gap-2 bg-tertiary text-black font-bold uppercase px-5 py-2.5 rounded text-[11px] tracking-wider shadow-[2px_2px_0px_#000000] hover:-translate-y-0.5 hover:shadow-[4px_4px_0px_#000000] active:translate-y-0 transition-[transform,box-shadow]"
                     >
                       <Zap size={13} className="fill-black" /> Configure in Simulator
                     </Link>
@@ -536,7 +547,7 @@ export default function EngineInfoPage() {
             <div className="overflow-x-auto border border-outline-variant/30 rounded-lg bg-surface/80 shadow-[2px_2px_0px_#000000] mb-5">
               <table className="w-full text-left font-mono text-xs">
                 <thead>
-                  <tr className="border-b border-outline-variant/30 bg-black/40 text-[10px] text-tertiary uppercase tracking-wider">
+                  <tr className="border-b border-outline-variant/30 bg-black/40 text-[11px] text-tertiary uppercase tracking-wider">
                     <th className="p-4">Engine</th>
                     <th className="p-4">HP</th>
                     <th className="p-4">kW</th>
@@ -557,8 +568,8 @@ export default function EngineInfoPage() {
                     >
                       <td className="p-4 font-bold text-primary whitespace-nowrap">
                         <span className="flex items-center gap-2">
-                          <span className="h-1.5 w-1.5 rounded-full bg-tertiary shrink-0" />
-                          {eng.name}
+                          <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${activeEngineIndex === idx ? "bg-tertiary" : "bg-outline-variant"}`} />
+                          <button type="button" className="font-bold" aria-label={`Show the ${eng.name} profile`}>{eng.name}</button>
                         </span>
                       </td>
                       <td className="p-4 text-primary font-bold">{eng.powerHp}</td>
@@ -569,7 +580,7 @@ export default function EngineInfoPage() {
                       <td className="p-4 font-bold text-tertiary">{eng.relativePower}</td>
                       <td className="p-4 text-primary font-bold">{eng.powerToMass}</td>
                       <td className="p-4">
-                        <span className={`px-2 py-0.5 rounded text-[9px] font-bold border ${eng.v4.ai === "trained" ? "bg-tertiary/15 text-tertiary border-tertiary/30" : "bg-black/30 text-on-surface-variant border-outline-variant/40"}`}>
+                        <span className={`px-2 py-0.5 rounded text-[11px] font-bold border ${eng.v4.ai === "trained" ? "bg-tertiary/15 text-tertiary border-tertiary/30" : "bg-black/30 text-on-surface-variant border-outline-variant/40"}`}>
                           {eng.v4.ai === "trained" ? "V4 TRAINED" : "V4 TRAINING"}
                         </span>
                       </td>
@@ -583,17 +594,17 @@ export default function EngineInfoPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {[
                 { title: "POWER PROGRESSION (HP)", icon: <BarChart3 size={14} className="text-tertiary" />, bars: ENGINE_SPECS.map(e => ({ label: e.name, value: e.powerHp, pct: (e.powerHp / 160) * 100, text: `${e.powerHp} HP / ${e.powerKw} kW` })), color: "bg-tertiary" },
-                { title: "POWER-TO-MASS (HP/KG)", icon: <Gauge size={14} className="text-tertiary" />, bars: ENGINE_SPECS.map(e => ({ label: e.name, value: parseFloat(e.powerToMass), pct: ((parseFloat(e.powerToMass) - 1.5) / 0.4) * 100, text: e.powerToMass })), color: "bg-tertiary/60" },
+                { title: "POWER-TO-MASS (HP/KG) \u00b7 AXIS FROM 1.5", icon: <Gauge size={14} className="text-tertiary" />, bars: ENGINE_SPECS.map(e => ({ label: e.name, value: parseFloat(e.powerToMass), pct: ((parseFloat(e.powerToMass) - 1.5) / 0.4) * 100, text: e.powerToMass })), color: "bg-tertiary/60" },
               ].map((chart) => (
                 <div key={chart.title} className="border border-outline-variant/30 bg-surface/80 p-5 rounded-lg shadow-[2px_2px_0px_#000000]">
                   <div className="flex items-center justify-between mb-4">
-                    <span className="font-mono text-[10px] font-bold text-tertiary uppercase tracking-wider">{chart.title}</span>
+                    <span className="font-mono text-[11px] font-bold text-tertiary uppercase tracking-wider">{chart.title}</span>
                     {chart.icon}
                   </div>
                   <div className="space-y-3">
                     {chart.bars.map((bar) => (
                       <div key={bar.label}>
-                        <div className="flex justify-between font-mono text-[10px] mb-1">
+                        <div className="flex justify-between font-mono text-[11px] mb-1">
                           <span className="text-on-surface-variant">{bar.label}</span>
                           <span className="text-tertiary font-bold">{bar.text}</span>
                         </div>
@@ -619,18 +630,18 @@ export default function EngineInfoPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
               {PHYSICS_FORMULAS.map((f) => (
                 <div key={f.label} className={`border p-4 rounded-lg font-mono ${f.highlight ? "border-tertiary/40 bg-tertiary/5" : "border-outline-variant/30 bg-surface/80"}`}>
-                  <span className="text-[9px] text-tertiary uppercase tracking-wider block mb-1">{f.label}</span>
+                  <span className="text-[11px] text-tertiary uppercase tracking-wider block mb-1">{f.label}</span>
                   <div className={`text-xl font-bold py-2 ${f.highlight ? "text-tertiary" : "text-primary"}`}>{f.formula}</div>
                   <p className={`text-[11px] ${f.highlight ? "text-primary/75" : "text-on-surface-variant"}`}>{f.note}</p>
                 </div>
               ))}
             </div>
 
-            <div className="border border-tertiary/30 bg-tertiary/5 p-4 rounded-lg font-mono text-xs flex items-start gap-3">
+            <div className="border border-tertiary/30 bg-tertiary/5 p-4 rounded-lg flex items-start gap-3">
               <Zap size={16} className="text-tertiary shrink-0 mt-0.5" />
               <div>
-                <strong className="text-tertiary uppercase tracking-wider block mb-1">KEY DESIGN PRINCIPLE:</strong>
-                <p className="text-on-surface-variant leading-relaxed text-[12px]">
+                <strong className="font-mono text-[11px] text-tertiary uppercase tracking-wider block mb-1">KEY DESIGN PRINCIPLE:</strong>
+                <p className="font-sans text-on-surface-variant leading-relaxed text-sm">
                   Do not train an AI model to rediscover <span className="text-primary">P = T·ω</span>. If the machine learning model
                   accurately predicts torque from throttle, RPM, and atmospheric state, the simulator calculates shaft
                   power analytically. This avoids redundant model complexity and makes real-time verification bulletproof.
@@ -651,12 +662,12 @@ export default function EngineInfoPage() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
               {/* Feature mapping */}
               <div className="border border-outline-variant/30 bg-surface/80 rounded-lg p-5 font-mono text-xs">
-                <div className="flex items-center gap-2 text-tertiary font-bold uppercase tracking-wider mb-4 text-[10px]">
+                <div className="flex items-center gap-2 text-tertiary font-bold uppercase tracking-wider mb-4 text-[11px]">
                   <Cpu size={14} /> DEPLOYED MODEL FEATURE MAPPING
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="border-r border-outline-variant/25 pr-4">
-                    <span className="text-[9px] text-on-surface-variant/50 uppercase block mb-2 font-bold">INPUT WINDOW — 25 CH × 128 STEPS</span>
+                    <span className="text-[11px] text-on-surface-variant/80 uppercase block mb-2 font-bold">INPUT WINDOW — 25 CH × 128 STEPS</span>
                     <ul className="space-y-1.5 text-on-surface-variant/90">
                       {["Flight state — altitude, throttle, airspeed, AoA", "Powerplant — RPM, torque, power, fuel flow", "Aero — thrust, lift, drag, thrust/lift margins", "Thermal — EGT, CHT, oil pressure, oil temp", "Vibration — X / Y / Z axis accelerometers", "Injection timing — carries misfire and injector signatures", "25 features, 128-second rolling window, plus 10 aux"].map((item) => (
                         <li key={item} className="flex items-start gap-1.5 text-[11px]">
@@ -666,7 +677,7 @@ export default function EngineInfoPage() {
                     </ul>
                   </div>
                   <div>
-                    <span className="text-[9px] text-tertiary uppercase block mb-2 font-bold">OUTPUTS — 5 HEADS</span>
+                    <span className="text-[11px] text-tertiary uppercase block mb-2 font-bold">OUTPUTS — 5 HEADS</span>
                     <ul className="space-y-1.5">
                       {[
                         "Fault Detection (binary, sigmoid)",
@@ -677,7 +688,7 @@ export default function EngineInfoPage() {
                         "Fault types: Bias, Drift, Spike, Stuck-At, Noise",
                         "RUL: LSTM + window statistics, started at a ridge fit",
                       ].map((item, i) => (
-                        <li key={item} className={`flex items-start gap-1.5 font-bold text-[11px] ${i < 5 ? "text-tertiary" : "text-on-surface-variant/70"}`}>
+                        <li key={item} className={`flex items-start gap-1.5 font-bold text-[11px] ${i < 5 ? "text-tertiary" : "text-on-surface-variant/80"}`}>
                           <CheckCircle2 size={11} className="shrink-0 mt-0.5" />{item}
                         </li>
                       ))}
@@ -688,18 +699,18 @@ export default function EngineInfoPage() {
 
               {/* Training stages */}
               <div className="border border-outline-variant/30 bg-surface/80 rounded-lg p-5 font-mono text-xs">
-                <div className="flex items-center gap-2 text-tertiary font-bold uppercase tracking-wider mb-4 text-[10px]">
+                <div className="flex items-center gap-2 text-tertiary font-bold uppercase tracking-wider mb-4 text-[11px]">
                   <Layers size={14} /> TRAINING PROGRESSION — {STAGES.filter((st) => st.done).length} OF {STAGES.length} DEPLOYED
                 </div>
                 <div className="space-y-3">
                   {STAGES.map((stage, idx) => (
                     <div key={stage.label} className={`flex items-start gap-3 p-3 rounded-lg border bg-black/30 ${stage.done ? "border-tertiary/30" : "border-outline-variant/30"}`}>
-                      <span className={`px-2 py-0.5 rounded font-bold text-[9px] shrink-0 mt-0.5 ${stage.done ? "bg-tertiary/15 text-tertiary" : "bg-white/5 text-on-surface-variant"}`}>
+                      <span className={`px-2 py-0.5 rounded font-bold text-[11px] shrink-0 mt-0.5 ${stage.done ? "bg-tertiary/15 text-tertiary" : "bg-white/5 text-on-surface-variant"}`}>
                         S{idx + 1} {stage.done ? "LIVE" : "TRAINING"}
                       </span>
                       <div>
                         <strong className="text-primary block text-[11px] mb-0.5">{stage.label}</strong>
-                        <p className="text-on-surface-variant/80 leading-relaxed text-[11px]">{stage.desc}</p>
+                        <p className="font-sans text-on-surface-variant leading-relaxed text-[13px]">{stage.desc}</p>
                       </div>
                     </div>
                   ))}
@@ -717,7 +728,7 @@ export default function EngineInfoPage() {
 
             {/* Pipeline diagram */}
             <div className="border border-outline-variant/30 bg-surface/80 p-4 rounded-lg mb-4 shadow-[2px_2px_0px_#000000]">
-              <div className="font-mono text-[9px] text-tertiary uppercase tracking-widest mb-3 font-bold">UNIFIED DATA FLOW PIPELINE</div>
+              <div className="font-mono text-[11px] text-tertiary uppercase tracking-widest mb-3 font-bold">UNIFIED DATA FLOW PIPELINE</div>
               <div className="flex items-center gap-2 overflow-x-auto pb-1 font-mono text-[11px]">
                 {PIPELINE_STAGES.map((stage, idx) => (
                   <div key={stage} className="flex items-center gap-2 shrink-0">
@@ -734,7 +745,7 @@ export default function EngineInfoPage() {
             <div className="overflow-x-auto border border-outline-variant/30 rounded-lg bg-surface/80 shadow-[2px_2px_0px_#000000]">
               <table className="w-full text-left font-mono text-xs">
                 <thead>
-                  <tr className="border-b border-outline-variant/30 bg-black/40 text-[10px] text-tertiary uppercase tracking-wider">
+                  <tr className="border-b border-outline-variant/30 bg-black/40 text-[11px] text-tertiary uppercase tracking-wider">
                     <th className="p-3.5">Module</th>
                     <th className="p-3.5">Responsibility in AERO-SIM Architecture</th>
                   </tr>
@@ -770,18 +781,18 @@ export default function EngineInfoPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
               {UAV_CASES.map((c) => (
                 <div key={c.engine} className="border border-outline-variant/30 bg-surface/80 p-4 rounded-lg hover:border-tertiary/40 transition-colors">
-                  <span className="font-mono text-[9px] text-tertiary uppercase tracking-wider block font-bold mb-1">{c.engine} USE CASE</span>
+                  <span className="font-mono text-[11px] text-tertiary uppercase tracking-wider block font-bold mb-1">{c.engine} USE CASE</span>
                   <h4 className="font-headline-display text-sm font-bold uppercase text-primary mb-2">{c.title}</h4>
                   <p className="text-on-surface-variant text-xs leading-relaxed">{c.desc}</p>
                 </div>
               ))}
             </div>
 
-            <div className="border border-tertiary/25 bg-tertiary/[0.06] p-4 rounded-lg font-mono text-xs flex items-start gap-3">
+            <div className="border border-tertiary/25 bg-tertiary/[0.06] p-4 rounded-lg flex items-start gap-3">
               <Plane size={16} className="text-tertiary shrink-0 mt-0.5" />
               <div>
-                <strong className="text-tertiary uppercase tracking-wider block mb-1">CRITICAL PROPULSION RULE:</strong>
-                <p className="text-on-surface-variant leading-relaxed text-[12px]">
+                <strong className="font-mono text-[11px] text-tertiary uppercase tracking-wider block mb-1">CRITICAL PROPULSION RULE:</strong>
+                <p className="font-sans text-on-surface-variant leading-relaxed text-sm">
                   <strong className="text-primary">Engine horsepower ≠ UAV thrust.</strong> The simulator must pass engine torque through the reduction
                   gearbox (e.g. 2.43:1 or 2.54:1) and propeller aerodynamic model (advance ratio J, blade pitch, and thrust coefficient C_T),
                   then calculate true airframe acceleration from thrust and aerodynamic drag.
@@ -801,13 +812,13 @@ export default function EngineInfoPage() {
               {VALIDATION_LEVELS.map((item) => (
                 <div key={item.lvl} className="border border-outline-variant/30 bg-surface/80 p-4 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:border-tertiary/30 transition-colors">
                   <div className="flex items-start sm:items-center gap-3">
-                    <span className="px-2.5 py-1 rounded bg-tertiary/10 text-tertiary font-mono font-bold text-[10px] shrink-0">{item.lvl}</span>
+                    <span className="px-2.5 py-1 rounded bg-tertiary/10 text-tertiary font-mono font-bold text-[11px] shrink-0">{item.lvl}</span>
                     <div>
                       <strong className="text-primary text-sm block">{item.title}</strong>
                       <p className="text-on-surface-variant text-xs mt-0.5 leading-relaxed">{item.desc}</p>
                     </div>
                   </div>
-                  <span className="font-mono text-[9px] text-tertiary/70 uppercase tracking-widest shrink-0 self-end sm:self-center">PASSED // NOMINAL</span>
+                  <span className="font-mono text-[11px] text-tertiary/70 uppercase tracking-widest shrink-0 self-end sm:self-center">PASSED // NOMINAL</span>
                 </div>
               ))}
             </div>
@@ -820,7 +831,7 @@ export default function EngineInfoPage() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
               {/* Sources */}
               <div className="border border-outline-variant/30 bg-surface/80 rounded-lg p-5">
-                <h4 className="font-mono text-[10px] font-bold text-tertiary uppercase tracking-wider mb-4">PRIMARY TECHNICAL SOURCES</h4>
+                <h4 className="font-mono text-[11px] font-bold text-tertiary uppercase tracking-wider mb-4">PRIMARY TECHNICAL SOURCES</h4>
                 <ul className="space-y-3 text-xs text-on-surface-variant leading-relaxed">
                   {[
                     { engine: "912 S/ULS", spec: "73.5 kW / 100 HP @ 5,800 RPM · 56.6 kg · 128 Nm @ 5,800 RPM" },
@@ -839,7 +850,7 @@ export default function EngineInfoPage() {
               {/* Launch CTA */}
               <div className="border border-tertiary/30 bg-surface/80 rounded-lg p-5 flex flex-col justify-between shadow-[2px_2px_0px_#000000]">
                 <div>
-                  <div className="font-mono text-[10px] text-tertiary font-bold uppercase tracking-wider mb-2">AERO-SIM SYSTEM INTEGRATION</div>
+                  <div className="font-mono text-[11px] text-tertiary font-bold uppercase tracking-wider mb-2">AERO-SIM SYSTEM INTEGRATION</div>
                   <h3 className="font-headline-display text-xl font-bold text-primary uppercase mb-2 tracking-tight">Ready to Test Engine Dynamics?</h3>
                   <p className="text-sm text-on-surface-variant leading-relaxed">
                     Deploy your configured engine model directly into the live cockpit simulation. Test altitude throttle response,
@@ -849,13 +860,13 @@ export default function EngineInfoPage() {
                 <div className="flex flex-col sm:flex-row gap-3 mt-6">
                   <Link
                     href="/engine"
-                    className="border border-outline-variant/40 bg-surface-container-highest/60 text-primary hover:border-tertiary hover:text-tertiary text-[10px] font-bold uppercase px-4 py-3 rounded text-center font-mono tracking-wider transition-colors"
+                    className="border border-outline-variant/40 bg-surface-container-highest/60 text-primary hover:border-tertiary hover:text-tertiary text-[11px] font-bold uppercase px-4 py-3 rounded text-center font-mono tracking-wider transition-colors"
                   >
                     Propulsion Catalogue
                   </Link>
                   <Link
                     href="/simulate?engine=Rotax_914_ULF"
-                    className="flex items-center justify-center gap-2 bg-tertiary text-black text-[10px] font-bold uppercase px-5 py-3 rounded text-center font-mono tracking-wider shadow-[2px_2px_0px_#000000] hover:-translate-y-0.5 hover:shadow-[4px_4px_0px_#000000] active:translate-y-0 transition-[transform,box-shadow]"
+                    className="flex items-center justify-center gap-2 bg-tertiary text-black text-[11px] font-bold uppercase px-5 py-3 rounded text-center font-mono tracking-wider shadow-[2px_2px_0px_#000000] hover:-translate-y-0.5 hover:shadow-[4px_4px_0px_#000000] active:translate-y-0 transition-[transform,box-shadow]"
                   >
                     <Zap size={13} className="fill-black" /> Launch 914 Digital Twin
                   </Link>

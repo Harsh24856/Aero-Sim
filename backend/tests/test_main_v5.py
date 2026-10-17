@@ -11,7 +11,12 @@ os.environ["AERO_PHYSICS_VERSION"] = "v5"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import main  # noqa: E402
+import twin_v5  # noqa: E402
 from twin_v5 import UAVEngineTwinV5  # noqa: E402
+
+if main.PHYSICS_VERSION != os.environ["AERO_PHYSICS_VERSION"]:   # main reads it once, at import
+    raise ImportError(f"main is already loaded as physics {main.PHYSICS_VERSION}, this module needs "
+                      f"{os.environ['AERO_PHYSICS_VERSION']} - run it in its own process (scripts/test_all.sh)")
 
 AI = {"status": "ok", "model_version": "v5", "fault_detected": True, "detection_confidence": 0.9,
       "fault_modes": {"oil_pump_degradation": {"probability": 0.9, "present": True, "threshold": 0.3,
@@ -23,6 +28,9 @@ AI = {"status": "ok", "model_version": "v5", "fault_detected": True, "detection_
 
 
 class TestMainV5(unittest.TestCase):
+    def test_ai_payload_is_the_twins_list(self):
+        self.assertEqual(main.AI_FEATURE_COLS_V5, twin_v5.AI_PAYLOAD)
+
     def test_hold_clears_families(self):
         main.state["ai_last_sample_time"] = None
         main.state["ai_settle_until"] = 0.0

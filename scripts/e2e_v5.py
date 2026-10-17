@@ -27,11 +27,12 @@ import advisory                       # noqa: E402
 import aiv5                           # noqa: E402  (loads the exported models)
 import scenarios_v4 as S              # noqa: E402
 from observability_v5 import FAMILY_OF  # noqa: E402
+import twin_v5                        # noqa: E402
 from twin_v5 import UAVEngineTwinV5   # noqa: E402
 
 FLIGHT_S = 128 + 300 + 60
 SCORE_EVERY = 5
-PAYLOAD = aiv5.F.FEATURE_COLS + ["engine_hours", "life_used_hours", "ai_context", "time"]
+PAYLOAD = twin_v5.AI_PAYLOAD + ["time"]
 
 
 def fly(engine_model: str, preset: str) -> dict:

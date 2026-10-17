@@ -20,6 +20,20 @@
   --font-data-sm: "JetBrains Mono", monospace;
   --font-data-lg: "JetBrains Mono", monospace;
   --font-label-caps: "JetBrains Mono", monospace;
+
+  /* Tailwind's own font-sans / font-mono point at the theme faces too: font-mono
+     rendered the system ui-monospace on every page, not JetBrains Mono */
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+/* keyboard focus on every page: there was none anywhere. In the base layer, so a
+   component's own focus style still wins. */
+@layer base {
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--color-tertiary);
+    outline-offset: 2px;
+  }
 }
 
 .grid-bg {

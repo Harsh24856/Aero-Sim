@@ -80,8 +80,6 @@ def _row_stats(dirpath: str, idx: pd.DataFrame, chunk: int = 64) -> dict:
 
 def run(dirpath: str) -> bool:
     idx = pd.read_parquet(os.path.join(dirpath, "index.parquet"))
-    with open(os.path.join(dirpath, "manifest.json")) as fh:
-        man = json.load(fh)
     st = _row_stats(dirpath, idx)
     n = st["rows"]
     turbo = st["turbo"] > 0

@@ -1,0 +1,3258 @@
+{
+ "joint": {
+  "best_epoch": 35,
+  "best_composite": 0.8896012135941213,
+  "history": [
+   {
+    "epoch": 0,
+    "seconds": 171.7,
+    "train_losses": {
+     "detection": 3.0796,
+     "diagnosis": 2.9279,
+     "family": 2.1277,
+     "severity": 0.8222,
+     "sensor": 0.9588,
+     "health": 0.3877
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6608,
+     "det_recall_p95": 0.1425,
+     "diag_macro_f1": 0.0233,
+     "diag_macro_ap": 0.0191,
+     "family_f1": 0.0543,
+     "sev_on_fault_mae": 0.3813,
+     "sev_clean_mae": 0.5703,
+     "sensor_macro_f1": 0.3147,
+     "health_mae": 0.2858,
+     "composite": 0.0688,
+     "select": 0.3147
+    }
+   },
+   {
+    "epoch": 1,
+    "seconds": 141.0,
+    "train_losses": {
+     "detection": 1.7837,
+     "diagnosis": 2.0495,
+     "family": 1.5742,
+     "severity": 0.7895,
+     "sensor": 0.1826,
+     "health": 0.3669
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6585,
+     "det_recall_p95": 0.1824,
+     "diag_macro_f1": 0.0242,
+     "diag_macro_ap": 0.02,
+     "family_f1": 0.0543,
+     "sev_on_fault_mae": 0.3324,
+     "sev_clean_mae": 0.5475,
+     "sensor_macro_f1": 0.4843,
+     "health_mae": 0.2955,
+     "composite": 0.2666,
+     "select": 0.4843
+    }
+   },
+   {
+    "epoch": 2,
+    "seconds": 143.0,
+    "train_losses": {
+     "detection": 1.2056,
+     "diagnosis": 1.5429,
+     "family": 1.2655,
+     "severity": 0.7441,
+     "sensor": 0.114,
+     "health": 0.3498
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6645,
+     "det_recall_p95": 0.195,
+     "diag_macro_f1": 0.0221,
+     "diag_macro_ap": 0.02,
+     "family_f1": 0.0544,
+     "sev_on_fault_mae": 0.3139,
+     "sev_clean_mae": 0.5454,
+     "sensor_macro_f1": 0.5564,
+     "health_mae": 0.3008,
+     "composite": 0.3526,
+     "select": 0.5564
+    }
+   },
+   {
+    "epoch": 3,
+    "seconds": 140.9,
+    "train_losses": {
+     "detection": 1.0606,
+     "diagnosis": 1.3723,
+     "family": 1.1903,
+     "severity": 0.7139,
+     "sensor": 0.0886,
+     "health": 0.3457
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6681,
+     "det_recall_p95": 0.1956,
+     "diag_macro_f1": 0.023,
+     "diag_macro_ap": 0.0198,
+     "family_f1": 0.0543,
+     "sev_on_fault_mae": 0.2997,
+     "sev_clean_mae": 0.5442,
+     "sensor_macro_f1": 0.633,
+     "health_mae": 0.3008,
+     "composite": 0.4469,
+     "select": 0.633
+    }
+   },
+   {
+    "epoch": 4,
+    "seconds": 145.8,
+    "train_losses": {
+     "detection": 0.9909,
+     "diagnosis": 1.2692,
+     "family": 1.1254,
+     "severity": 0.6976,
+     "sensor": 0.076,
+     "health": 0.3334
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6606,
+     "det_recall_p95": 0.2111,
+     "diag_macro_f1": 0.0224,
+     "diag_macro_ap": 0.0199,
+     "family_f1": 0.0542,
+     "sev_on_fault_mae": 0.2901,
+     "sev_clean_mae": 0.5312,
+     "sensor_macro_f1": 0.6651,
+     "health_mae": 0.3005,
+     "composite": 0.4816,
+     "select": 0.6651
+    }
+   },
+   {
+    "epoch": 5,
+    "seconds": 140.6,
+    "train_losses": {
+     "detection": 0.9584,
+     "diagnosis": 1.232,
+     "family": 1.0922,
+     "severity": 0.6903,
+     "sensor": 0.0644,
+     "health": 0.3335
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.659,
+     "det_recall_p95": 0.2153,
+     "diag_macro_f1": 0.0221,
+     "diag_macro_ap": 0.0192,
+     "family_f1": 0.0541,
+     "sev_on_fault_mae": 0.2886,
+     "sev_clean_mae": 0.5303,
+     "sensor_macro_f1": 0.7098,
+     "health_mae": 0.2957,
+     "composite": 0.5351,
+     "select": 0.7098
+    }
+   },
+   {
+    "epoch": 6,
+    "seconds": 144.1,
+    "train_losses": {
+     "detection": 0.9332,
+     "diagnosis": 1.1952,
+     "family": 1.0805,
+     "severity": 0.6883,
+     "sensor": 0.0558,
+     "health": 0.3327
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6673,
+     "det_recall_p95": 0.2317,
+     "diag_macro_f1": 0.0217,
+     "diag_macro_ap": 0.0194,
+     "family_f1": 0.0543,
+     "sev_on_fault_mae": 0.2802,
+     "sev_clean_mae": 0.5246,
+     "sensor_macro_f1": 0.7837,
+     "health_mae": 0.2961,
+     "composite": 0.6251,
+     "select": 0.7837
+    }
+   },
+   {
+    "epoch": 7,
+    "seconds": 139.9,
+    "train_losses": {
+     "detection": 0.9209,
+     "diagnosis": 1.1457,
+     "family": 1.0559,
+     "severity": 0.6762,
+     "sensor": 0.0502,
+     "health": 0.3243
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.66,
+     "det_recall_p95": 0.2269,
+     "diag_macro_f1": 0.0212,
+     "diag_macro_ap": 0.0203,
+     "family_f1": 0.0542,
+     "sev_on_fault_mae": 0.2826,
+     "sev_clean_mae": 0.5242,
+     "sensor_macro_f1": 0.783,
+     "health_mae": 0.2949,
+     "composite": 0.6179,
+     "select": 0.783
+    }
+   },
+   {
+    "epoch": 8,
+    "seconds": 155.9,
+    "train_losses": {
+     "detection": 0.8946,
+     "diagnosis": 1.1083,
+     "family": 1.0409,
+     "severity": 0.6702,
+     "sensor": 0.0448,
+     "health": 0.3233
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6648,
+     "det_recall_p95": 0.2292,
+     "diag_macro_f1": 0.0214,
+     "diag_macro_ap": 0.0202,
+     "family_f1": 0.0542,
+     "sev_on_fault_mae": 0.2844,
+     "sev_clean_mae": 0.5269,
+     "sensor_macro_f1": 0.8178,
+     "health_mae": 0.2893,
+     "composite": 0.6669,
+     "select": 0.8178
+    }
+   },
+   {
+    "epoch": 9,
+    "seconds": 152.9,
+    "train_losses": {
+     "detection": 0.8686,
+     "diagnosis": 1.0707,
+     "family": 1.0124,
+     "severity": 0.6625,
+     "sensor": 0.0414,
+     "health": 0.3152
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6619,
+     "det_recall_p95": 0.2283,
+     "diag_macro_f1": 0.021,
+     "diag_macro_ap": 0.0203,
+     "family_f1": 0.0544,
+     "sev_on_fault_mae": 0.2788,
+     "sev_clean_mae": 0.5257,
+     "sensor_macro_f1": 0.8259,
+     "health_mae": 0.2854,
+     "composite": 0.6856,
+     "select": 0.8259
+    }
+   },
+   {
+    "epoch": 10,
+    "seconds": 143.2,
+    "train_losses": {
+     "detection": 0.858,
+     "diagnosis": 1.04,
+     "family": 1.0022,
+     "severity": 0.6559,
+     "sensor": 0.0397,
+     "health": 0.3146
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.667,
+     "det_recall_p95": 0.2294,
+     "diag_macro_f1": 0.022,
+     "diag_macro_ap": 0.0202,
+     "family_f1": 0.0541,
+     "sev_on_fault_mae": 0.2758,
+     "sev_clean_mae": 0.5255,
+     "sensor_macro_f1": 0.8451,
+     "health_mae": 0.2857,
+     "composite": 0.7123,
+     "select": 0.8451
+    }
+   },
+   {
+    "epoch": 11,
+    "seconds": 140.9,
+    "train_losses": {
+     "detection": 0.8555,
+     "diagnosis": 1.0184,
+     "family": 0.9862,
+     "severity": 0.6497,
+     "sensor": 0.0354,
+     "health": 0.3108
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6655,
+     "det_recall_p95": 0.232,
+     "diag_macro_f1": 0.0203,
+     "diag_macro_ap": 0.02,
+     "family_f1": 0.0542,
+     "sev_on_fault_mae": 0.2759,
+     "sev_clean_mae": 0.5269,
+     "sensor_macro_f1": 0.8417,
+     "health_mae": 0.2847,
+     "composite": 0.709,
+     "select": 0.8417
+    }
+   },
+   {
+    "epoch": 12,
+    "seconds": 142.1,
+    "train_losses": {
+     "detection": 0.8336,
+     "diagnosis": 1.006,
+     "family": 0.9799,
+     "severity": 0.6531,
+     "sensor": 0.034,
+     "health": 0.3072
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6702,
+     "det_recall_p95": 0.2404,
+     "diag_macro_f1": 0.0206,
+     "diag_macro_ap": 0.019,
+     "family_f1": 0.0543,
+     "sev_on_fault_mae": 0.2768,
+     "sev_clean_mae": 0.5271,
+     "sensor_macro_f1": 0.8419,
+     "health_mae": 0.2779,
+     "composite": 0.7257,
+     "select": 0.8419
+    }
+   },
+   {
+    "epoch": 13,
+    "seconds": 140.4,
+    "train_losses": {
+     "detection": 0.8415,
+     "diagnosis": 0.9896,
+     "family": 0.9562,
+     "severity": 0.6392,
+     "sensor": 0.0336,
+     "health": 0.3049
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6663,
+     "det_recall_p95": 0.2282,
+     "diag_macro_f1": 0.0207,
+     "diag_macro_ap": 0.0201,
+     "family_f1": 0.0543,
+     "sev_on_fault_mae": 0.2731,
+     "sev_clean_mae": 0.526,
+     "sensor_macro_f1": 0.8635,
+     "health_mae": 0.2785,
+     "composite": 0.747,
+     "select": 0.8635
+    }
+   },
+   {
+    "epoch": 14,
+    "seconds": 144.0,
+    "train_losses": {
+     "detection": 0.8269,
+     "diagnosis": 0.9825,
+     "family": 0.9516,
+     "severity": 0.6465,
+     "sensor": 0.0305,
+     "health": 0.305
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6715,
+     "det_recall_p95": 0.2189,
+     "diag_macro_f1": 0.0202,
+     "diag_macro_ap": 0.0197,
+     "family_f1": 0.0542,
+     "sev_on_fault_mae": 0.2685,
+     "sev_clean_mae": 0.5205,
+     "sensor_macro_f1": 0.8574,
+     "health_mae": 0.2778,
+     "composite": 0.7517,
+     "select": 0.8574
+    }
+   },
+   {
+    "epoch": 15,
+    "seconds": 141.0,
+    "train_losses": {
+     "detection": 0.8306,
+     "diagnosis": 0.97,
+     "family": 0.9365,
+     "severity": 0.6377,
+     "sensor": 0.0295,
+     "health": 0.2996
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.678,
+     "det_recall_p95": 0.2134,
+     "diag_macro_f1": 0.0207,
+     "diag_macro_ap": 0.02,
+     "family_f1": 0.0541,
+     "sev_on_fault_mae": 0.2679,
+     "sev_clean_mae": 0.5228,
+     "sensor_macro_f1": 0.8659,
+     "health_mae": 0.2767,
+     "composite": 0.7697,
+     "select": 0.8659
+    }
+   },
+   {
+    "epoch": 16,
+    "seconds": 142.1,
+    "train_losses": {
+     "detection": 0.8376,
+     "diagnosis": 0.9462,
+     "family": 0.9253,
+     "severity": 0.6394,
+     "sensor": 0.0284,
+     "health": 0.3
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6747,
+     "det_recall_p95": 0.2104,
+     "diag_macro_f1": 0.0204,
+     "diag_macro_ap": 0.0197,
+     "family_f1": 0.054,
+     "sev_on_fault_mae": 0.2669,
+     "sev_clean_mae": 0.5189,
+     "sensor_macro_f1": 0.8715,
+     "health_mae": 0.2765,
+     "composite": 0.773,
+     "select": 0.8715
+    }
+   },
+   {
+    "epoch": 17,
+    "seconds": 142.0,
+    "train_losses": {
+     "detection": 0.8311,
+     "diagnosis": 0.9476,
+     "family": 0.9111,
+     "severity": 0.6353,
+     "sensor": 0.0267,
+     "health": 0.297
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.677,
+     "det_recall_p95": 0.208,
+     "diag_macro_f1": 0.0199,
+     "diag_macro_ap": 0.0196,
+     "family_f1": 0.0539,
+     "sev_on_fault_mae": 0.2684,
+     "sev_clean_mae": 0.5232,
+     "sensor_macro_f1": 0.8686,
+     "health_mae": 0.2721,
+     "composite": 0.7795,
+     "select": 0.8686
+    }
+   },
+   {
+    "epoch": 18,
+    "seconds": 141.7,
+    "train_losses": {
+     "detection": 0.8139,
+     "diagnosis": 0.9443,
+     "family": 0.9108,
+     "severity": 0.6285,
+     "sensor": 0.0264,
+     "health": 0.297
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6794,
+     "det_recall_p95": 0.2209,
+     "diag_macro_f1": 0.0204,
+     "diag_macro_ap": 0.0206,
+     "family_f1": 0.054,
+     "sev_on_fault_mae": 0.2659,
+     "sev_clean_mae": 0.519,
+     "sensor_macro_f1": 0.8713,
+     "health_mae": 0.2734,
+     "composite": 0.7857,
+     "select": 0.8713
+    }
+   },
+   {
+    "epoch": 19,
+    "seconds": 141.3,
+    "train_losses": {
+     "detection": 0.8225,
+     "diagnosis": 0.959,
+     "family": 0.9074,
+     "severity": 0.6198,
+     "sensor": 0.0256,
+     "health": 0.297
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6766,
+     "det_recall_p95": 0.2178,
+     "diag_macro_f1": 0.0203,
+     "diag_macro_ap": 0.0208,
+     "family_f1": 0.0538,
+     "sev_on_fault_mae": 0.2669,
+     "sev_clean_mae": 0.5162,
+     "sensor_macro_f1": 0.8784,
+     "health_mae": 0.2722,
+     "composite": 0.7915,
+     "select": 0.8784
+    }
+   },
+   {
+    "epoch": 20,
+    "seconds": 141.5,
+    "train_losses": {
+     "detection": 0.8093,
+     "diagnosis": 0.9455,
+     "family": 0.8911,
+     "severity": 0.6291,
+     "sensor": 0.0245,
+     "health": 0.2995
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.677,
+     "det_recall_p95": 0.2178,
+     "diag_macro_f1": 0.02,
+     "diag_macro_ap": 0.0211,
+     "family_f1": 0.0539,
+     "sev_on_fault_mae": 0.2654,
+     "sev_clean_mae": 0.5184,
+     "sensor_macro_f1": 0.8778,
+     "health_mae": 0.2747,
+     "composite": 0.788,
+     "select": 0.8778
+    }
+   },
+   {
+    "epoch": 21,
+    "seconds": 142.9,
+    "train_losses": {
+     "detection": 0.8149,
+     "diagnosis": 0.9417,
+     "family": 0.8853,
+     "severity": 0.6324,
+     "sensor": 0.0243,
+     "health": 0.2953
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6721,
+     "det_recall_p95": 0.2178,
+     "diag_macro_f1": 0.019,
+     "diag_macro_ap": 0.0211,
+     "family_f1": 0.0537,
+     "sev_on_fault_mae": 0.2643,
+     "sev_clean_mae": 0.5207,
+     "sensor_macro_f1": 0.8805,
+     "health_mae": 0.2736,
+     "composite": 0.7892,
+     "select": 0.8805
+    }
+   },
+   {
+    "epoch": 22,
+    "seconds": 142.3,
+    "train_losses": {
+     "detection": 0.8247,
+     "diagnosis": 0.9239,
+     "family": 0.878,
+     "severity": 0.6242,
+     "sensor": 0.0229,
+     "health": 0.2971
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6802,
+     "det_recall_p95": 0.2272,
+     "diag_macro_f1": 0.0191,
+     "diag_macro_ap": 0.0207,
+     "family_f1": 0.0537,
+     "sev_on_fault_mae": 0.265,
+     "sev_clean_mae": 0.5204,
+     "sensor_macro_f1": 0.8753,
+     "health_mae": 0.2739,
+     "composite": 0.7902,
+     "select": 0.8753
+    }
+   },
+   {
+    "epoch": 23,
+    "seconds": 141.8,
+    "train_losses": {
+     "detection": 0.8107,
+     "diagnosis": 0.9184,
+     "family": 0.8662,
+     "severity": 0.6196,
+     "sensor": 0.0229,
+     "health": 0.2935
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6773,
+     "det_recall_p95": 0.2141,
+     "diag_macro_f1": 0.0196,
+     "diag_macro_ap": 0.0209,
+     "family_f1": 0.054,
+     "sev_on_fault_mae": 0.265,
+     "sev_clean_mae": 0.5205,
+     "sensor_macro_f1": 0.8807,
+     "health_mae": 0.2741,
+     "composite": 0.7926,
+     "select": 0.8807
+    }
+   },
+   {
+    "epoch": 24,
+    "seconds": 160.3,
+    "train_losses": {
+     "detection": 0.8164,
+     "diagnosis": 0.9115,
+     "family": 0.8712,
+     "severity": 0.6277,
+     "sensor": 0.0213,
+     "health": 0.2923
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6734,
+     "det_recall_p95": 0.2129,
+     "diag_macro_f1": 0.0183,
+     "diag_macro_ap": 0.0208,
+     "family_f1": 0.0538,
+     "sev_on_fault_mae": 0.2671,
+     "sev_clean_mae": 0.5227,
+     "sensor_macro_f1": 0.8811,
+     "health_mae": 0.2719,
+     "composite": 0.7913,
+     "select": 0.8811
+    }
+   },
+   {
+    "epoch": 25,
+    "seconds": 146.7,
+    "train_losses": {
+     "detection": 0.8041,
+     "diagnosis": 0.9093,
+     "family": 0.8633,
+     "severity": 0.6255,
+     "sensor": 0.0219,
+     "health": 0.2901
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6731,
+     "det_recall_p95": 0.2102,
+     "diag_macro_f1": 0.0184,
+     "diag_macro_ap": 0.0207,
+     "family_f1": 0.0537,
+     "sev_on_fault_mae": 0.2622,
+     "sev_clean_mae": 0.5172,
+     "sensor_macro_f1": 0.8748,
+     "health_mae": 0.2736,
+     "composite": 0.7859,
+     "select": 0.8748
+    }
+   },
+   {
+    "epoch": 26,
+    "seconds": 165.8,
+    "train_losses": {
+     "detection": 0.8065,
+     "diagnosis": 0.9087,
+     "family": 0.8602,
+     "severity": 0.6178,
+     "sensor": 0.0202,
+     "health": 0.292
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6705,
+     "det_recall_p95": 0.2147,
+     "diag_macro_f1": 0.0193,
+     "diag_macro_ap": 0.0218,
+     "family_f1": 0.054,
+     "sev_on_fault_mae": 0.2645,
+     "sev_clean_mae": 0.5207,
+     "sensor_macro_f1": 0.881,
+     "health_mae": 0.2728,
+     "composite": 0.7902,
+     "select": 0.881
+    }
+   },
+   {
+    "epoch": 27,
+    "seconds": 274.0,
+    "train_losses": {
+     "detection": 0.8126,
+     "diagnosis": 0.9015,
+     "family": 0.8491,
+     "severity": 0.6215,
+     "sensor": 0.0214,
+     "health": 0.2911
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6687,
+     "det_recall_p95": 0.2184,
+     "diag_macro_f1": 0.0182,
+     "diag_macro_ap": 0.0216,
+     "family_f1": 0.0541,
+     "sev_on_fault_mae": 0.2635,
+     "sev_clean_mae": 0.5184,
+     "sensor_macro_f1": 0.8806,
+     "health_mae": 0.2721,
+     "composite": 0.7902,
+     "select": 0.8806
+    }
+   },
+   {
+    "epoch": 28,
+    "seconds": 194.2,
+    "train_losses": {
+     "detection": 0.7997,
+     "diagnosis": 0.8914,
+     "family": 0.8469,
+     "severity": 0.6274,
+     "sensor": 0.0206,
+     "health": 0.2926
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6787,
+     "det_recall_p95": 0.2458,
+     "diag_macro_f1": 0.0183,
+     "diag_macro_ap": 0.0221,
+     "family_f1": 0.0542,
+     "sev_on_fault_mae": 0.2643,
+     "sev_clean_mae": 0.5183,
+     "sensor_macro_f1": 0.8815,
+     "health_mae": 0.2724,
+     "composite": 0.8003,
+     "select": 0.8815
+    }
+   },
+   {
+    "epoch": 29,
+    "seconds": 203.7,
+    "train_losses": {
+     "detection": 0.8088,
+     "diagnosis": 0.8924,
+     "family": 0.8465,
+     "severity": 0.6203,
+     "sensor": 0.0196,
+     "health": 0.2897
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6662,
+     "det_recall_p95": 0.2319,
+     "diag_macro_f1": 0.0183,
+     "diag_macro_ap": 0.0223,
+     "family_f1": 0.0542,
+     "sev_on_fault_mae": 0.2632,
+     "sev_clean_mae": 0.5173,
+     "sensor_macro_f1": 0.8846,
+     "health_mae": 0.2735,
+     "composite": 0.79,
+     "select": 0.8846
+    }
+   },
+   {
+    "epoch": 30,
+    "seconds": 188.8,
+    "train_losses": {
+     "detection": 0.8035,
+     "diagnosis": 0.8891,
+     "family": 0.8415,
+     "severity": 0.6223,
+     "sensor": 0.0199,
+     "health": 0.2886
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6673,
+     "det_recall_p95": 0.2384,
+     "diag_macro_f1": 0.0194,
+     "diag_macro_ap": 0.0221,
+     "family_f1": 0.0543,
+     "sev_on_fault_mae": 0.2613,
+     "sev_clean_mae": 0.5212,
+     "sensor_macro_f1": 0.8808,
+     "health_mae": 0.269,
+     "composite": 0.7982,
+     "select": 0.8808
+    }
+   },
+   {
+    "epoch": 31,
+    "seconds": 243.5,
+    "train_losses": {
+     "detection": 0.7995,
+     "diagnosis": 0.8835,
+     "family": 0.8497,
+     "severity": 0.6199,
+     "sensor": 0.0196,
+     "health": 0.2882
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6703,
+     "det_recall_p95": 0.2419,
+     "diag_macro_f1": 0.0191,
+     "diag_macro_ap": 0.0224,
+     "family_f1": 0.0542,
+     "sev_on_fault_mae": 0.2631,
+     "sev_clean_mae": 0.5213,
+     "sensor_macro_f1": 0.8799,
+     "health_mae": 0.271,
+     "composite": 0.7946,
+     "select": 0.8799
+    }
+   },
+   {
+    "epoch": 32,
+    "seconds": 246.0,
+    "train_losses": {
+     "detection": 0.815,
+     "diagnosis": 0.8867,
+     "family": 0.8569,
+     "severity": 0.6169,
+     "sensor": 0.0181,
+     "health": 0.2857
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.664,
+     "det_recall_p95": 0.218,
+     "diag_macro_f1": 0.0186,
+     "diag_macro_ap": 0.0209,
+     "family_f1": 0.0542,
+     "sev_on_fault_mae": 0.2628,
+     "sev_clean_mae": 0.5216,
+     "sensor_macro_f1": 0.8862,
+     "health_mae": 0.2692,
+     "composite": 0.7971,
+     "select": 0.8862
+    }
+   },
+   {
+    "epoch": 33,
+    "seconds": 164.0,
+    "train_losses": {
+     "detection": 0.8016,
+     "diagnosis": 0.8812,
+     "family": 0.8573,
+     "severity": 0.6168,
+     "sensor": 0.0192,
+     "health": 0.2858
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6782,
+     "det_recall_p95": 0.2208,
+     "diag_macro_f1": 0.0184,
+     "diag_macro_ap": 0.0207,
+     "family_f1": 0.0541,
+     "sev_on_fault_mae": 0.2594,
+     "sev_clean_mae": 0.517,
+     "sensor_macro_f1": 0.8849,
+     "health_mae": 0.2696,
+     "composite": 0.8123,
+     "select": 0.8849
+    }
+   },
+   {
+    "epoch": 34,
+    "seconds": 260.3,
+    "train_losses": {
+     "detection": 0.7974,
+     "diagnosis": 0.8792,
+     "family": 0.8525,
+     "severity": 0.6135,
+     "sensor": 0.0178,
+     "health": 0.2883
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6771,
+     "det_recall_p95": 0.2251,
+     "diag_macro_f1": 0.0184,
+     "diag_macro_ap": 0.0217,
+     "family_f1": 0.0542,
+     "sev_on_fault_mae": 0.2614,
+     "sev_clean_mae": 0.5177,
+     "sensor_macro_f1": 0.8862,
+     "health_mae": 0.27,
+     "composite": 0.8107,
+     "select": 0.8862
+    }
+   },
+   {
+    "epoch": 35,
+    "seconds": 177.3,
+    "train_losses": {
+     "detection": 0.8008,
+     "diagnosis": 0.8793,
+     "family": 0.8486,
+     "severity": 0.6168,
+     "sensor": 0.0179,
+     "health": 0.2852
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6753,
+     "det_recall_p95": 0.2353,
+     "diag_macro_f1": 0.0179,
+     "diag_macro_ap": 0.0205,
+     "family_f1": 0.0541,
+     "sev_on_fault_mae": 0.2628,
+     "sev_clean_mae": 0.5187,
+     "sensor_macro_f1": 0.8896,
+     "health_mae": 0.2701,
+     "composite": 0.8095,
+     "select": 0.8896
+    }
+   },
+   {
+    "epoch": 36,
+    "seconds": 148.4,
+    "train_losses": {
+     "detection": 0.8018,
+     "diagnosis": 0.8788,
+     "family": 0.8477,
+     "severity": 0.6151,
+     "sensor": 0.017,
+     "health": 0.2885
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6699,
+     "det_recall_p95": 0.2366,
+     "diag_macro_f1": 0.0187,
+     "diag_macro_ap": 0.0213,
+     "family_f1": 0.0544,
+     "sev_on_fault_mae": 0.2631,
+     "sev_clean_mae": 0.5195,
+     "sensor_macro_f1": 0.881,
+     "health_mae": 0.27,
+     "composite": 0.7964,
+     "select": 0.881
+    }
+   },
+   {
+    "epoch": 37,
+    "seconds": 198.5,
+    "train_losses": {
+     "detection": 0.8019,
+     "diagnosis": 0.8743,
+     "family": 0.8418,
+     "severity": 0.6206,
+     "sensor": 0.0177,
+     "health": 0.2885
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.671,
+     "det_recall_p95": 0.2334,
+     "diag_macro_f1": 0.0177,
+     "diag_macro_ap": 0.021,
+     "family_f1": 0.0541,
+     "sev_on_fault_mae": 0.2635,
+     "sev_clean_mae": 0.5205,
+     "sensor_macro_f1": 0.8818,
+     "health_mae": 0.2686,
+     "composite": 0.8001,
+     "select": 0.8818
+    }
+   },
+   {
+    "epoch": 38,
+    "seconds": 156.3,
+    "train_losses": {
+     "detection": 0.8093,
+     "diagnosis": 0.8747,
+     "family": 0.8435,
+     "severity": 0.6168,
+     "sensor": 0.0171,
+     "health": 0.2851
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6675,
+     "det_recall_p95": 0.2367,
+     "diag_macro_f1": 0.0175,
+     "diag_macro_ap": 0.0219,
+     "family_f1": 0.0542,
+     "sev_on_fault_mae": 0.2616,
+     "sev_clean_mae": 0.5203,
+     "sensor_macro_f1": 0.8861,
+     "health_mae": 0.2661,
+     "composite": 0.8089,
+     "select": 0.8861
+    }
+   },
+   {
+    "epoch": 39,
+    "seconds": 195.2,
+    "train_losses": {
+     "detection": 0.8054,
+     "diagnosis": 0.8755,
+     "family": 0.8368,
+     "severity": 0.6116,
+     "sensor": 0.0163,
+     "health": 0.2831
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6651,
+     "det_recall_p95": 0.2403,
+     "diag_macro_f1": 0.018,
+     "diag_macro_ap": 0.0222,
+     "family_f1": 0.0544,
+     "sev_on_fault_mae": 0.2617,
+     "sev_clean_mae": 0.5186,
+     "sensor_macro_f1": 0.8829,
+     "health_mae": 0.266,
+     "composite": 0.8037,
+     "select": 0.8829
+    }
+   },
+   {
+    "epoch": 40,
+    "seconds": 670.4,
+    "train_losses": {
+     "detection": 0.8056,
+     "diagnosis": 0.8756,
+     "family": 0.8391,
+     "severity": 0.6165,
+     "sensor": 0.0167,
+     "health": 0.2884
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.666,
+     "det_recall_p95": 0.2317,
+     "diag_macro_f1": 0.0186,
+     "diag_macro_ap": 0.0228,
+     "family_f1": 0.0543,
+     "sev_on_fault_mae": 0.2588,
+     "sev_clean_mae": 0.5207,
+     "sensor_macro_f1": 0.8851,
+     "health_mae": 0.2684,
+     "composite": 0.8053,
+     "select": 0.8851
+    }
+   },
+   {
+    "epoch": 41,
+    "seconds": 237.4,
+    "train_losses": {
+     "detection": 0.8114,
+     "diagnosis": 0.874,
+     "family": 0.8377,
+     "severity": 0.6151,
+     "sensor": 0.0167,
+     "health": 0.287
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6564,
+     "det_recall_p95": 0.2299,
+     "diag_macro_f1": 0.0191,
+     "diag_macro_ap": 0.0237,
+     "family_f1": 0.0544,
+     "sev_on_fault_mae": 0.261,
+     "sev_clean_mae": 0.52,
+     "sensor_macro_f1": 0.8857,
+     "health_mae": 0.2675,
+     "composite": 0.797,
+     "select": 0.8857
+    }
+   },
+   {
+    "epoch": 42,
+    "seconds": 200.6,
+    "train_losses": {
+     "detection": 0.8102,
+     "diagnosis": 0.8726,
+     "family": 0.8411,
+     "severity": 0.6176,
+     "sensor": 0.0158,
+     "health": 0.2853
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6628,
+     "det_recall_p95": 0.2326,
+     "diag_macro_f1": 0.0189,
+     "diag_macro_ap": 0.0236,
+     "family_f1": 0.0545,
+     "sev_on_fault_mae": 0.2574,
+     "sev_clean_mae": 0.5158,
+     "sensor_macro_f1": 0.8895,
+     "health_mae": 0.2656,
+     "composite": 0.8145,
+     "select": 0.8895
+    }
+   },
+   {
+    "epoch": 43,
+    "seconds": 212.4,
+    "train_losses": {
+     "detection": 0.8081,
+     "diagnosis": 0.8712,
+     "family": 0.8414,
+     "severity": 0.6105,
+     "sensor": 0.0158,
+     "health": 0.2856
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6546,
+     "det_recall_p95": 0.2283,
+     "diag_macro_f1": 0.0181,
+     "diag_macro_ap": 0.0221,
+     "family_f1": 0.0544,
+     "sev_on_fault_mae": 0.2551,
+     "sev_clean_mae": 0.5145,
+     "sensor_macro_f1": 0.8856,
+     "health_mae": 0.2627,
+     "composite": 0.809,
+     "select": 0.8856
+    }
+   },
+   {
+    "epoch": 44,
+    "seconds": 219.0,
+    "train_losses": {
+     "detection": 0.801,
+     "diagnosis": 0.8721,
+     "family": 0.8336,
+     "severity": 0.6118,
+     "sensor": 0.0168,
+     "health": 0.2871
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6636,
+     "det_recall_p95": 0.2317,
+     "diag_macro_f1": 0.0194,
+     "diag_macro_ap": 0.0226,
+     "family_f1": 0.0543,
+     "sev_on_fault_mae": 0.2588,
+     "sev_clean_mae": 0.5181,
+     "sensor_macro_f1": 0.8887,
+     "health_mae": 0.2677,
+     "composite": 0.8079,
+     "select": 0.8887
+    }
+   },
+   {
+    "epoch": 45,
+    "seconds": 182.4,
+    "train_losses": {
+     "detection": 0.8056,
+     "diagnosis": 0.8644,
+     "family": 0.8443,
+     "severity": 0.6134,
+     "sensor": 0.0166,
+     "health": 0.2863
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.67,
+     "det_recall_p95": 0.2455,
+     "diag_macro_f1": 0.0205,
+     "diag_macro_ap": 0.0224,
+     "family_f1": 0.0543,
+     "sev_on_fault_mae": 0.2601,
+     "sev_clean_mae": 0.5186,
+     "sensor_macro_f1": 0.8885,
+     "health_mae": 0.2686,
+     "composite": 0.8108,
+     "select": 0.8885
+    }
+   }
+  ]
+ },
+ "heads_only": {
+  "best_epoch": -1,
+  "best_composite": 0.8896012135941213,
+  "history": [
+   {
+    "epoch": 0,
+    "seconds": 441.8,
+    "train_losses": {
+     "detection": 0.8026,
+     "diagnosis": 0.8785,
+     "family": 0.846,
+     "severity": 0.6195,
+     "sensor": 0.0183,
+     "health": 0.287
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6753,
+     "det_recall_p95": 0.2353,
+     "diag_macro_f1": 0.0179,
+     "diag_macro_ap": 0.0205,
+     "family_f1": 0.0541,
+     "sev_on_fault_mae": 0.2628,
+     "sev_clean_mae": 0.5187,
+     "sensor_macro_f1": 0.8863,
+     "health_mae": 0.2701,
+     "composite": 0.8061,
+     "select": 0.8863
+    }
+   },
+   {
+    "epoch": 1,
+    "seconds": 94.9,
+    "train_losses": {
+     "detection": 0.8049,
+     "diagnosis": 0.8813,
+     "family": 0.8507,
+     "severity": 0.6185,
+     "sensor": 0.0182,
+     "health": 0.2882
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6753,
+     "det_recall_p95": 0.2353,
+     "diag_macro_f1": 0.0179,
+     "diag_macro_ap": 0.0205,
+     "family_f1": 0.0541,
+     "sev_on_fault_mae": 0.2628,
+     "sev_clean_mae": 0.5187,
+     "sensor_macro_f1": 0.8873,
+     "health_mae": 0.2701,
+     "composite": 0.8072,
+     "select": 0.8873
+    }
+   },
+   {
+    "epoch": 2,
+    "seconds": 84.1,
+    "train_losses": {
+     "detection": 0.8071,
+     "diagnosis": 0.8796,
+     "family": 0.8486,
+     "severity": 0.6167,
+     "sensor": 0.0176,
+     "health": 0.2879
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6753,
+     "det_recall_p95": 0.2353,
+     "diag_macro_f1": 0.0179,
+     "diag_macro_ap": 0.0205,
+     "family_f1": 0.0541,
+     "sev_on_fault_mae": 0.2628,
+     "sev_clean_mae": 0.5187,
+     "sensor_macro_f1": 0.8839,
+     "health_mae": 0.2701,
+     "composite": 0.8038,
+     "select": 0.8839
+    }
+   }
+  ]
+ },
+ "unfrozen": {
+  "best_epoch": -1,
+  "best_composite": 0.8896012135941213,
+  "history": [
+   {
+    "epoch": 0,
+    "seconds": 202.0,
+    "train_losses": {
+     "detection": 0.8035,
+     "diagnosis": 0.8772,
+     "family": 0.8476,
+     "severity": 0.6163,
+     "sensor": 0.0179,
+     "health": 0.2861
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6749,
+     "det_recall_p95": 0.2269,
+     "diag_macro_f1": 0.0181,
+     "diag_macro_ap": 0.0212,
+     "family_f1": 0.0541,
+     "sev_on_fault_mae": 0.2648,
+     "sev_clean_mae": 0.5191,
+     "sensor_macro_f1": 0.8877,
+     "health_mae": 0.2701,
+     "composite": 0.8059,
+     "select": 0.8877
+    }
+   },
+   {
+    "epoch": 1,
+    "seconds": 134.6,
+    "train_losses": {
+     "detection": 0.791,
+     "diagnosis": 0.8805,
+     "family": 0.847,
+     "severity": 0.6268,
+     "sensor": 0.0173,
+     "health": 0.2872
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6693,
+     "det_recall_p95": 0.2223,
+     "diag_macro_f1": 0.0182,
+     "diag_macro_ap": 0.0209,
+     "family_f1": 0.0541,
+     "sev_on_fault_mae": 0.264,
+     "sev_clean_mae": 0.5186,
+     "sensor_macro_f1": 0.8862,
+     "health_mae": 0.2712,
+     "composite": 0.7971,
+     "select": 0.8862
+    }
+   },
+   {
+    "epoch": 2,
+    "seconds": 134.8,
+    "train_losses": {
+     "detection": 0.794,
+     "diagnosis": 0.8804,
+     "family": 0.8414,
+     "severity": 0.6132,
+     "sensor": 0.0174,
+     "health": 0.2913
+    },
+    "log_vars": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "val": {
+     "det_auc": 0.6683,
+     "det_recall_p95": 0.2229,
+     "diag_macro_f1": 0.0182,
+     "diag_macro_ap": 0.0213,
+     "family_f1": 0.054,
+     "sev_on_fault_mae": 0.2641,
+     "sev_clean_mae": 0.5178,
+     "sensor_macro_f1": 0.8859,
+     "health_mae": 0.2707,
+     "composite": 0.7969,
+     "select": 0.8859
+    }
+   }
+  ]
+ },
+ "best_composite": 0.8896012135941213,
+ "history": [
+  {
+   "epoch": 0,
+   "seconds": 171.7,
+   "train_losses": {
+    "detection": 3.0796,
+    "diagnosis": 2.9279,
+    "family": 2.1277,
+    "severity": 0.8222,
+    "sensor": 0.9588,
+    "health": 0.3877
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6608,
+    "det_recall_p95": 0.1425,
+    "diag_macro_f1": 0.0233,
+    "diag_macro_ap": 0.0191,
+    "family_f1": 0.0543,
+    "sev_on_fault_mae": 0.3813,
+    "sev_clean_mae": 0.5703,
+    "sensor_macro_f1": 0.3147,
+    "health_mae": 0.2858,
+    "composite": 0.0688,
+    "select": 0.3147
+   }
+  },
+  {
+   "epoch": 1,
+   "seconds": 141.0,
+   "train_losses": {
+    "detection": 1.7837,
+    "diagnosis": 2.0495,
+    "family": 1.5742,
+    "severity": 0.7895,
+    "sensor": 0.1826,
+    "health": 0.3669
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6585,
+    "det_recall_p95": 0.1824,
+    "diag_macro_f1": 0.0242,
+    "diag_macro_ap": 0.02,
+    "family_f1": 0.0543,
+    "sev_on_fault_mae": 0.3324,
+    "sev_clean_mae": 0.5475,
+    "sensor_macro_f1": 0.4843,
+    "health_mae": 0.2955,
+    "composite": 0.2666,
+    "select": 0.4843
+   }
+  },
+  {
+   "epoch": 2,
+   "seconds": 143.0,
+   "train_losses": {
+    "detection": 1.2056,
+    "diagnosis": 1.5429,
+    "family": 1.2655,
+    "severity": 0.7441,
+    "sensor": 0.114,
+    "health": 0.3498
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6645,
+    "det_recall_p95": 0.195,
+    "diag_macro_f1": 0.0221,
+    "diag_macro_ap": 0.02,
+    "family_f1": 0.0544,
+    "sev_on_fault_mae": 0.3139,
+    "sev_clean_mae": 0.5454,
+    "sensor_macro_f1": 0.5564,
+    "health_mae": 0.3008,
+    "composite": 0.3526,
+    "select": 0.5564
+   }
+  },
+  {
+   "epoch": 3,
+   "seconds": 140.9,
+   "train_losses": {
+    "detection": 1.0606,
+    "diagnosis": 1.3723,
+    "family": 1.1903,
+    "severity": 0.7139,
+    "sensor": 0.0886,
+    "health": 0.3457
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6681,
+    "det_recall_p95": 0.1956,
+    "diag_macro_f1": 0.023,
+    "diag_macro_ap": 0.0198,
+    "family_f1": 0.0543,
+    "sev_on_fault_mae": 0.2997,
+    "sev_clean_mae": 0.5442,
+    "sensor_macro_f1": 0.633,
+    "health_mae": 0.3008,
+    "composite": 0.4469,
+    "select": 0.633
+   }
+  },
+  {
+   "epoch": 4,
+   "seconds": 145.8,
+   "train_losses": {
+    "detection": 0.9909,
+    "diagnosis": 1.2692,
+    "family": 1.1254,
+    "severity": 0.6976,
+    "sensor": 0.076,
+    "health": 0.3334
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6606,
+    "det_recall_p95": 0.2111,
+    "diag_macro_f1": 0.0224,
+    "diag_macro_ap": 0.0199,
+    "family_f1": 0.0542,
+    "sev_on_fault_mae": 0.2901,
+    "sev_clean_mae": 0.5312,
+    "sensor_macro_f1": 0.6651,
+    "health_mae": 0.3005,
+    "composite": 0.4816,
+    "select": 0.6651
+   }
+  },
+  {
+   "epoch": 5,
+   "seconds": 140.6,
+   "train_losses": {
+    "detection": 0.9584,
+    "diagnosis": 1.232,
+    "family": 1.0922,
+    "severity": 0.6903,
+    "sensor": 0.0644,
+    "health": 0.3335
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.659,
+    "det_recall_p95": 0.2153,
+    "diag_macro_f1": 0.0221,
+    "diag_macro_ap": 0.0192,
+    "family_f1": 0.0541,
+    "sev_on_fault_mae": 0.2886,
+    "sev_clean_mae": 0.5303,
+    "sensor_macro_f1": 0.7098,
+    "health_mae": 0.2957,
+    "composite": 0.5351,
+    "select": 0.7098
+   }
+  },
+  {
+   "epoch": 6,
+   "seconds": 144.1,
+   "train_losses": {
+    "detection": 0.9332,
+    "diagnosis": 1.1952,
+    "family": 1.0805,
+    "severity": 0.6883,
+    "sensor": 0.0558,
+    "health": 0.3327
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6673,
+    "det_recall_p95": 0.2317,
+    "diag_macro_f1": 0.0217,
+    "diag_macro_ap": 0.0194,
+    "family_f1": 0.0543,
+    "sev_on_fault_mae": 0.2802,
+    "sev_clean_mae": 0.5246,
+    "sensor_macro_f1": 0.7837,
+    "health_mae": 0.2961,
+    "composite": 0.6251,
+    "select": 0.7837
+   }
+  },
+  {
+   "epoch": 7,
+   "seconds": 139.9,
+   "train_losses": {
+    "detection": 0.9209,
+    "diagnosis": 1.1457,
+    "family": 1.0559,
+    "severity": 0.6762,
+    "sensor": 0.0502,
+    "health": 0.3243
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.66,
+    "det_recall_p95": 0.2269,
+    "diag_macro_f1": 0.0212,
+    "diag_macro_ap": 0.0203,
+    "family_f1": 0.0542,
+    "sev_on_fault_mae": 0.2826,
+    "sev_clean_mae": 0.5242,
+    "sensor_macro_f1": 0.783,
+    "health_mae": 0.2949,
+    "composite": 0.6179,
+    "select": 0.783
+   }
+  },
+  {
+   "epoch": 8,
+   "seconds": 155.9,
+   "train_losses": {
+    "detection": 0.8946,
+    "diagnosis": 1.1083,
+    "family": 1.0409,
+    "severity": 0.6702,
+    "sensor": 0.0448,
+    "health": 0.3233
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6648,
+    "det_recall_p95": 0.2292,
+    "diag_macro_f1": 0.0214,
+    "diag_macro_ap": 0.0202,
+    "family_f1": 0.0542,
+    "sev_on_fault_mae": 0.2844,
+    "sev_clean_mae": 0.5269,
+    "sensor_macro_f1": 0.8178,
+    "health_mae": 0.2893,
+    "composite": 0.6669,
+    "select": 0.8178
+   }
+  },
+  {
+   "epoch": 9,
+   "seconds": 152.9,
+   "train_losses": {
+    "detection": 0.8686,
+    "diagnosis": 1.0707,
+    "family": 1.0124,
+    "severity": 0.6625,
+    "sensor": 0.0414,
+    "health": 0.3152
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6619,
+    "det_recall_p95": 0.2283,
+    "diag_macro_f1": 0.021,
+    "diag_macro_ap": 0.0203,
+    "family_f1": 0.0544,
+    "sev_on_fault_mae": 0.2788,
+    "sev_clean_mae": 0.5257,
+    "sensor_macro_f1": 0.8259,
+    "health_mae": 0.2854,
+    "composite": 0.6856,
+    "select": 0.8259
+   }
+  },
+  {
+   "epoch": 10,
+   "seconds": 143.2,
+   "train_losses": {
+    "detection": 0.858,
+    "diagnosis": 1.04,
+    "family": 1.0022,
+    "severity": 0.6559,
+    "sensor": 0.0397,
+    "health": 0.3146
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.667,
+    "det_recall_p95": 0.2294,
+    "diag_macro_f1": 0.022,
+    "diag_macro_ap": 0.0202,
+    "family_f1": 0.0541,
+    "sev_on_fault_mae": 0.2758,
+    "sev_clean_mae": 0.5255,
+    "sensor_macro_f1": 0.8451,
+    "health_mae": 0.2857,
+    "composite": 0.7123,
+    "select": 0.8451
+   }
+  },
+  {
+   "epoch": 11,
+   "seconds": 140.9,
+   "train_losses": {
+    "detection": 0.8555,
+    "diagnosis": 1.0184,
+    "family": 0.9862,
+    "severity": 0.6497,
+    "sensor": 0.0354,
+    "health": 0.3108
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6655,
+    "det_recall_p95": 0.232,
+    "diag_macro_f1": 0.0203,
+    "diag_macro_ap": 0.02,
+    "family_f1": 0.0542,
+    "sev_on_fault_mae": 0.2759,
+    "sev_clean_mae": 0.5269,
+    "sensor_macro_f1": 0.8417,
+    "health_mae": 0.2847,
+    "composite": 0.709,
+    "select": 0.8417
+   }
+  },
+  {
+   "epoch": 12,
+   "seconds": 142.1,
+   "train_losses": {
+    "detection": 0.8336,
+    "diagnosis": 1.006,
+    "family": 0.9799,
+    "severity": 0.6531,
+    "sensor": 0.034,
+    "health": 0.3072
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6702,
+    "det_recall_p95": 0.2404,
+    "diag_macro_f1": 0.0206,
+    "diag_macro_ap": 0.019,
+    "family_f1": 0.0543,
+    "sev_on_fault_mae": 0.2768,
+    "sev_clean_mae": 0.5271,
+    "sensor_macro_f1": 0.8419,
+    "health_mae": 0.2779,
+    "composite": 0.7257,
+    "select": 0.8419
+   }
+  },
+  {
+   "epoch": 13,
+   "seconds": 140.4,
+   "train_losses": {
+    "detection": 0.8415,
+    "diagnosis": 0.9896,
+    "family": 0.9562,
+    "severity": 0.6392,
+    "sensor": 0.0336,
+    "health": 0.3049
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6663,
+    "det_recall_p95": 0.2282,
+    "diag_macro_f1": 0.0207,
+    "diag_macro_ap": 0.0201,
+    "family_f1": 0.0543,
+    "sev_on_fault_mae": 0.2731,
+    "sev_clean_mae": 0.526,
+    "sensor_macro_f1": 0.8635,
+    "health_mae": 0.2785,
+    "composite": 0.747,
+    "select": 0.8635
+   }
+  },
+  {
+   "epoch": 14,
+   "seconds": 144.0,
+   "train_losses": {
+    "detection": 0.8269,
+    "diagnosis": 0.9825,
+    "family": 0.9516,
+    "severity": 0.6465,
+    "sensor": 0.0305,
+    "health": 0.305
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6715,
+    "det_recall_p95": 0.2189,
+    "diag_macro_f1": 0.0202,
+    "diag_macro_ap": 0.0197,
+    "family_f1": 0.0542,
+    "sev_on_fault_mae": 0.2685,
+    "sev_clean_mae": 0.5205,
+    "sensor_macro_f1": 0.8574,
+    "health_mae": 0.2778,
+    "composite": 0.7517,
+    "select": 0.8574
+   }
+  },
+  {
+   "epoch": 15,
+   "seconds": 141.0,
+   "train_losses": {
+    "detection": 0.8306,
+    "diagnosis": 0.97,
+    "family": 0.9365,
+    "severity": 0.6377,
+    "sensor": 0.0295,
+    "health": 0.2996
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.678,
+    "det_recall_p95": 0.2134,
+    "diag_macro_f1": 0.0207,
+    "diag_macro_ap": 0.02,
+    "family_f1": 0.0541,
+    "sev_on_fault_mae": 0.2679,
+    "sev_clean_mae": 0.5228,
+    "sensor_macro_f1": 0.8659,
+    "health_mae": 0.2767,
+    "composite": 0.7697,
+    "select": 0.8659
+   }
+  },
+  {
+   "epoch": 16,
+   "seconds": 142.1,
+   "train_losses": {
+    "detection": 0.8376,
+    "diagnosis": 0.9462,
+    "family": 0.9253,
+    "severity": 0.6394,
+    "sensor": 0.0284,
+    "health": 0.3
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6747,
+    "det_recall_p95": 0.2104,
+    "diag_macro_f1": 0.0204,
+    "diag_macro_ap": 0.0197,
+    "family_f1": 0.054,
+    "sev_on_fault_mae": 0.2669,
+    "sev_clean_mae": 0.5189,
+    "sensor_macro_f1": 0.8715,
+    "health_mae": 0.2765,
+    "composite": 0.773,
+    "select": 0.8715
+   }
+  },
+  {
+   "epoch": 17,
+   "seconds": 142.0,
+   "train_losses": {
+    "detection": 0.8311,
+    "diagnosis": 0.9476,
+    "family": 0.9111,
+    "severity": 0.6353,
+    "sensor": 0.0267,
+    "health": 0.297
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.677,
+    "det_recall_p95": 0.208,
+    "diag_macro_f1": 0.0199,
+    "diag_macro_ap": 0.0196,
+    "family_f1": 0.0539,
+    "sev_on_fault_mae": 0.2684,
+    "sev_clean_mae": 0.5232,
+    "sensor_macro_f1": 0.8686,
+    "health_mae": 0.2721,
+    "composite": 0.7795,
+    "select": 0.8686
+   }
+  },
+  {
+   "epoch": 18,
+   "seconds": 141.7,
+   "train_losses": {
+    "detection": 0.8139,
+    "diagnosis": 0.9443,
+    "family": 0.9108,
+    "severity": 0.6285,
+    "sensor": 0.0264,
+    "health": 0.297
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6794,
+    "det_recall_p95": 0.2209,
+    "diag_macro_f1": 0.0204,
+    "diag_macro_ap": 0.0206,
+    "family_f1": 0.054,
+    "sev_on_fault_mae": 0.2659,
+    "sev_clean_mae": 0.519,
+    "sensor_macro_f1": 0.8713,
+    "health_mae": 0.2734,
+    "composite": 0.7857,
+    "select": 0.8713
+   }
+  },
+  {
+   "epoch": 19,
+   "seconds": 141.3,
+   "train_losses": {
+    "detection": 0.8225,
+    "diagnosis": 0.959,
+    "family": 0.9074,
+    "severity": 0.6198,
+    "sensor": 0.0256,
+    "health": 0.297
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6766,
+    "det_recall_p95": 0.2178,
+    "diag_macro_f1": 0.0203,
+    "diag_macro_ap": 0.0208,
+    "family_f1": 0.0538,
+    "sev_on_fault_mae": 0.2669,
+    "sev_clean_mae": 0.5162,
+    "sensor_macro_f1": 0.8784,
+    "health_mae": 0.2722,
+    "composite": 0.7915,
+    "select": 0.8784
+   }
+  },
+  {
+   "epoch": 20,
+   "seconds": 141.5,
+   "train_losses": {
+    "detection": 0.8093,
+    "diagnosis": 0.9455,
+    "family": 0.8911,
+    "severity": 0.6291,
+    "sensor": 0.0245,
+    "health": 0.2995
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.677,
+    "det_recall_p95": 0.2178,
+    "diag_macro_f1": 0.02,
+    "diag_macro_ap": 0.0211,
+    "family_f1": 0.0539,
+    "sev_on_fault_mae": 0.2654,
+    "sev_clean_mae": 0.5184,
+    "sensor_macro_f1": 0.8778,
+    "health_mae": 0.2747,
+    "composite": 0.788,
+    "select": 0.8778
+   }
+  },
+  {
+   "epoch": 21,
+   "seconds": 142.9,
+   "train_losses": {
+    "detection": 0.8149,
+    "diagnosis": 0.9417,
+    "family": 0.8853,
+    "severity": 0.6324,
+    "sensor": 0.0243,
+    "health": 0.2953
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6721,
+    "det_recall_p95": 0.2178,
+    "diag_macro_f1": 0.019,
+    "diag_macro_ap": 0.0211,
+    "family_f1": 0.0537,
+    "sev_on_fault_mae": 0.2643,
+    "sev_clean_mae": 0.5207,
+    "sensor_macro_f1": 0.8805,
+    "health_mae": 0.2736,
+    "composite": 0.7892,
+    "select": 0.8805
+   }
+  },
+  {
+   "epoch": 22,
+   "seconds": 142.3,
+   "train_losses": {
+    "detection": 0.8247,
+    "diagnosis": 0.9239,
+    "family": 0.878,
+    "severity": 0.6242,
+    "sensor": 0.0229,
+    "health": 0.2971
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6802,
+    "det_recall_p95": 0.2272,
+    "diag_macro_f1": 0.0191,
+    "diag_macro_ap": 0.0207,
+    "family_f1": 0.0537,
+    "sev_on_fault_mae": 0.265,
+    "sev_clean_mae": 0.5204,
+    "sensor_macro_f1": 0.8753,
+    "health_mae": 0.2739,
+    "composite": 0.7902,
+    "select": 0.8753
+   }
+  },
+  {
+   "epoch": 23,
+   "seconds": 141.8,
+   "train_losses": {
+    "detection": 0.8107,
+    "diagnosis": 0.9184,
+    "family": 0.8662,
+    "severity": 0.6196,
+    "sensor": 0.0229,
+    "health": 0.2935
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6773,
+    "det_recall_p95": 0.2141,
+    "diag_macro_f1": 0.0196,
+    "diag_macro_ap": 0.0209,
+    "family_f1": 0.054,
+    "sev_on_fault_mae": 0.265,
+    "sev_clean_mae": 0.5205,
+    "sensor_macro_f1": 0.8807,
+    "health_mae": 0.2741,
+    "composite": 0.7926,
+    "select": 0.8807
+   }
+  },
+  {
+   "epoch": 24,
+   "seconds": 160.3,
+   "train_losses": {
+    "detection": 0.8164,
+    "diagnosis": 0.9115,
+    "family": 0.8712,
+    "severity": 0.6277,
+    "sensor": 0.0213,
+    "health": 0.2923
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6734,
+    "det_recall_p95": 0.2129,
+    "diag_macro_f1": 0.0183,
+    "diag_macro_ap": 0.0208,
+    "family_f1": 0.0538,
+    "sev_on_fault_mae": 0.2671,
+    "sev_clean_mae": 0.5227,
+    "sensor_macro_f1": 0.8811,
+    "health_mae": 0.2719,
+    "composite": 0.7913,
+    "select": 0.8811
+   }
+  },
+  {
+   "epoch": 25,
+   "seconds": 146.7,
+   "train_losses": {
+    "detection": 0.8041,
+    "diagnosis": 0.9093,
+    "family": 0.8633,
+    "severity": 0.6255,
+    "sensor": 0.0219,
+    "health": 0.2901
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6731,
+    "det_recall_p95": 0.2102,
+    "diag_macro_f1": 0.0184,
+    "diag_macro_ap": 0.0207,
+    "family_f1": 0.0537,
+    "sev_on_fault_mae": 0.2622,
+    "sev_clean_mae": 0.5172,
+    "sensor_macro_f1": 0.8748,
+    "health_mae": 0.2736,
+    "composite": 0.7859,
+    "select": 0.8748
+   }
+  },
+  {
+   "epoch": 26,
+   "seconds": 165.8,
+   "train_losses": {
+    "detection": 0.8065,
+    "diagnosis": 0.9087,
+    "family": 0.8602,
+    "severity": 0.6178,
+    "sensor": 0.0202,
+    "health": 0.292
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6705,
+    "det_recall_p95": 0.2147,
+    "diag_macro_f1": 0.0193,
+    "diag_macro_ap": 0.0218,
+    "family_f1": 0.054,
+    "sev_on_fault_mae": 0.2645,
+    "sev_clean_mae": 0.5207,
+    "sensor_macro_f1": 0.881,
+    "health_mae": 0.2728,
+    "composite": 0.7902,
+    "select": 0.881
+   }
+  },
+  {
+   "epoch": 27,
+   "seconds": 274.0,
+   "train_losses": {
+    "detection": 0.8126,
+    "diagnosis": 0.9015,
+    "family": 0.8491,
+    "severity": 0.6215,
+    "sensor": 0.0214,
+    "health": 0.2911
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6687,
+    "det_recall_p95": 0.2184,
+    "diag_macro_f1": 0.0182,
+    "diag_macro_ap": 0.0216,
+    "family_f1": 0.0541,
+    "sev_on_fault_mae": 0.2635,
+    "sev_clean_mae": 0.5184,
+    "sensor_macro_f1": 0.8806,
+    "health_mae": 0.2721,
+    "composite": 0.7902,
+    "select": 0.8806
+   }
+  },
+  {
+   "epoch": 28,
+   "seconds": 194.2,
+   "train_losses": {
+    "detection": 0.7997,
+    "diagnosis": 0.8914,
+    "family": 0.8469,
+    "severity": 0.6274,
+    "sensor": 0.0206,
+    "health": 0.2926
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6787,
+    "det_recall_p95": 0.2458,
+    "diag_macro_f1": 0.0183,
+    "diag_macro_ap": 0.0221,
+    "family_f1": 0.0542,
+    "sev_on_fault_mae": 0.2643,
+    "sev_clean_mae": 0.5183,
+    "sensor_macro_f1": 0.8815,
+    "health_mae": 0.2724,
+    "composite": 0.8003,
+    "select": 0.8815
+   }
+  },
+  {
+   "epoch": 29,
+   "seconds": 203.7,
+   "train_losses": {
+    "detection": 0.8088,
+    "diagnosis": 0.8924,
+    "family": 0.8465,
+    "severity": 0.6203,
+    "sensor": 0.0196,
+    "health": 0.2897
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6662,
+    "det_recall_p95": 0.2319,
+    "diag_macro_f1": 0.0183,
+    "diag_macro_ap": 0.0223,
+    "family_f1": 0.0542,
+    "sev_on_fault_mae": 0.2632,
+    "sev_clean_mae": 0.5173,
+    "sensor_macro_f1": 0.8846,
+    "health_mae": 0.2735,
+    "composite": 0.79,
+    "select": 0.8846
+   }
+  },
+  {
+   "epoch": 30,
+   "seconds": 188.8,
+   "train_losses": {
+    "detection": 0.8035,
+    "diagnosis": 0.8891,
+    "family": 0.8415,
+    "severity": 0.6223,
+    "sensor": 0.0199,
+    "health": 0.2886
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6673,
+    "det_recall_p95": 0.2384,
+    "diag_macro_f1": 0.0194,
+    "diag_macro_ap": 0.0221,
+    "family_f1": 0.0543,
+    "sev_on_fault_mae": 0.2613,
+    "sev_clean_mae": 0.5212,
+    "sensor_macro_f1": 0.8808,
+    "health_mae": 0.269,
+    "composite": 0.7982,
+    "select": 0.8808
+   }
+  },
+  {
+   "epoch": 31,
+   "seconds": 243.5,
+   "train_losses": {
+    "detection": 0.7995,
+    "diagnosis": 0.8835,
+    "family": 0.8497,
+    "severity": 0.6199,
+    "sensor": 0.0196,
+    "health": 0.2882
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6703,
+    "det_recall_p95": 0.2419,
+    "diag_macro_f1": 0.0191,
+    "diag_macro_ap": 0.0224,
+    "family_f1": 0.0542,
+    "sev_on_fault_mae": 0.2631,
+    "sev_clean_mae": 0.5213,
+    "sensor_macro_f1": 0.8799,
+    "health_mae": 0.271,
+    "composite": 0.7946,
+    "select": 0.8799
+   }
+  },
+  {
+   "epoch": 32,
+   "seconds": 246.0,
+   "train_losses": {
+    "detection": 0.815,
+    "diagnosis": 0.8867,
+    "family": 0.8569,
+    "severity": 0.6169,
+    "sensor": 0.0181,
+    "health": 0.2857
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.664,
+    "det_recall_p95": 0.218,
+    "diag_macro_f1": 0.0186,
+    "diag_macro_ap": 0.0209,
+    "family_f1": 0.0542,
+    "sev_on_fault_mae": 0.2628,
+    "sev_clean_mae": 0.5216,
+    "sensor_macro_f1": 0.8862,
+    "health_mae": 0.2692,
+    "composite": 0.7971,
+    "select": 0.8862
+   }
+  },
+  {
+   "epoch": 33,
+   "seconds": 164.0,
+   "train_losses": {
+    "detection": 0.8016,
+    "diagnosis": 0.8812,
+    "family": 0.8573,
+    "severity": 0.6168,
+    "sensor": 0.0192,
+    "health": 0.2858
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6782,
+    "det_recall_p95": 0.2208,
+    "diag_macro_f1": 0.0184,
+    "diag_macro_ap": 0.0207,
+    "family_f1": 0.0541,
+    "sev_on_fault_mae": 0.2594,
+    "sev_clean_mae": 0.517,
+    "sensor_macro_f1": 0.8849,
+    "health_mae": 0.2696,
+    "composite": 0.8123,
+    "select": 0.8849
+   }
+  },
+  {
+   "epoch": 34,
+   "seconds": 260.3,
+   "train_losses": {
+    "detection": 0.7974,
+    "diagnosis": 0.8792,
+    "family": 0.8525,
+    "severity": 0.6135,
+    "sensor": 0.0178,
+    "health": 0.2883
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6771,
+    "det_recall_p95": 0.2251,
+    "diag_macro_f1": 0.0184,
+    "diag_macro_ap": 0.0217,
+    "family_f1": 0.0542,
+    "sev_on_fault_mae": 0.2614,
+    "sev_clean_mae": 0.5177,
+    "sensor_macro_f1": 0.8862,
+    "health_mae": 0.27,
+    "composite": 0.8107,
+    "select": 0.8862
+   }
+  },
+  {
+   "epoch": 35,
+   "seconds": 177.3,
+   "train_losses": {
+    "detection": 0.8008,
+    "diagnosis": 0.8793,
+    "family": 0.8486,
+    "severity": 0.6168,
+    "sensor": 0.0179,
+    "health": 0.2852
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6753,
+    "det_recall_p95": 0.2353,
+    "diag_macro_f1": 0.0179,
+    "diag_macro_ap": 0.0205,
+    "family_f1": 0.0541,
+    "sev_on_fault_mae": 0.2628,
+    "sev_clean_mae": 0.5187,
+    "sensor_macro_f1": 0.8896,
+    "health_mae": 0.2701,
+    "composite": 0.8095,
+    "select": 0.8896
+   }
+  },
+  {
+   "epoch": 36,
+   "seconds": 148.4,
+   "train_losses": {
+    "detection": 0.8018,
+    "diagnosis": 0.8788,
+    "family": 0.8477,
+    "severity": 0.6151,
+    "sensor": 0.017,
+    "health": 0.2885
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6699,
+    "det_recall_p95": 0.2366,
+    "diag_macro_f1": 0.0187,
+    "diag_macro_ap": 0.0213,
+    "family_f1": 0.0544,
+    "sev_on_fault_mae": 0.2631,
+    "sev_clean_mae": 0.5195,
+    "sensor_macro_f1": 0.881,
+    "health_mae": 0.27,
+    "composite": 0.7964,
+    "select": 0.881
+   }
+  },
+  {
+   "epoch": 37,
+   "seconds": 198.5,
+   "train_losses": {
+    "detection": 0.8019,
+    "diagnosis": 0.8743,
+    "family": 0.8418,
+    "severity": 0.6206,
+    "sensor": 0.0177,
+    "health": 0.2885
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.671,
+    "det_recall_p95": 0.2334,
+    "diag_macro_f1": 0.0177,
+    "diag_macro_ap": 0.021,
+    "family_f1": 0.0541,
+    "sev_on_fault_mae": 0.2635,
+    "sev_clean_mae": 0.5205,
+    "sensor_macro_f1": 0.8818,
+    "health_mae": 0.2686,
+    "composite": 0.8001,
+    "select": 0.8818
+   }
+  },
+  {
+   "epoch": 38,
+   "seconds": 156.3,
+   "train_losses": {
+    "detection": 0.8093,
+    "diagnosis": 0.8747,
+    "family": 0.8435,
+    "severity": 0.6168,
+    "sensor": 0.0171,
+    "health": 0.2851
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6675,
+    "det_recall_p95": 0.2367,
+    "diag_macro_f1": 0.0175,
+    "diag_macro_ap": 0.0219,
+    "family_f1": 0.0542,
+    "sev_on_fault_mae": 0.2616,
+    "sev_clean_mae": 0.5203,
+    "sensor_macro_f1": 0.8861,
+    "health_mae": 0.2661,
+    "composite": 0.8089,
+    "select": 0.8861
+   }
+  },
+  {
+   "epoch": 39,
+   "seconds": 195.2,
+   "train_losses": {
+    "detection": 0.8054,
+    "diagnosis": 0.8755,
+    "family": 0.8368,
+    "severity": 0.6116,
+    "sensor": 0.0163,
+    "health": 0.2831
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6651,
+    "det_recall_p95": 0.2403,
+    "diag_macro_f1": 0.018,
+    "diag_macro_ap": 0.0222,
+    "family_f1": 0.0544,
+    "sev_on_fault_mae": 0.2617,
+    "sev_clean_mae": 0.5186,
+    "sensor_macro_f1": 0.8829,
+    "health_mae": 0.266,
+    "composite": 0.8037,
+    "select": 0.8829
+   }
+  },
+  {
+   "epoch": 40,
+   "seconds": 670.4,
+   "train_losses": {
+    "detection": 0.8056,
+    "diagnosis": 0.8756,
+    "family": 0.8391,
+    "severity": 0.6165,
+    "sensor": 0.0167,
+    "health": 0.2884
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.666,
+    "det_recall_p95": 0.2317,
+    "diag_macro_f1": 0.0186,
+    "diag_macro_ap": 0.0228,
+    "family_f1": 0.0543,
+    "sev_on_fault_mae": 0.2588,
+    "sev_clean_mae": 0.5207,
+    "sensor_macro_f1": 0.8851,
+    "health_mae": 0.2684,
+    "composite": 0.8053,
+    "select": 0.8851
+   }
+  },
+  {
+   "epoch": 41,
+   "seconds": 237.4,
+   "train_losses": {
+    "detection": 0.8114,
+    "diagnosis": 0.874,
+    "family": 0.8377,
+    "severity": 0.6151,
+    "sensor": 0.0167,
+    "health": 0.287
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6564,
+    "det_recall_p95": 0.2299,
+    "diag_macro_f1": 0.0191,
+    "diag_macro_ap": 0.0237,
+    "family_f1": 0.0544,
+    "sev_on_fault_mae": 0.261,
+    "sev_clean_mae": 0.52,
+    "sensor_macro_f1": 0.8857,
+    "health_mae": 0.2675,
+    "composite": 0.797,
+    "select": 0.8857
+   }
+  },
+  {
+   "epoch": 42,
+   "seconds": 200.6,
+   "train_losses": {
+    "detection": 0.8102,
+    "diagnosis": 0.8726,
+    "family": 0.8411,
+    "severity": 0.6176,
+    "sensor": 0.0158,
+    "health": 0.2853
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6628,
+    "det_recall_p95": 0.2326,
+    "diag_macro_f1": 0.0189,
+    "diag_macro_ap": 0.0236,
+    "family_f1": 0.0545,
+    "sev_on_fault_mae": 0.2574,
+    "sev_clean_mae": 0.5158,
+    "sensor_macro_f1": 0.8895,
+    "health_mae": 0.2656,
+    "composite": 0.8145,
+    "select": 0.8895
+   }
+  },
+  {
+   "epoch": 43,
+   "seconds": 212.4,
+   "train_losses": {
+    "detection": 0.8081,
+    "diagnosis": 0.8712,
+    "family": 0.8414,
+    "severity": 0.6105,
+    "sensor": 0.0158,
+    "health": 0.2856
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6546,
+    "det_recall_p95": 0.2283,
+    "diag_macro_f1": 0.0181,
+    "diag_macro_ap": 0.0221,
+    "family_f1": 0.0544,
+    "sev_on_fault_mae": 0.2551,
+    "sev_clean_mae": 0.5145,
+    "sensor_macro_f1": 0.8856,
+    "health_mae": 0.2627,
+    "composite": 0.809,
+    "select": 0.8856
+   }
+  },
+  {
+   "epoch": 44,
+   "seconds": 219.0,
+   "train_losses": {
+    "detection": 0.801,
+    "diagnosis": 0.8721,
+    "family": 0.8336,
+    "severity": 0.6118,
+    "sensor": 0.0168,
+    "health": 0.2871
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.6636,
+    "det_recall_p95": 0.2317,
+    "diag_macro_f1": 0.0194,
+    "diag_macro_ap": 0.0226,
+    "family_f1": 0.0543,
+    "sev_on_fault_mae": 0.2588,
+    "sev_clean_mae": 0.5181,
+    "sensor_macro_f1": 0.8887,
+    "health_mae": 0.2677,
+    "composite": 0.8079,
+    "select": 0.8887
+   }
+  },
+  {
+   "epoch": 45,
+   "seconds": 182.4,
+   "train_losses": {
+    "detection": 0.8056,
+    "diagnosis": 0.8644,
+    "family": 0.8443,
+    "severity": 0.6134,
+    "sensor": 0.0166,
+    "health": 0.2863
+   },
+   "log_vars": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "val": {
+    "det_auc": 0.67,
+    "det_recall_p95": 0.2455,
+    "diag_macro_f1": 0.0205,
+    "diag_macro_ap": 0.0224,
+    "family_f1": 0.0543,
+    "sev_on_fault_mae": 0.2601,
+    "sev_clean_mae": 0.5186,
+    "sensor_macro_f1": 0.8885,
+    "health_mae": 0.2686,
+    "composite": 0.8108,
+    "select": 0.8885
+   }
+  }
+ ],
+ "best_epoch": 35
+}

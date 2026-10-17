@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Physics API tests (Python 3.13)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r backend/requirements.txt ruff==0.12.0
+      - name: Lint (real bugs only)
+        run: ruff check --select F,E9 --ignore F403,F405 --exclude '*.ipynb' backend validation_v5 scripts simulation
+      - name: Tests
+        run: BACKEND_PY="$(which python)" AI_PY=none bash scripts/test_all.sh
+
+  ai-v5:
+    name: v5 AI service tests (CPU TensorFlow)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements_ai.txt
+      # tensorflow-metal is Apple-only. v5 computes the same on the CPU
+      # (validation_v5/tests/test_export_parity_v5.py); v3/v4 do not, so they stay local.
+      - run: grep -v '^tensorflow-metal' backend/requirements_ai.txt > "$RUNNER_TEMP/requirements_ai_cpu.txt"
+      - run: pip install -r "$RUNNER_TEMP/requirements_ai_cpu.txt"
+      - name: Tests
+        run: BACKEND_PY=none AI_PY="$(which python)" bash scripts/test_all.sh
+
+  frontend:
+    name: Frontend (types, build, Playwright)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx playwright install --with-deps chromium
+      # Builds the app with no secrets (Supabase disabled) and the physics API mocked.
+      - run: npx playwright test
+        env:
+          CI: true
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          retention-days: 7

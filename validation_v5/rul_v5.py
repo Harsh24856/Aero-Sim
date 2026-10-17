@@ -42,7 +42,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(HERE), "backend"))
 import evaluate as E  # noqa: E402
 import features_v5 as F  # noqa: E402
 import physics_v5 as P  # noqa: E402
-from pipeline_v5 import CTX_COLS, Cache  # noqa: E402
+from pipeline_v5 import CTX_COLS  # noqa: E402
 
 MARGIN_CH = ["cht", "egt", "oil_temp", "oil_pressure", "engine_rpm"]
 
@@ -58,17 +58,27 @@ def measured_margin(contract: dict, seq: np.ndarray) -> np.ndarray:
                      for i in range(len(seq))])
 
 
-def rul_inputs(o: dict, seq: np.ndarray, ctx: np.ndarray, contract: dict) -> np.ndarray:
+def rul_inputs(o: dict, seq: np.ndarray, ctx: np.ndarray, contract: dict,
+               hist: np.ndarray | None = None) -> np.ndarray:
     """RUL model inputs from the assembled outputs `o` and the scaled window/context
-    - one definition for fitting, scoring and serving."""
+    - one definition for fitting, scoring and serving. When the contract has
+    `hist_cols` (v6), the engine's logbook history [n, 3] in F.HIST_COLS order adds
+    its wear ratio, past worst severity and severity progression per hour; missing
+    history counts as none. Without hist_cols the inputs are exactly as before."""
     marg = measured_margin(contract, seq)
     thr_mean = seq[:, :, F.FEATURE_COLS.index("throttle")].mean(1)
     # Engine-fault evidence only: `detection` also fires on SENSOR faults, and fed to
     # RUL it took 7-14% off a healthy engine's life when one instrument failed.
     engine_fault = np.asarray(o["diagnosis"]).max(1, keepdims=True)
-    return np.concatenate([np.asarray(o["health"]), np.asarray(o["severity"]),
-                           engine_fault, np.asarray(o["family"]),
-                           marg[:, None], thr_mean[:, None], ctx], 1)
+    X = np.concatenate([np.asarray(o["health"]), np.asarray(o["severity"]),
+                        engine_fault, np.asarray(o["family"]),
+                        marg[:, None], thr_mean[:, None], ctx], 1)
+    if not contract.get("hist_cols"):
+        return X
+    h = np.tile(F.HIST_NEUTRAL, (len(X), 1)) if hist is None else np.asarray(hist, np.float64)
+    lag, ratio, sev = h[:, 0], h[:, 1], h[:, 2]
+    progression = (np.asarray(o["severity"]).max(1) - sev) / np.maximum(lag, 1.0)
+    return np.concatenate([X, ratio[:, None], sev[:, None], progression[:, None]], 1)
 
 
 def features(trainer, ids: np.ndarray, bs: int = 512):
@@ -80,7 +90,9 @@ def features(trainer, ids: np.ndarray, bs: int = 512):
     for i in range(0, len(ids), bs):
         seq, ctx, Er = cache.batch(ids[i:i + bs])
         o = trainer.model({"seq": seq, "ctx": ctx}, training=False)
-        Xs.append(rul_inputs(o, seq, ctx, cache.contract))
+        hist = (np.stack([cache.labels(Er, c) for c in F.HIST_COLS], 1)
+                if cache.contract.get("hist_cols") else None)
+        Xs.append(rul_inputs(o, seq, ctx, cache.contract, hist))
         rul = cache.labels(Er, "rul_hours")
         calh = cache.labels(Er, "rul_calendar_hours")
         ys.append(rul / tbo)
@@ -116,8 +128,8 @@ def fit_rul(trainer, out_dir: str | None = None, cal_ids: np.ndarray | None = No
     clf = HistGradientBoostingClassifier(max_iter=400, learning_rate=0.05, max_leaf_nodes=31,
                                          l2_regularization=1.0, random_state=0).fit(Xc, wlc)
     pwl = clf.predict_proba(Xv)[:, 1]
-    report = lambda pred: E.rul_report(yv * tbo, np.minimum(np.clip(pred, 0, None) * tbo, calv),  # noqa: E731
-                                       calv, tbo, wlv, flv, tv)
+    # Candidates are judged on what is served: predictions smoothed within each flight.
+    report = lambda pred: served_report(pred, yv, calv, tbo, wlv, flv, tv)  # noqa: E731
     score = lambda r: max(r["wear_limited_mae_pct"] / 12.0, r["tbo_limited_mae_pct"] / 4.0)  # noqa: E731
     thr = min(np.linspace(0.05, 0.95, 19),
               key=lambda t: score(report(GatedRUL(cands["gbt"], clf, t).predict(Xv, pwl))))
@@ -167,6 +179,27 @@ class RulSmoother:
             out = min(out, self.out - max(0.0, float(hours) - self.hours))
         self.out, self.hours = out, float(hours)
         return max(out, 0.0)
+
+
+def smooth_by_flight(pred_h: np.ndarray, flights: np.ndarray, hours: np.ndarray) -> np.ndarray:
+    """smooth_within_flight applied to each flight's windows in time order, whatever
+    order they come in - the one definition for choosing, scoring and serving."""
+    out = np.asarray(pred_h, float).copy()
+    flights, hours = np.asarray(flights), np.asarray(hours, float)
+    for f in np.unique(flights):
+        g = np.where(flights == f)[0]
+        g = g[np.argsort(hours[g], kind="stable")]
+        out[g] = smooth_within_flight(out[g], hours[g])
+    return out
+
+
+def served_report(pred_frac: np.ndarray, true_frac: np.ndarray, calendar_h: np.ndarray, tbo: float,
+                  wear_limited: np.ndarray, flights: np.ndarray, hours: np.ndarray) -> dict:
+    """evaluate.rul_report on SERVED predictions: capped at the calendar, then smoothed
+    within each flight, as score_v5 and the live service do."""
+    raw = np.minimum(np.clip(np.asarray(pred_frac, float), 0, None) * tbo, calendar_h)
+    return E.rul_report(np.asarray(true_frac) * tbo, smooth_by_flight(raw, flights, hours),
+                        calendar_h, tbo, wear_limited, flights, hours)
 
 
 def smooth_within_flight(pred_h: np.ndarray, hours: np.ndarray, alpha: float = 0.2) -> np.ndarray:

@@ -8,8 +8,8 @@ PHYSICS    physics_v5 (separable ignition / oil / turbo signatures, load-depende
            temperature and wastegate position on turbo engines).
 FEATURES   features_v5: 39 per-second inputs, a residual for every instrument.
 THREE ENGINES PER ROW. The engine under test, its on-board twin (residuals, as the
-           aircraft computes them: fleet-average wear for the engine's hours, so
-           normal ageing is not a residual) and a WEAR-ONLY engine - the same engine with
+           aircraft computes them: the fleet wear curve calibrated to THIS engine from
+           a logbook baseline 20-200 h earlier, so its normal ageing is not a residual) and a WEAR-ONLY engine - the same engine with
            its baseline wear but none of its faults. A fault is labelled PRESENT
            only when its noise-free effect (faulty minus wear-only) on some
            instrument reaches 1 sigma of that instrument's noise, so a fault the
@@ -58,7 +58,8 @@ import features_v5 as F  # noqa: E402
 import physics_v5 as P  # noqa: E402
 import timescale_v4 as TS  # noqa: E402
 from degradation_v5 import (  # noqa: E402
-    DegradationStateV5, FAULT_NAMES, REMOVAL_CONDITION, applicable_faults, fleet_wear_health,
+    DegradationStateV5, FAULT_NAMES, REMOVAL_CONDITION, applicable_faults, calibrated_wear_health,
+    engine_history,
 )
 from generate_dataset_v4 import (  # noqa: E402  unchanged v4 helpers
     MISSIONS, MISSION_NAMES, mission_target, sample_environment, sample_start_hours,
@@ -84,7 +85,7 @@ LABEL_COLS = (["fault_present", "fault_present_sev", "effect_z", "sensor_fault_a
                "health_index", "margin_min", "rul_hours", "rul_hours_oracle",
                "rul_calendar_hours", "engine_hours", "life_used_hours", "life_scale",
                "failed", "limit_exceeded"]
-              + FM_COLS + FMV_COLS + SF_FLAG_COLS + SF_ACTIVE_COLS + SF_SEV_COLS + EFF_COLS)
+              + FM_COLS + FMV_COLS + SF_FLAG_COLS + SF_ACTIVE_COLS + SF_SEV_COLS + EFF_COLS + F.HIST_COLS)
 ALL_COLS = ["scenario_id", "t", "mission_id"] + F.FEATURE_COLS + LABEL_COLS
 
 MAX_SCENARIO_S = 4500.0
@@ -190,11 +191,14 @@ def run_scenario(engine_model: str, scen_id: int, rng: np.random.Generator):
     h0, _ = deg.health_at(start_h)
     hw0 = deg.health_wear_only(start_h)
     eng.warm_start(warm_u, h0)
-    twin.warm_start(warm_u, fleet_wear_health(start_h, tbo))
+    # The engine's logbook baseline, from its own RNG stream so no other draw moves.
+    hist = engine_history(deg, start_h, np.random.default_rng([zlib.crc32(engine_model.encode()), scen_id, 2]))
+    hist_row = [round(hist["lag_h"], 3), round(hist["wear_ratio"], 5), round(hist["sev_max"], 5)]
+    twin.warm_start(warm_u, calibrated_wear_health(start_h, tbo, hist["wear_ratio"]))
     wear.warm_start(warm_u, hw0)
     for _ in range(300):
         eng.step(warm_u, h0)
-        twin.step(warm_u, fleet_wear_health(start_h, tbo))
+        twin.step(warm_u, calibrated_wear_health(start_h, tbo, hist["wear_ratio"]))
         wear.step(warm_u, hw0)
 
     wear_out_oracle = deg.wear_out_hours()
@@ -226,7 +230,7 @@ def run_scenario(engine_model: str, scen_id: int, rng: np.random.Generator):
         hw = deg.health_wear_only(hours)
 
         o = eng.step(u, h)
-        ref = twin.step(u, fleet_wear_health(hours, tbo))
+        ref = twin.step(u, calibrated_wear_health(hours, tbo, hist["wear_ratio"]))
         w = wear.step(u, hw)
         meas, sf_flag, sf_sev, sf_active = sensors.read(o, t)
         res = F.residuals(meas, ref, turbo)
@@ -260,7 +264,8 @@ def run_scenario(engine_model: str, scen_id: int, rng: np.random.Generator):
             + [sf_flag[c] for c in FAULTABLE_CHANNELS]
             + [sf_active[c] for c in FAULTABLE_CHANNELS]
             + [sf_sev[c] for c in FAULTABLE_CHANNELS]
-            + [round(e, 3) for e in eff])
+            + [round(e, 3) for e in eff]
+            + hist_row)
         t += DT
         if failed:
             break

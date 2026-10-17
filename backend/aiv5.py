@@ -26,7 +26,6 @@ AERO_AI_DEVICE=gpu for the GPU.
 PLACEHOLDERS. As aiv4: an engine without its own export is served by the 914's, and
 every response says so.
 """
-import json
 import os
 import sys
 from collections import deque
@@ -60,14 +59,13 @@ threadpool_limits(1)
 
 import features_v5 as F                                        # noqa: E402
 import physics_v5 as V                                         # noqa: E402
-import rul_v5                                                  # noqa: E402
 import twin_v5                                                 # noqa: E402
 from assembly_v5 import Deployed, apply_temperature            # noqa: E402
 from degradation_v5 import FAULT_NAMES, applicable_faults      # noqa: E402
 from model_architectures_v5 import FAMILY_NAMES                # noqa: E402
 from observability_v5 import FAMILY_OF                         # noqa: E402
 from pipeline_v5 import CTX_COLS                               # noqa: E402
-from sensors_v5 import FAULTABLE_CHANNELS, SENSOR_FAULT_TYPES  # noqa: E402
+from sensors_v5 import FAULTABLE_CHANNELS, SENSOR_FAULT_TYPES, SENSOR_SPEC  # noqa: E402
 
 MODEL_VERSION = "v5"
 MODELS_ROOT = os.path.join(BACKEND_DIR, "models_v5")
@@ -77,6 +75,16 @@ ENGINE_REGISTRY = {"Rotax_912_ULS": "912", "Rotax_914_ULF": "914",
 DEVICE = "GPU" if tf.config.get_visible_devices("GPU") else "CPU"     # AERO_AI_DEVICE=cpu hides the GPU
 MARGIN_CHANNELS = ["egt", "cht", "oil_temp", "oil_pressure", "engine_rpm"]
 CONTEXT_SETTLED_S = 3600.0          # the 60-minute EMA needs about this long
+# W3: the sensor head calls "stuck" only once its 128 s window is full of frozen
+# readings (~130 s after onset). A frozen instrument is also visible directly: a
+# working one never repeats the same reading for 20 s. Measured on 16 healthy flights
+# (4 engines, 1,500 s each): the longest identical run is 3-9 s on every channel but
+# oil temperature (13 s) and engine rpm (25 s, quantum 10 rpm). Those two can sit flat
+# at a steady cruise, so for them the twin's value must also move.
+# ponytail: exact-equality flat line; a sensor that freezes with dither needs a variance test.
+STUCK_FLAT_S = 20                   # rows (1 Hz) the reading must stay exactly constant
+STUCK_TWIN_MOVE_SD = 2.0            # ...and for CAN_SIT_FLAT, the twin must move this many noise sd
+CAN_SIT_FLAT = {"oil_temp", "engine_rpm"}
 
 if list(twin_v5.FEATURE_COLS) != list(F.FEATURE_COLS):
     raise RuntimeError("twin_v5.FEATURE_COLS differs from features_v5.FEATURE_COLS")
@@ -128,6 +136,28 @@ _z.predict_window(np.zeros((F.WINDOW, F.N_FEATURES), np.float32), np.zeros(len(C
 print("Models warmed.")
 
 
+def stuck_by_flatline(rows: np.ndarray, channels: list) -> set:
+    """Channels whose measured value is exactly constant over the last STUCK_FLAT_S
+    rows. For CAN_SIT_FLAT channels the twin's value (measured - residual) must also
+    move by more than STUCK_TWIN_MOVE_SD x the channel's noise."""
+    rows = np.asarray(rows, np.float64)
+    if len(rows) <= STUCK_FLAT_S:
+        return set()
+    last = rows[-STUCK_FLAT_S:]
+    out = set()
+    for ch in channels:
+        measured = last[:, F.FEATURE_COLS.index(ch)]
+        if np.ptp(measured) != 0.0:
+            continue
+        if ch not in CAN_SIT_FLAT:
+            out.add(ch)
+            continue
+        twin = measured - last[:, F.FEATURE_COLS.index("res_" + ch)]
+        if np.ptp(twin) > STUCK_TWIN_MOVE_SD * SENSOR_SPEC[ch]["noise_sd"]:
+            out.add(ch)
+    return out
+
+
 # ============================================================================
 # FLIGHT STATE
 # ============================================================================
@@ -163,7 +193,8 @@ def run_inference(e=None) -> dict:
     seq = dep.scale_seq(np.asarray(flight.rows))
     ctx = dep.scale_ctx(np.asarray(last["ai_context"], np.float64))
     hours = float(last["engine_hours"])
-    o = dep.predict_window(seq, ctx, hours, tbo=e["tbo_hours"])     # placeholders: this engine's TBO
+    hist = last.get("engine_history") if dep.contract.get("hist_cols") else None   # v6 exports only
+    o = dep.predict_window(seq, ctx, hours, tbo=e["tbo_hours"], hist=hist)     # placeholders: this engine's TBO
 
     prob = apply_temperature(o["diagnosis"][None], e["temps"])[0]
     faults = {}
@@ -180,6 +211,9 @@ def run_inference(e=None) -> dict:
     for i, ch in enumerate(FAULTABLE_CHANNELS):
         k = int(ps[i].argmax())
         sensors[ch] = {"condition": SENSOR_FAULT_TYPES[k], "confidence": round(float(ps[i, k]), 4)}
+    for ch in stuck_by_flatline(np.asarray(flight.rows), FAULTABLE_CHANNELS):
+        if sensors[ch]["condition"] == "none":      # the model's own call wins otherwise
+            sensors[ch] = {"condition": "stuck", "confidence": 0.99, "source": "flatline"}
 
     det = float(o["detection"][0])
     health = float(np.clip(o["health"][0], 0.0, 1.0))

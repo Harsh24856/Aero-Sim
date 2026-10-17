@@ -323,8 +323,8 @@ export async function createWorld(o: WorldOptions): Promise<World> {
           col = mix(col, uLow, smoothstep(0.0, -0.12, e));
           float s = max(dot(d, uSun), 0.0);
           float band = exp(-abs(e - 0.02) * 10.0);
-          col += uSunCol * (0.06 * band * (0.3 + 0.7 * pow(s, 3.0)) + 0.2 * pow(s, 12.0) + 0.6 * pow(s, 120.0)) * (1.0 + uBoost * 0.5);
-          col += uSunCol * smoothstep(0.99955, 0.99972, s) * 9.0;
+          col += uSunCol * (0.06 * band * (0.3 + 0.7 * pow(s, 3.0)) + 0.2 * pow(s, 12.0) + 0.42 * pow(s, 120.0)) * (1.0 + uBoost * 0.5);
+          col += uSunCol * smoothstep(0.99955, 0.99972, s) * 2.2;   /* x9 clipped to a white glare disc; x2.2 stays a warm sun */
           vec3 c = fract(d * 380.0) - 0.5; float h = hash(floor(d * 380.0));
           float star = step(0.9972, h) * smoothstep(0.35, 0.0, length(c)) * smoothstep(0.05, 0.32, e)
                      * (0.55 + 0.45 * sin(uT * 1.7 + h * 80.0)) * (1.0 - pow(s, 3.0));
@@ -440,7 +440,7 @@ export async function createWorld(o: WorldOptions): Promise<World> {
   scene.add(planeRig);
   const tailLocal = new THREE.Vector3(0, 0, -8);
   try {
-    const gltf = await loader.loadAsync("/models/blackout-plane.glb");
+    const gltf = await loader.loadAsync("/models/blackout-fighter.glb");
     const model = gltf.scene;
     const box = new THREE.Box3().setFromObject(model);
     const size = box.getSize(new THREE.Vector3());
@@ -643,7 +643,7 @@ export async function createWorld(o: WorldOptions): Promise<World> {
   composer.setPixelRatio(renderer.getPixelRatio());
   composer.setSize(vpW(), vpH());
   composer.addPass(new RenderPass(scene, camera));
-  const bloom = new UnrealBloomPass(new THREE.Vector2(vpW(), vpH()), 0.72, 0.55, 0.82);
+  const bloom = new UnrealBloomPass(new THREE.Vector2(vpW(), vpH()), 0.5, 0.55, 0.82);   /* 0.72 haloed the sun over the copy */
   composer.addPass(bloom);
   composer.addPass(new OutputPass());
 

@@ -12,7 +12,7 @@ import sys
 import time
 import unittest
 
-os.environ.setdefault("AERO_PHYSICS_VERSION", "v3")
+os.environ["AERO_PHYSICS_VERSION"] = "v3"    # the v3 hold floor, overlay keys and twin
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np                              # noqa: E402
@@ -22,6 +22,10 @@ import main                                     # noqa: E402
 import residual                                 # noqa: E402
 from aircraft_sim import MISMATCH_PROFILES, SENSOR_KEYS, apply_mismatch   # noqa: E402
 from physics import UAVEngineTwin               # noqa: E402
+
+if main.PHYSICS_VERSION != os.environ["AERO_PHYSICS_VERSION"]:   # main reads it once, at import
+    raise ImportError(f"main is already loaded as physics {main.PHYSICS_VERSION}, this module needs "
+                      f"{os.environ['AERO_PHYSICS_VERSION']} - run it in its own process (scripts/test_all.sh)")
 
 TBO = 2000.0
 OK = {"status": "ok", "tbo_hours": TBO}

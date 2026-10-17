@@ -5,11 +5,11 @@ import { Canvas } from "@react-three/fiber";
 import {
   useGLTF,
   OrbitControls,
-  Environment,
   ContactShadows,
   Bounds,
   Center,
 } from "@react-three/drei";
+import SafeEnvironment from "@/components/SafeEnvironment";
 import * as THREE from "three";
 
 const MODEL_PATH = "/models/rotax-style-915-turbo-uav-engine.glb";
@@ -126,7 +126,7 @@ export default function EngineViewer915() {
               <Engine915Model />
             </Center>
           </Bounds>
-          <Environment preset="city" environmentIntensity={1.25} />
+          <SafeEnvironment preset="city" environmentIntensity={1.25} />
           <ContactShadows position={[0, -1, 0]} opacity={0.45} scale={8} blur={2.2} far={2} />
         </Suspense>
 

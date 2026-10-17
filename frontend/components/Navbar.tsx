@@ -121,10 +121,11 @@ export default function Navbar() {
           </Link>
         </div>
 
-        <div className="flex items-center gap-4 text-primary">
+        <div className="flex items-center gap-5 text-primary">
+          {/* 22px icons, 42px hit areas (padding cancelled by margin, so nothing moves) */}
           <button
             type="button"
-            className="md:hidden hover:text-tertiary transition-colors"
+            className="md:hidden -m-2.5 p-2.5 hover:text-tertiary transition-colors"
             aria-label={menuOpen ? "Close menu" : "Open menu"}
             aria-expanded={menuOpen}
             aria-controls="mobile-nav"
@@ -133,7 +134,8 @@ export default function Navbar() {
             {menuOpen ? <X size={22} /> : <Menu size={22} />}
           </button>
           <button
-            className="hover:text-tertiary transition-colors"
+            type="button"
+            className="-m-2.5 p-2.5 hover:text-tertiary transition-colors"
             aria-label={isSignedIn ? "Open dashboard" : "Sign in"}
             onClick={() => router.push(isSignedIn ? "/dashboard" : "/login")}
           >

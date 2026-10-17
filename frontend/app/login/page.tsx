@@ -36,9 +36,9 @@ function SwitchMark() {
   );
 }
 
-const field = "login-field w-full rounded border border-outline-variant/50 bg-black/45 py-2.5 pl-10 pr-3 text-sm text-primary placeholder:text-on-surface-variant/30 outline-none transition-all duration-200 focus:border-tertiary";
-const label = "mb-1.5 block font-mono text-[10px] uppercase tracking-[0.14em] text-on-surface-variant";
-const icon = "pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant/50 transition-colors peer-focus:text-tertiary";
+const field = "login-field w-full rounded border border-outline-variant/50 bg-black/45 py-2.5 pl-10 pr-3 text-sm text-primary placeholder:text-on-surface-variant/80 outline-none transition-all duration-200 focus:border-tertiary";
+const label = "mb-1.5 block font-mono text-[11px] uppercase tracking-[0.14em] text-on-surface-variant";
+const icon = "pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant/80 transition-colors peer-focus:text-tertiary";
 
 // Switch choreography (ms), from the reference video: form out, mark in and flare, form in.
 const OUT_MS = 220;
@@ -191,10 +191,10 @@ export default function LoginPage() {
 
                         <div className="login-in" style={d(160)}>
                           <div className="mb-1.5 flex items-center justify-between">
-                            <label htmlFor="password" className="font-mono text-[10px] uppercase tracking-[0.14em] text-on-surface-variant">Password</label>
+                            <label htmlFor="password" className="font-mono text-[11px] uppercase tracking-[0.14em] text-on-surface-variant">Password</label>
                             {mode === "login" && (
                               <button type="button" onClick={forgotPassword}
-                                className="text-[11px] text-on-surface-variant/70 transition-colors hover:text-tertiary">
+                                className="-my-2 -mr-2 p-2 text-[12px] text-on-surface-variant transition-colors hover:text-tertiary">
                                 Forgot password?
                               </button>
                             )}
@@ -207,7 +207,7 @@ export default function LoginPage() {
                               className={`peer ${field} pr-10`} />
                             <Lock size={15} className={icon} />
                             <button type="button" onClick={() => setShowPassword((v) => !v)}
-                              className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant/50 transition-colors hover:text-primary"
+                              className="absolute right-1 top-1/2 -translate-y-1/2 grid h-9 w-9 place-items-center rounded text-on-surface-variant/80 transition-colors hover:text-primary"
                               aria-label={showPassword ? "Hide password" : "Show password"}>
                               {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
                             </button>
@@ -237,7 +237,7 @@ export default function LoginPage() {
 
                       <div className="login-in my-5 flex items-center gap-3" style={d(240)}>
                         <div className="h-px flex-1 bg-outline-variant/40" />
-                        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-on-surface-variant/60">or</span>
+                        <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-on-surface-variant/80">or</span>
                         <div className="h-px flex-1 bg-outline-variant/40" />
                       </div>
 
@@ -263,7 +263,7 @@ export default function LoginPage() {
 
                       <p className="login-in mt-6 text-center font-mono text-[11px] text-on-surface-variant" style={d(300)}>
                         {mode === "login" ? "No account yet? " : "Already have an account? "}
-                        <button type="button" onClick={switchMode} className="font-bold text-tertiary hover:underline">
+                        <button type="button" onClick={switchMode} className="-my-2 p-2 font-bold text-tertiary hover:underline">
                           {mode === "login" ? "Create one" : "Sign in"}
                         </button>
                       </p>
@@ -276,8 +276,8 @@ export default function LoginPage() {
         </div>
 
         <p className="mt-6 text-center">
-          <Link href="/home" className="font-mono text-[11px] uppercase tracking-wider text-on-surface-variant/60 transition-colors hover:text-tertiary">
-            Continue without an account &rarr;
+          <Link href="/home" className="inline-block p-3 font-mono text-[11px] uppercase tracking-wider text-on-surface-variant/80 transition-colors hover:text-tertiary">
+            Browse without an account &rarr;
           </Link>
         </p>
       </div>

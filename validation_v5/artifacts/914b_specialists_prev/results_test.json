@@ -1,0 +1,404 @@
+{
+ "engine_model": "Rotax_914_ULF",
+ "test_windows": 43321,
+ "test_flights": 900,
+ "heads": {
+  "detection": {
+   "recall_at_p95": {
+    "point": 0.9654806428788032,
+    "ci": [
+     0.9522504997201829,
+     0.9766154345365927
+    ],
+    "baseline": {
+     "point": 0.638936621853836
+    },
+    "diff": {
+     "point": 0.32654402102496716,
+     "ci": [
+      0.27914070739545843,
+      0.375200404796307
+     ]
+    }
+   },
+   "auc": {
+    "point": 0.9901909975724746,
+    "ci": [
+     null,
+     null
+    ]
+   },
+   "baseline_auc": {
+    "point": 0.879154968573767,
+    "ci": [
+     null,
+     null
+    ]
+   }
+  },
+  "diagnosis": {
+   "macro_f1": {
+    "point": 0.8176132452397393,
+    "ci": [
+     0.7706828181174153,
+     0.8459463341813593
+    ],
+    "baseline": {
+     "point": 0.0
+    },
+    "diff": {
+     "point": 0.8176132452397393,
+     "ci": [
+      0.7706828181174153,
+      0.8459463341813593
+     ]
+    }
+   },
+   "min_fault_recall": {
+    "point": 0.5594795539033457,
+    "ci": [
+     null,
+     null
+    ]
+   },
+   "family_macro_f1": {
+    "point": 0.8948611086606985,
+    "ci": [
+     null,
+     null
+    ]
+   },
+   "ece": {
+    "point": 0.003345425646224075,
+    "ci": [
+     null,
+     null
+    ]
+   },
+   "macro_ap": {
+    "point": 0.8815251111078889,
+    "ci": [
+     null,
+     null
+    ]
+   },
+   "per_fault": {
+    "air_filter_fouling": {
+     "precision": 0.41098169717138106,
+     "recall": 0.7916666666666666,
+     "f1": 0.5410733844468785,
+     "positives": 312,
+     "cut": 0.26
+    },
+    "compression_loss": {
+     "precision": 0.7015834348355664,
+     "recall": 0.8985959438377535,
+     "f1": 0.7879616963064295,
+     "positives": 641,
+     "cut": 0.23
+    },
+    "valve_leakage": {
+     "precision": 0.8201634877384196,
+     "recall": 0.5594795539033457,
+     "f1": 0.6651933701657459,
+     "positives": 538,
+     "cut": 0.54
+    },
+    "turbo_degradation": {
+     "precision": 1.0,
+     "recall": 0.5996908809891809,
+     "f1": 0.7497584541062802,
+     "positives": 647,
+     "cut": 0.85
+    },
+    "wastegate_fault": {
+     "precision": 0.9428571428571428,
+     "recall": 0.9118421052631579,
+     "f1": 0.9270903010033444,
+     "positives": 760,
+     "cut": 0.19
+    },
+    "injector_fouling": {
+     "precision": 0.9041420118343195,
+     "recall": 0.9374233128834356,
+     "f1": 0.9204819277108434,
+     "positives": 815,
+     "cut": 0.18000000000000002
+    },
+    "ignition_degradation": {
+     "precision": 0.9547920433996383,
+     "recall": 0.9087779690189329,
+     "f1": 0.9312169312169312,
+     "positives": 581,
+     "cut": 0.66
+    },
+    "combustion_instability": {
+     "precision": 0.9873417721518988,
+     "recall": 0.9974424552429667,
+     "f1": 0.9923664122137404,
+     "positives": 782,
+     "cut": 0.11
+    },
+    "bearing_wear": {
+     "precision": 0.96,
+     "recall": 0.9863013698630136,
+     "f1": 0.9729729729729729,
+     "positives": 511,
+     "cut": 0.52
+    },
+    "oil_pump_degradation": {
+     "precision": 0.49113475177304966,
+     "recall": 0.6579572446555819,
+     "f1": 0.5624365482233503,
+     "positives": 842,
+     "cut": 0.21000000000000002
+    },
+    "oil_degradation": {
+     "precision": 0.5909090909090909,
+     "recall": 0.8046958377801494,
+     "f1": 0.6814279258924537,
+     "positives": 937,
+     "cut": 0.25
+    },
+    "cooling_degradation": {
+     "precision": 0.9033018867924528,
+     "recall": 1.0,
+     "f1": 0.949194547707559,
+     "positives": 383,
+     "cut": 0.12
+    },
+    "prop_erosion": {
+     "precision": 1.0,
+     "recall": 0.9007751937984496,
+     "f1": 0.9477977161500816,
+     "positives": 645,
+     "cut": 0.75
+    }
+   }
+  },
+  "severity": {
+   "mae_on_fault": {
+    "point": 0.07276754826307297,
+    "ci": [
+     0.0628291230648756,
+     0.08322259243577719
+    ],
+    "baseline": {
+     "point": 0.15773417055606842
+    },
+    "diff": {
+     "point": -0.08496662229299545,
+     "ci": [
+      -0.10238859020173549,
+      -0.06804661490023137
+     ]
+    }
+   },
+   "mae_clean": {
+    "point": 0.0034742814951832747,
+    "ci": [
+     null,
+     null
+    ]
+   },
+   "bias_on_fault": {
+    "point": -0.026996543699747216,
+    "ci": [
+     null,
+     null
+    ]
+   }
+  },
+  "sensor_fault": {
+   "macro_f1": {
+    "point": 0.9006535222417079,
+    "ci": [
+     0.8867735696454527,
+     0.912206816940493
+    ],
+    "baseline": {
+     "point": 0.41505913602274924
+    },
+    "diff": {
+     "point": 0.4855943862189587,
+     "ci": [
+      0.4674609411271903,
+      0.5025296222776281
+     ]
+    }
+   },
+   "per_kind": {
+    "none": {
+     "recall": {
+      "point": 0.9993108461300138,
+      "ci": [
+       null,
+       null
+      ]
+     }
+    },
+    "bias": {
+     "recall": {
+      "point": 0.6820728291316527,
+      "ci": [
+       null,
+       null
+      ]
+     }
+    },
+    "drift": {
+     "recall": {
+      "point": 0.7636363636363637,
+      "ci": [
+       null,
+       null
+      ]
+     }
+    },
+    "stuck": {
+     "recall": {
+      "point": 0.9834636199639206,
+      "ci": [
+       null,
+       null
+      ]
+     }
+    },
+    "spike": {
+     "recall": {
+      "point": 0.8526886579304112,
+      "ci": [
+       null,
+       null
+      ]
+     }
+    },
+    "noise": {
+     "recall": {
+      "point": 0.9356390977443609,
+      "ci": [
+       null,
+       null
+      ]
+     }
+    },
+    "dropout": {
+     "recall": {
+      "point": 0.9846820809248555,
+      "ci": [
+       null,
+       null
+      ]
+     }
+    }
+   },
+   "false_alarm_rate": {
+    "point": 0.0006891538699862566,
+    "ci": [
+     null,
+     null
+    ]
+   },
+   "detected_faulty": {
+    "point": 0.9422135161606269,
+    "ci": [
+     null,
+     null
+    ]
+   }
+  },
+  "health": {
+   "mae": {
+    "point": 0.03201291734631357,
+    "ci": [
+     0.029954410869169907,
+     0.03419632795558698
+    ],
+    "baseline": {
+     "point": 0.1183897194372101
+    },
+    "diff": {
+     "point": -0.08637680209089654,
+     "ci": [
+      -0.09277221974505388,
+      -0.0798149405913923
+     ]
+    }
+   }
+  },
+  "rul": {
+   "mae_pct_tbo_wear_limited": {
+    "point": 9.482933871201883,
+    "ci": [
+     8.4490128788207,
+     10.621905052337661
+    ],
+    "baseline": {
+     "point": 26.170862081840188
+    },
+    "diff": {
+     "point": -16.687928210638304,
+     "ci": [
+      -18.477087478982483,
+      -14.919102482364421
+     ]
+    }
+   },
+   "gain_vs_calendar": {
+    "point": 0.6376529805725415,
+    "ci": [
+     null,
+     null
+    ]
+   },
+   "mae_pct_tbo_tbo_limited": {
+    "point": 3.637912045003251,
+    "ci": [
+     null,
+     null
+    ]
+   },
+   "frac_flights_nonmonotone": {
+    "point": 0.0,
+    "ci": [
+     null,
+     null
+    ]
+   },
+   "before_smoothing": {
+    "wear_limited_mae_pct": 10.26798737181082,
+    "tbo_limited_mae_pct": 2.8926368468290837,
+    "calendar_wear_limited_mae_pct": 26.170862081840188,
+    "all_mae_pct": 5.338091359440466,
+    "gain_vs_calendar": 0.6076557455500972,
+    "within_flight_rises_gt_2pct": 1536
+   }
+  }
+ },
+ "gates": {
+  "detection": {
+   "pass": true,
+   "reasons": []
+  },
+  "diagnosis": {
+   "pass": true,
+   "reasons": []
+  },
+  "severity": {
+   "pass": true,
+   "reasons": []
+  },
+  "sensor_fault": {
+   "pass": true,
+   "reasons": []
+  },
+  "health": {
+   "pass": true,
+   "reasons": []
+  },
+  "rul": {
+   "pass": true,
+   "reasons": []
+  }
+ }
+}

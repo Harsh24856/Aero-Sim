@@ -10,8 +10,8 @@ import Navbar from "@/components/Navbar";
 import { engineHoursFlown, engineHoursOf, flightHours, formatLifeScale, formatSimClock, isV4Family, modelVersionOf, rulPercentOf, tboHoursOf, usesEngineHours } from "@/lib/timeScale";
 import ModelBadge from "@/components/ModelBadge";
 import { formatRul, isRulOutOfRange } from "@/lib/units";
+import { API } from "@/lib/api";
 
-const API = "http://localhost:8000";
 
 type GroqResult = {
   status?: string;
@@ -188,7 +188,7 @@ export default function MissionReportPage() {
                     {rulPct == null ? "--" : `${rulPct.toFixed(0)}%`}
                   </div>
                   {sim.final_rul_hours !== null && (
-                    <div className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mt-1">
+                    <div className="text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mt-1">
                       {formatRul(sim.final_rul_hours, version)}
                       {isRulOutOfRange(sim.final_rul_hours, version, tboHoursOf(sim)) && (
                         <span className="text-tertiary"> &middot; extrapolated</span>
@@ -205,7 +205,7 @@ export default function MissionReportPage() {
                         {engineHoursOf(sim) == null ? "--" : `${(engineHoursOf(sim) as number).toFixed(1)}h`}
                       </div>
                       {isV4Family(version) && sim.start_engine_hours != null && (
-                        <div className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mt-1">
+                        <div className="text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mt-1">
                           {sim.start_engine_hours.toFixed(1)} &rarr; {sim.end_engine_hours != null ? sim.end_engine_hours.toFixed(1) : "--"} h
                           {engineHoursFlown(sim) != null ? ` (+${(engineHoursFlown(sim) as number).toFixed(1)})` : ""}
                           {" "}&middot; {formatLifeScale(sim.life_scale)}
@@ -213,7 +213,7 @@ export default function MissionReportPage() {
                         </div>
                       )}
                       {simSeconds !== null && (
-                        <div className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mt-1">
+                        <div className="text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mt-1">
                           {isV4Family(version) ? "flight" : "sim"} {formatSimClock(simSeconds)}
                         </div>
                       )}
@@ -225,7 +225,7 @@ export default function MissionReportPage() {
                         {simSeconds === null ? "--" : `${simSeconds.toFixed(0)}s`}
                       </div>
                       {simSeconds !== null && (
-                        <div className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mt-1">
+                        <div className="text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mt-1">
                           {flightHours(simSeconds, version).toFixed(2)} h real
                         </div>
                       )}
@@ -247,7 +247,7 @@ export default function MissionReportPage() {
                   <button
                     onClick={regenerate}
                     disabled={regenerating}
-                    className="rounded bg-surface/80 border border-outline-variant/30 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.1em] text-on-surface-variant hover:text-primary transition-all disabled:opacity-40 flex items-center gap-2"
+                    className="rounded bg-surface/80 border border-outline-variant/30 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.1em] text-on-surface-variant hover:text-primary transition-all disabled:opacity-40 flex items-center gap-2"
                   >
                     <RefreshCw className={`h-3.5 w-3.5 ${regenerating ? "animate-spin" : ""}`} />
                     {regenerating ? "Generating" : "Regenerate"}
@@ -287,7 +287,7 @@ export default function MissionReportPage() {
                         {g.headline}
                       </h3>
                       {g.risk && (
-                        <span className={`shrink-0 rounded border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.1em] ${RISK_STYLE[g.risk] ?? RISK_STYLE.low}`}>
+                        <span className={`shrink-0 rounded border px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.1em] ${RISK_STYLE[g.risk] ?? RISK_STYLE.low}`}>
                           {g.risk} risk
                         </span>
                       )}
@@ -299,7 +299,7 @@ export default function MissionReportPage() {
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="bg-surface/60 border border-outline-variant/30 rounded p-4">
-                        <div className="text-[10px] uppercase tracking-[0.1em] text-tertiary/80 mb-2">Findings</div>
+                        <div className="text-[11px] uppercase tracking-[0.1em] text-tertiary/80 mb-2">Findings</div>
                         <ul className="space-y-2">
                           {(g.findings ?? []).map((f, i) => (
                             <li key={i} className="flex gap-2 text-[12px] text-on-surface-variant leading-relaxed">
@@ -313,7 +313,7 @@ export default function MissionReportPage() {
                         </ul>
                       </div>
                       <div className="bg-surface/60 border border-outline-variant/30 rounded p-4">
-                        <div className="text-[10px] uppercase tracking-[0.1em] text-tertiary/80 mb-2">Recommendations</div>
+                        <div className="text-[11px] uppercase tracking-[0.1em] text-tertiary/80 mb-2">Recommendations</div>
                         <ul className="space-y-2">
                           {(g.recommendations ?? []).map((r, i) => (
                             <li key={i} className="flex gap-2 text-[12px] text-on-surface-variant leading-relaxed">
@@ -328,7 +328,7 @@ export default function MissionReportPage() {
                       </div>
                     </div>
 
-                    <div className="mt-4 pt-3 border-t border-outline-variant/20 text-[10px] uppercase tracking-[0.1em] text-on-surface-variant">
+                    <div className="mt-4 pt-3 border-t border-outline-variant/20 text-[11px] uppercase tracking-[0.1em] text-on-surface-variant">
                       Generated by {g.model}
                       {g.generated_at && <> &middot; {new Date(g.generated_at).toLocaleString()}</>}
                       {g.recovered && <> &middot; recovered from malformed response</>}

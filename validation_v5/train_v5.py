@@ -224,11 +224,13 @@ class Trainer:
             yield item
 
     def fit(self, epochs: int, patience: int, bs: int, out_dir: str | None = None,
-            max_train_windows: int | None = None, verbose: bool = True,
+            max_train_windows: int | None = None, verbose: int = 1,
             keep_current: bool = False, epoch0: int = 0) -> dict:
         """keep_current: the weights on entry are the version to beat (later
         stages), so a stage that does not improve the composite changes nothing.
-        epoch0 offsets the window shuffle so later stages see fresh orders."""
+        epoch0 offsets the window shuffle so later stages see fresh orders.
+        verbose: 0 silent, 1 one line per epoch (validation), 2 also the training loss
+        of the heads being trained, a best-epoch marker and progress every quarter epoch."""
         val_ids = self.cache.end_ids(["val"], jitter=False)
         if verbose:
             print(f"device: {[d.name for d in tf.config.list_physical_devices('GPU')]}", flush=True)
@@ -242,21 +244,27 @@ class Trainer:
             if max_train_windows:
                 ids = ids[:max_train_windows]
             tot = np.zeros(len(HEADS))
-            nb = 0
+            nb, n_batches = 0, max(1, len(ids) // bs)
             for seq, ctx, y in self._batches(ids, bs):
                 tot += self.train_step(tf.constant(seq), tf.constant(ctx),
                                        {k: tf.constant(v) for k, v in y.items()}).numpy()
                 nb += 1
+                if verbose >= 2 and nb % max(1, n_batches // 4) == 0 and nb < n_batches:
+                    print(f"   ep {ep:2d} {100 * nb // n_batches:3d}%  batch {nb}/{n_batches}  {time.time() - t0:6.1f}s  "
+                          f"train {self._train_loss(tot / nb)}", flush=True)
             o, y, _ = self.predict(val_ids)
             sc = self.score(o, y)
             rec = {"epoch": ep, "seconds": round(time.time() - t0, 1),
                    "train_losses": dict(zip(HEADS, (tot / max(nb, 1)).round(4).tolist())),
                    "log_vars": self.log_vars.numpy().round(3).tolist(), "val": {k: round(v, 4) for k, v in sc.items()}}
             hist.append(rec)
+            improved = sc["select"] > best + 1e-4
             if verbose:
-                print(f"ep {ep:2d} {rec['seconds']:6.1f}s  " + "  ".join(f"{k} {v:.3f}" for k, v in rec["val"].items()),
-                      flush=True)
-            if sc["select"] > best + 1e-4:
+                line = f"ep {ep:2d} {rec['seconds']:6.1f}s  " + "  ".join(f"{k} {v:.3f}" for k, v in rec["val"].items())
+                if verbose >= 2:
+                    line += f"  | train {self._train_loss(tot / max(nb, 1))}" + ("  * best" if improved else f"  (wait {wait + 1}/{patience})")
+                print(line, flush=True)
+            if improved:
                 best, best_ep, wait = sc["select"], ep, 0
                 best_w = self.model.get_weights()
             else:
@@ -266,8 +274,13 @@ class Trainer:
         self.model.set_weights(best_w)
         return {"best_epoch": best_ep, "best_composite": best, "history": hist}
 
+    def _train_loss(self, mean_losses: np.ndarray) -> str:
+        """Mean training loss of the heads this model trains (all six for the joint one)."""
+        heads = self.cfg.get("heads") or HEADS
+        return "  ".join(f"{h} {mean_losses[HEADS.index(h)]:.4f}" for h in heads if h in HEADS)
+
     def train_protocol(self, epochs: int, patience: int, bs: int, max_train_windows: int | None = None,
-                       verbose: bool = True) -> dict:
+                       verbose: int = 1) -> dict:
         """Phase 5 task 1: joint training, then the heads alone on a frozen encoder,
         then everything unfrozen at a low learning rate with a warm-up (v4 restarted
         at 1e-3 on the whole encoder). Each later stage keeps its result only if it
@@ -336,15 +349,33 @@ class Trainer:
         for j in app:
             if y["diagnosis"][:, j].sum() == 0:
                 continue
-            prf = [E.prf(y["diagnosis"][:, j], pc[:, j] >= c) for c in grid_c]
-            f1 = np.array([x[2] for x in prf])
-            # cfg "min_recall": best F1 among cut-offs that keep this recall (the gate's
-            # per-fault floor is 0.5); none reach it -> plain best F1.
-            ok = np.array([x[1] >= self.cfg.get("min_recall", 0.0) for x in prf])
-            cuts[j] = float(grid_c[int(np.argmax(np.where(ok, f1, -1.0) if ok.any() else f1))])
+            cuts[j] = choose_cutoff(y["diagnosis"][:, j], pc[:, j], grid_c, self.cfg.get("min_recall", 0.0))
         return {"temperature": temps.tolist(), "cutoffs": cuts.tolist(),
                 "val_ece_after": E.ece(y["diagnosis"][:, app], pc[:, app]),
                 "val_ece_before": E.ece(y["diagnosis"][:, app], o["diagnosis"][:, app])}
+
+
+# A cut-off may sit below the exact validation-F1 maximum - a sliver on a flat plateau
+# that does not hold on other flights (914 v6: valve 0.87 -> test recall 0.49, where
+# 0.74 costs 0.009 F1) - while BOTH bounds hold: at most CUT_F1_TOL less F1, and at
+# most CUT_ERR_TOL more error (1 - F1). Each alone failed on the 914 v6 card: the
+# absolute bound let near-perfect faults fall to the noise floor (combustion / bearing
+# 0.03 / 0.06), the relative one let weak faults slide (oil degradation 0.39 -> 0.15).
+CUT_F1_TOL = 0.01
+CUT_ERR_TOL = 0.20
+
+
+def choose_cutoff(y: np.ndarray, p: np.ndarray, grid: np.ndarray, min_recall: float = 0.0) -> float:
+    """Per-fault cut-off: among cut-offs keeping `min_recall` (the gate's per-fault
+    floor is 0.5; none keep it -> all cut-offs), the LOWEST within CUT_F1_TOL of the
+    best F1 and within CUT_ERR_TOL more error than the best."""
+    prf = [E.prf(y, p >= c) for c in grid]
+    f1 = np.array([x[2] for x in prf])
+    ok = np.array([x[1] >= min_recall for x in prf])
+    f1 = np.where(ok, f1, -1.0) if ok.any() else f1
+    best = f1.max()
+    near = (f1 >= best - CUT_F1_TOL - 1e-12) & (1.0 - f1 <= (1.0 - best) * (1.0 + CUT_ERR_TOL) + 1e-12)
+    return float(grid[int(np.argmax(near))])
 
 
 ENCODER_PREFIXES = ("in_drop", "tcn", "ctx_d")

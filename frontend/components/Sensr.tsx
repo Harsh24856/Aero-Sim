@@ -13,7 +13,7 @@ export default function Sensr({
   rawTelemetry = null,
 }: SensrProps) {
   return (
-    <aside className="panel-shell flex h-full min-h-0 flex-col overflow-hidden p-2.5 md:p-3.5">
+    <aside className="panel-shell flex h-full max-h-[45vh] min-h-0 flex-col overflow-hidden p-2.5 md:max-h-none md:p-3.5">
       <PanelHeading>Sensors</PanelHeading>
 
       <div className="mt-3 min-h-0 flex-1 overflow-y-auto">
