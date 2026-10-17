@@ -9,7 +9,7 @@ Digital twin and predictive-maintenance system for Rotax 912 / 914 / 915 / 916 U
 |---|---|---|---|
 | `frontend/` (Next.js) | 3000 | Node | Cockpit, telemetry history, mission replay and reports |
 | `backend/main.py` (FastAPI) | 8000 | `backend/.venv` | Physics twin loop at 100 Hz, WebSocket telemetry, persistence, advisory |
-| `backend/ai.py`, `aiv3.py` **or** `aiv4.py` (FastAPI) | 8100 | `validation/venv` (TensorFlow + Metal) | Neural inference on a rolling 128-second window |
+| `backend/aiv5.py` (default), `aiv4.py`, `aiv3.py` or `ai.py` (FastAPI) | 8100 | `validation/venv` (TensorFlow; v5 runs on the CPU, older versions need Metal) | Neural inference on a rolling 128-second window |
 | Supabase | — | hosted Postgres | Runs, per-10 s telemetry, per-channel diagnostics, auth |
 | `backend/can_ingest.py` | — | `backend/.venv` (+ optional `python-can`) | CAN bridge: set-point frames to `/params`, sensor frames to `/measured` |
 | `backend/aircraft_sim.py` | — | `backend/.venv` | The simulated aircraft: its own engine, optional mismatch, CAN frames only |
@@ -24,12 +24,12 @@ flowchart LR
   UI[Cockpit / mission autopilot] -- POST /params --> API
   CAN[CAN bus] -- can_ingest.py<br/>/params + /measured --> API
   subgraph API[main.py :8000]
-    TWIN[UAVEngineTwin<br/>physics.py, dt 0.01 s] --> LOOP[simulation_loop]
+    TWIN[twin_v5<br/>flown engine + on-board twin] --> LOOP[simulation_loop]
     LOOP -- 1 Hz --> RES[residual.py<br/>physics residuals]
     LOOP --> ADV[advisory.py]
     RES --> ADV
   end
-  LOOP -- 1 Hz POST /step --> AI[ai.py / aiv3.py :8100]
+  LOOP -- 1 Hz POST /step --> AI[aiv5.py :8100]
   AI -- detection, diagnosis, severity,<br/>failure modes, RUL --> LOOP
   LOOP -- 20 Hz WebSocket --> UI
   LOOP -- every 10 s --> DB[(Supabase)]
@@ -75,29 +75,19 @@ flowchart LR
 
 ## Physics generations
 
-`physics.py` carries two calibrations behind one switch, so the live demo never changes
-underneath a model:
+`AERO_PHYSICS_VERSION` picks the physics in `main.py`; the AI service on 8100 must be the
+matching one. `scripts/start_stack.sh` starts the matching pair.
 
-| | v2 (default) | v3 (opt-in) |
-|---|---|---|
-| Thermal model | mis-calibrated, CHT clipped at 260 C in 99.8% of rows | real Rotax bands (CHT ~100-150 C) |
-| Wear | invisible to sensors | moves oil pressure, CHT, EGT, oil temp, vibration, BSFC, torque |
-| Engine failure modes | none | misfire, injector fouling, cooling degradation, combustion instability |
-| RUL label | seconds to failure within one flight, censored | engine hours remaining against TBO |
-| Models | `backend/models/` via `ai.py` | `backend/models_v3/` via `aiv3.py` |
-| Persistence | `db.py` | `dbv3.py` |
+| Version | Physics | AI service | Models | Status |
+|---|---|---|---|---|
+| **v5 (default)** | `twin_v5.py`, `physics_v5.py` | `aiv5.py` | `backend/models_v5/<engine>/`, each engine its own | Live since 2026-10-17 |
+| v4 | `twin_v4.py`, `physics_v4.py` | `aiv4.py` | `backend/models_v4/` | Superseded by v5 |
+| v3 | `physics.py` (v3 calibration) | `aiv3.py` | `backend/models_v3/` | Legacy |
+| v2 | `physics.py` (v2 calibration) | `ai.py` | `backend/models/` | Legacy, kept bit-identical |
 
-v2 is kept bit-identical (verified to 0.0 across 21 channels, 3000 steps, 4 engines).
-
-Switching to v3:
-
-```bash
-cd backend && ../validation/venv/bin/uvicorn aiv3:app --host 127.0.0.1 --port 8100
-cd backend && AERO_PHYSICS_VERSION=v3 uvicorn main:app --host 0.0.0.0 --port 8000
-```
-
-`GET /state` reports `physics_version` and `ai_model_version`; main.py warns when they differ,
-and `/resume` refuses to continue a run recorded under the other version.
+What v5 adds, how its models are trained, and each engine's scorecard: README.md, section
+"Physics v5". `GET /state` reports `physics_version` and `ai_model_version`; main.py warns when
+they differ, and `/resume` refuses to continue a run recorded under another version.
 
 ## Model contract (v3)
 
