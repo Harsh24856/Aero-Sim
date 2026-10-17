@@ -48,18 +48,15 @@ test("/engine says so when the AI service is down", async ({ page, backend }) =>
   await expect(page.getByText("AI ready")).toHaveCount(0);
 });
 
-// The 3D scenes fetch HDR lighting from a CDN. Offline (a demo venue, a blocked
-// network) that must cost the reflections, not the page.
+// The 3D scenes' HDR lighting is served from public/hdri, not drei's CDN: offline (a
+// demo venue, a blocked network) every 3D view renders with no error and no request out.
 for (const path of ["/engine", "/simulate", "/engine_info"]) {
-  test(`${path} survives the HDR CDN being unreachable`, async ({ page, consoleErrors }) => {
-    await page.route(/raw\.githack\.com|raw\.githubusercontent\.com/, (r) => r.abort());
+  test(`${path} renders its 3D views with no CDN`, async ({ page }) => {
+    const outside: string[] = [];
+    await page.route(/raw\.githack\.com|raw\.githubusercontent\.com/, (r) => { outside.push(r.request().url()); return r.abort(); });
     await page.goto(path);
-    await page.waitForTimeout(3000);   // the HDR load fails a moment after first paint
-    await expect(page.getByRole("navigation").first()).toBeVisible();
     await expect(page.locator("canvas").first()).toBeVisible();
-    // drei still reports the failed load itself; that one is expected here.
-    const rest = consoleErrors.filter((e) => !/Could not load \S+\.hdr/.test(e));
-    consoleErrors.length = 0;
-    expect(rest).toEqual([]);
+    await page.waitForTimeout(3000);   // the HDR loads a moment after first paint
+    expect(outside, "3D assets fetched from a CDN").toEqual([]);
   });
 }
