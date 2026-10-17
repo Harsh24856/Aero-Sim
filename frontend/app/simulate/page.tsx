@@ -2,7 +2,6 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import Navbar from "@/components/Navbar";
 import Sensr from "@/components/Sensr";
 import Simulator, { type SimTelemetry, type ResumeState } from "@/components/Simulator";
 import Meters, { ENGINE_INPUTS, type RawTelemetry, mpsToKnots } from "@/components/Meters";
@@ -665,16 +664,20 @@ function SimulatePageInner() {
 
   return (
     <>
-      <Navbar />
-      {/* mt-16 clears the fixed Navbar (h-16 = 4rem) WITHOUT eating into
-          the grid's own height. From md up, h-[calc(100vh-4rem)] is the actual
-          content area and overflow-hidden prevents page-level scroll. On a phone the
-          three columns stack, and one fixed screen height squeezed the flight display
-          to a sliver: there the page scrolls and each panel keeps a minimum height. */}
-      <div className="mt-16 grid grid-cols-1 gap-2 bg-[#050403] p-2 md:h-[calc(100vh-4rem)] md:grid-cols-[240px_1fr_240px] md:overflow-hidden">
-        <Sensr
-          rawTelemetry={rawTelemetry}
-        />
+      {/* No site navbar: the cockpit takes the whole screen. From md up the grid is
+          exactly one dynamic viewport tall and overflow-hidden prevents page-level
+          scroll. On a phone the three columns stack, and one fixed screen height
+          squeezed the flight display to a sliver: there the page scrolls and each panel
+          keeps a minimum height. The exit link above the sensors is the way out. */}
+      <div className="grid grid-cols-1 gap-2 bg-[#050403] p-2 md:h-[100dvh] md:grid-cols-[240px_1fr_240px] md:overflow-hidden">
+        <div className="flex min-h-0 min-w-0 flex-col gap-2">
+          <Link href="/engine" className="flex min-h-[44px] shrink-0 items-center gap-2 rounded border border-[#4c3025] bg-[#140f0c] px-3 text-[12px] font-bold uppercase tracking-[0.12em] text-[#d6baa6] transition-colors hover:border-tertiary hover:text-tertiary">
+            <span aria-hidden>&larr;</span> Exit cockpit
+          </Link>
+          <Sensr
+            rawTelemetry={rawTelemetry}
+          />
+        </div>
 
         {/* Center column: simulator on top, meters (ring gauge + controls) below.
             min-h-0 on each so flex children actually shrink to fit. */}
