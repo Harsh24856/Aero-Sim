@@ -48,11 +48,15 @@ sys.path.insert(0, HERE)
 
 import tensorflow as tf  # noqa: E402
 
-# GPU ONLY: models are trained on the Metal GPU and served on it. Weights trained on
-# one device gave different answers on the other in v4, so a silent CPU fallback is
-# refused rather than allowed.
-if not tf.config.list_physical_devices("GPU"):
-    raise SystemExit("No GPU visible to TensorFlow (tensorflow-metal) - v5 trains on the GPU only.")
+
+def require_gpu() -> None:
+    """GPU ONLY: models are trained on the Metal GPU and served on it. Weights trained on
+    one device gave different answers on the other in v4, so a silent CPU fallback is
+    refused rather than allowed. Checked when training starts (Trainer), not on import:
+    the pure helpers here (choose_cutoff, targets) are tested on CI's CPU runner."""
+    if not tf.config.list_physical_devices("GPU"):
+        raise SystemExit("No GPU visible to TensorFlow (tensorflow-metal) - v5 trains on the GPU only.")
+
 
 import evaluate as E  # noqa: E402
 from assembly_v5 import apply_temperature  # noqa: E402,F401  (re-exported: score_v5 imports it from here)
@@ -92,6 +96,7 @@ def class_balanced_weights(counts: np.ndarray, beta: float = 0.999) -> np.ndarra
 # ---------------------------------------------------------------------------
 class Trainer:
     def __init__(self, cache: Cache, cfg: dict):
+        require_gpu()
         self.cache, self.cfg = cache, cfg
         spec = P.ENGINE_SPECS[cache.contract["engine_model"]]
         app = set(applicable_faults(spec.turbocharged, spec.intercooled))
