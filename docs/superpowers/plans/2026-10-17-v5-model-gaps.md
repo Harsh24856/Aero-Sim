@@ -287,9 +287,11 @@ Never delete `archive/v6-914-pre-rebase`: the v6 model manifests cite its commit
 
 | Engine | Severity bias from the gate (val) | Air-filter val positives / val recall / test recall | Oil confusion (pump→deg / deg→pump) | Task 2 path | Task 3 path |
 |---|---|---|---|---|---|
-| 912 | | | | | |
-| 915 | | | | | |
-| 916 | | | | | |
+| 912 | 0.52 (bias -0.065: gated-out -0.270 on 693 cells, kept -0.035) | 545 / 0.80 / 0.71 | 0.02 / 0.03 | gate_cost + kept-cell offset | none (all faults >= 0.5 on test) |
+| 915 | 0.52 (bias -0.027: gated-out -0.179, kept -0.014) | 487 / 0.81 / 0.73 (precision 0.40) | 0.06 / 0.07 | gate_cost + kept-cell offset | none |
+| 916 | 0.50 (bias -0.054: gated-out -0.236, kept -0.031) | 251 / 0.63 / 0.33 | 0.00 / 0.19 (test 0.29) | gate_cost + kept-cell offset | 3A (pooled jittered val windows) |
+
+Neither cause dominates: about half the bias comes from cells the gate zeroes, half from cells it keeps. So Task 2 takes both fixes. The offset is fitted on the cells the chosen gate keeps, so the two compose. No engine meets 3B's oil rule (val confusion > 0.3), so there is no diagnosis retrain.
 
 ## Order and time
 

@@ -1,0 +1,215 @@
+{
+ "engine": "916b",
+ "faults": {
+  "air_filter_fouling": {
+   "cutoff": 0.59,
+   "val": {
+    "positives": 251,
+    "recall": 0.6334661354581673,
+    "precision": 0.6162790697674418
+   },
+   "test": {
+    "positives": 371,
+    "recall": 0.3261455525606469,
+    "precision": 0.5601851851851852
+   }
+  },
+  "compression_loss": {
+   "cutoff": 0.43,
+   "val": {
+    "positives": 228,
+    "recall": 0.9824561403508771,
+    "precision": 0.8648648648648649
+   },
+   "test": {
+    "positives": 867,
+    "recall": 0.8742791234140715,
+    "precision": 0.9546599496221663
+   }
+  },
+  "valve_leakage": {
+   "cutoff": 0.25,
+   "val": {
+    "positives": 352,
+    "recall": 0.9261363636363636,
+    "precision": 0.9560117302052786
+   },
+   "test": {
+    "positives": 497,
+    "recall": 0.716297786720322,
+    "precision": 0.6496350364963503
+   }
+  },
+  "turbo_degradation": {
+   "cutoff": 0.45,
+   "val": {
+    "positives": 494,
+    "recall": 0.9817813765182186,
+    "precision": 0.9185606060606061
+   },
+   "test": {
+    "positives": 495,
+    "recall": 0.8262626262626263,
+    "precision": 0.960093896713615
+   }
+  },
+  "wastegate_fault": {
+   "cutoff": 0.12,
+   "val": {
+    "positives": 187,
+    "recall": 0.9786096256684492,
+    "precision": 0.8883495145631068
+   },
+   "test": {
+    "positives": 411,
+    "recall": 0.9513381995133819,
+    "precision": 0.9178403755868545
+   }
+  },
+  "intercooler_fouling": {
+   "cutoff": 0.11,
+   "val": {
+    "positives": 609,
+    "recall": 0.9917898193760263,
+    "precision": 0.9741935483870968
+   },
+   "test": {
+    "positives": 607,
+    "recall": 0.8912685337726524,
+    "precision": 0.9376083188908145
+   }
+  },
+  "injector_fouling": {
+   "cutoff": 0.11,
+   "val": {
+    "positives": 556,
+    "recall": 0.8758992805755396,
+    "precision": 0.9567779960707269
+   },
+   "test": {
+    "positives": 460,
+    "recall": 1.0,
+    "precision": 0.8471454880294659
+   }
+  },
+  "ignition_degradation": {
+   "cutoff": 0.39,
+   "val": {
+    "positives": 387,
+    "recall": 0.9689922480620154,
+    "precision": 0.9640102827763496
+   },
+   "test": {
+    "positives": 593,
+    "recall": 0.9139966273187183,
+    "precision": 0.875605815831987
+   }
+  },
+  "combustion_instability": {
+   "cutoff": 0.64,
+   "val": {
+    "positives": 304,
+    "recall": 0.9572368421052632,
+    "precision": 0.9635761589403974
+   },
+   "test": {
+    "positives": 691,
+    "recall": 0.9710564399421129,
+    "precision": 0.986764705882353
+   }
+  },
+  "bearing_wear": {
+   "cutoff": 0.99,
+   "val": {
+    "positives": 234,
+    "recall": 0.7649572649572649,
+    "precision": 0.9835164835164835
+   },
+   "test": {
+    "positives": 758,
+    "recall": 0.9050131926121372,
+    "precision": 1.0
+   }
+  },
+  "oil_pump_degradation": {
+   "cutoff": 0.12,
+   "val": {
+    "positives": 453,
+    "recall": 0.6357615894039735,
+    "precision": 0.2917933130699088
+   },
+   "test": {
+    "positives": 442,
+    "recall": 0.830316742081448,
+    "precision": 0.3050706566916043
+   }
+  },
+  "oil_degradation": {
+   "cutoff": 0.34,
+   "val": {
+    "positives": 354,
+    "recall": 0.632768361581921,
+    "precision": 0.6345609065155807
+   },
+   "test": {
+    "positives": 526,
+    "recall": 0.5437262357414449,
+    "precision": 0.5355805243445693
+   }
+  },
+  "cooling_degradation": {
+   "cutoff": 0.06999999999999999,
+   "val": {
+    "positives": 308,
+    "recall": 0.974025974025974,
+    "precision": 0.9933774834437086
+   },
+   "test": {
+    "positives": 490,
+    "recall": 0.9306122448979591,
+    "precision": 0.9230769230769231
+   }
+  },
+  "prop_erosion": {
+   "cutoff": 0.06999999999999999,
+   "val": {
+    "positives": 464,
+    "recall": 0.6982758620689655,
+    "precision": 0.7960687960687961
+   },
+   "test": {
+    "positives": 674,
+    "recall": 0.9183976261127597,
+    "precision": 0.7835443037974683
+   }
+  }
+ },
+ "severity": {
+  "val": {
+   "bias": -0.054470192865737135,
+   "n": 5309,
+   "gated_out_n": 619,
+   "gated_out_bias": -0.23579003286332806,
+   "kept_bias": -0.030539066861790698,
+   "share_from_gated_out": 0.5047129564895712
+  },
+  "test": {
+   "bias": -0.045243453702716395,
+   "n": 7995,
+   "gated_out_n": 913,
+   "gated_out_bias": -0.2083587219687699,
+   "kept_bias": -0.02421489680820823,
+   "share_from_gated_out": 0.5259061439573491
+  }
+ },
+ "oil": {
+  "val": {
+   "pump_named_deg": 0.0,
+   "deg_named_pump": 0.1864406779661017
+  },
+  "test": {
+   "pump_named_deg": 0.0,
+   "deg_named_pump": 0.28517110266159695
+  }
+ }
+}
