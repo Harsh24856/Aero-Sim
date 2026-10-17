@@ -34,3 +34,21 @@ test("no STOP button before a flight; a flight started elsewhere is announced", 
   // Frames stop (the other flight ended): the notice goes away.
   await expect(page.getByText("A flight is already running")).toHaveCount(0, { timeout: 10_000 });
 });
+
+// One Simulator, one landscape per engine (components/Simulator.tsx SCENES).
+const SCENERY: Record<string, { hills: boolean; sky: string }> = {
+  Rotax_914_ULF: { hills: true, sky: "rgb(178, 60, 34)" },     // sunset mountains
+  Rotax_912_ULS: { hills: true, sky: "rgb(74, 144, 196)" },    // desert dunes
+  Rotax_915_iS: { hills: true, sky: "rgb(47, 127, 201)" },     // ocean
+  Rotax_916_iS: { hills: false, sky: "rgb(5, 8, 24)" },        // night: stars, moon, no hills
+};
+for (const [engine, want] of Object.entries(SCENERY)) {
+  test(`${engine} flies over its own scenery`, async ({ page }) => {
+    await page.goto(`/simulate?engine=${engine}`);
+    const display = page.getByTestId("flight-display");
+    await expect(display.locator("#farGrad")).toHaveCount(want.hills ? 1 : 0);
+    await expect(display.locator("circle")).toHaveCount(want.hills ? 0 : 90);
+    const skies = await display.locator("div").evaluateAll((els) => els.map((e) => getComputedStyle(e).backgroundImage));
+    expect(skies.some((b) => b.startsWith(`linear-gradient(${want.sky}`))).toBe(true);
+  });
+}

@@ -62,11 +62,8 @@ export type GamePlaneProps = {
 // Dedicated in-game plane viewer - always non-interactive (the game itself
 // controls orientation via CSS rotation to represent flight pitch, so
 // draggable OrbitControls or auto-rotate would fight against that and look
-// broken) and always uses the confirmed side-profile camera angle. This is
-// deliberately separate from BlackoutPlane.tsx, which stays the interactive
-// showcase used on the home page hero - the two components no longer share
-// conditional interactive/cameraPosition props for two genuinely different
-// use cases.
+// broken) and always uses the confirmed side-profile camera angle. The home
+// page hero loads the same model itself (landing/world.ts).
 export default function GamePlane({ tintColor }: GamePlaneProps) {
   return (
     <div style={{ width: "100%", height: "100%" }}>
