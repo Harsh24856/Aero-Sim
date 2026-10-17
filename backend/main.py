@@ -23,12 +23,12 @@ from pydantic import BaseModel
 
 from physics import UAVEngineTwin, ENGINE_CONFIGS
 
-# Physics version for every twin this process creates. v4 (default) pairs with
-# backend/aiv4.py (backend/models_v4/); AERO_PHYSICS_VERSION=v3 runs physics v3 with aiv3.py
-# (backend/models_v3/), and v2 the legacy physics with ai.py (backend/models/).
-# AERO_PHYSICS_VERSION=v5 runs twin_v5 with aiv5.py (backend/models_v5/). /state
-# reports both so a mismatch is visible.
-PHYSICS_VERSION = os.environ.get("AERO_PHYSICS_VERSION", "v4").strip().lower()
+# Physics version for every twin this process creates. v5 (default) pairs with
+# backend/aiv5.py (backend/models_v5/, every engine on its own models since 2026-10-17);
+# AERO_PHYSICS_VERSION=v4 runs physics v4 with aiv4.py (backend/models_v4/), v3 runs
+# physics v3 with aiv3.py (backend/models_v3/), and v2 the legacy physics with ai.py
+# (backend/models/). /state reports both so a mismatch is visible.
+PHYSICS_VERSION = os.environ.get("AERO_PHYSICS_VERSION", "v5").strip().lower()
 if PHYSICS_VERSION not in ("v2", "v3", "v4", "v5"):
     raise ValueError(f"AERO_PHYSICS_VERSION must be v2, v3, v4 or v5, got {PHYSICS_VERSION!r}")
 # v5 flies the same engine records, scenarios, clocks and storage as v4 - only the

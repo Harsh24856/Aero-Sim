@@ -6,12 +6,12 @@ physics in `main.py`, and the AI service on 8100 must be the matching one (run o
 | Process | File | Port | Environment |
 |---|---|---|---|
 | Physics API | `main.py` | 8000 | `backend/.venv` (`requirements.txt`) |
-| AI inference, physics **v4 (default)** | `aiv4.py` | 8100 | `validation/venv` (`requirements_ai.txt`), Metal GPU |
-| AI inference, physics v5 (the 914's own specialists; 912/915/916 on the 914's as stand-ins) | `aiv5.py` | 8100 | `validation/venv`, CPU by default |
+| AI inference, physics **v5 (default)**: every engine's own specialists | `aiv5.py` | 8100 | `validation/venv` (`requirements_ai.txt`), CPU by default |
+| AI inference, physics v4 | `aiv4.py` | 8100 | `validation/venv`, Metal GPU |
 | AI inference, physics v3 / legacy v2 | `aiv3.py` / `ai.py` | 8100 | `validation/venv`, Metal GPU |
 
-`scripts/start_stack.sh` starts the matching pair (and the frontend):
-`AERO_PHYSICS_VERSION=v5 scripts/start_stack.sh`. The physics API runs standalone. If the AI service is down, telemetry keeps streaming and the AI fields stop updating.
+`scripts/start_stack.sh` starts the matching pair (and the frontend), v5 by default:
+`AERO_PHYSICS_VERSION=v4 scripts/start_stack.sh` for v4. The physics API runs standalone. If the AI service is down, telemetry keeps streaming and the AI fields stop updating.
 
 ---
 
@@ -20,8 +20,8 @@ physics in `main.py`, and the AI service on 8100 must be the matching one (run o
 | File | Role |
 |---|---|
 | `main.py` | FastAPI app: simulation loop, REST endpoints, `/ws` telemetry stream, AI + DB wiring |
-| `twin_v4.py`, `physics_v4.py`, `sensors_v4.py`, `degradation_v4.py`, `scenarios_v4.py`, `timescale_v4.py` | Physics v4 (default): flown engine + on-board twin, instruments, wear and faults, demo presets, the flight/life clocks |
-| `twin_v5.py`, `physics_v5.py`, `sensors_v5.py`, `degradation_v5.py`, `features_v5.py`, `observability_v5.py` | Physics v5: as v4, plus the fleet-wear on-board twin and the long-horizon context the v5 models read |
+| `twin_v4.py`, `physics_v4.py`, `sensors_v4.py`, `degradation_v4.py`, `scenarios_v4.py`, `timescale_v4.py` | Physics v4: flown engine + on-board twin, instruments, wear and faults, demo presets, the flight/life clocks |
+| `twin_v5.py`, `physics_v5.py`, `sensors_v5.py`, `degradation_v5.py`, `features_v5.py`, `observability_v5.py` | Physics v5 (default): as v4, plus the fleet-wear on-board twin and the long-horizon context the v5 models read |
 | `physics.py` | `UAVEngineTwin` — v3 and legacy v2 physics |
 | `failure_modes.py` | Engine failure modes: misfire, injector fouling, cooling, combustion |
 | `residual.py` | Model-free residuals: measured − expected, with sensor zeroing (`/residuals/zero`) |
@@ -65,7 +65,7 @@ Interactive docs: <http://localhost:8000/docs>
 | `SUPABASE_SERVICE_ROLE_KEY` | — | Server-side Supabase key — never expose to the browser |
 | `GROQ_API_KEY` | — | Post-flight summaries (optional) |
 | `GROQ_MODEL` | `openai/gpt-oss-120b` | Summary model |
-| `AERO_PHYSICS_VERSION` | `v4` | Physics and AI pairing: `v4` + `aiv4.py` (default), `v5` + `aiv5.py`, `v3` + `aiv3.py`, `v2` + `ai.py` |
+| `AERO_PHYSICS_VERSION` | `v5` | Physics and AI pairing: `v5` + `aiv5.py` (default), `v4` + `aiv4.py`, `v3` + `aiv3.py`, `v2` + `ai.py` |
 | `AERO_AI_URL` | `http://127.0.0.1:8100` | Where the AI service lives |
 | `AERO_HEALTH_FAILURE_HOLD_S` | `20` | Seconds health must stay at the floor before the flight ends as an engine failure; `0` disables the shutdown |
 | `AERO_CORS_ORIGINS` | `*` | Comma-separated origins allowed to call the API. `*` is for local use only |
@@ -116,8 +116,8 @@ Start it from `backend/` (module import path matters), before `main.py`:
 
 ```bash
 cd backend
-../validation/venv/bin/uvicorn aiv4:app --host 127.0.0.1 --port 8100   # with main.py's default (v4)
-../validation/venv/bin/uvicorn aiv5:app --host 127.0.0.1 --port 8100   # with AERO_PHYSICS_VERSION=v5
+../validation/venv/bin/uvicorn aiv5:app --host 127.0.0.1 --port 8100   # with main.py's default (v5)
+../validation/venv/bin/uvicorn aiv4:app --host 127.0.0.1 --port 8100   # with AERO_PHYSICS_VERSION=v4
 ```
 
 `curl localhost:8100/health` must show `"backend_validated": true`. The models need 128 simulated seconds of history; until then `/step` returns `{"status": "warming_up"}` (`main.py` fast-forwards this).
