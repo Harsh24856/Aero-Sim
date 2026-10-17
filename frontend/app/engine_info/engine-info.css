@@ -1,31 +1,170 @@
-/* Motion for the engine report. Transform and opacity only; all of it is
-   switched off for reduced motion. */
+/* The engine report. Theme tokens only (globals.css @theme): amber is the one accent.
+   Shape rule: containers 12px (rounded-xl), controls 8px. Motion is transform and
+   opacity, and all of it switches off for reduced motion. */
 
-/* the engine panel settles in when a different engine is picked */
+/* In the components layer, so a Tailwind utility on the element still wins. */
+@layer components {
+.ei {
+  background:
+    radial-gradient(60% 40% at 78% 6%, rgba(255, 145, 0, 0.10), transparent 70%),
+    transparent;
+}
+
+/* ---- type ---- */
+.ei-h2 {
+  font-family: var(--font-headline-display);
+  font-size: clamp(1.75rem, 3.2vw, 2.75rem);
+  font-weight: 700;
+  line-height: 1.02;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  color: var(--color-primary);
+  text-wrap: balance;
+}
+.ei-lead {
+  margin-top: 1rem;
+  max-width: 62ch;
+  font-size: 1rem;
+  line-height: 1.65;
+  color: var(--color-on-surface-variant);
+}
+.ei-k {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-on-surface-variant);
+}
+
+/* ---- hero stage: the 3D engine sits on a lit floor ---- */
+.ei-stage {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border-radius: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--color-outline-variant) 60%, transparent);
+  background:
+    radial-gradient(70% 60% at 50% 45%, rgba(255, 145, 0, 0.14), transparent 70%),
+    linear-gradient(160deg, #17120e, #0b0b0b);
+}
+.ei-stage figcaption { background: linear-gradient(to top, rgba(10, 10, 10, 0.9), transparent); }
+
+/* ---- controls ---- */
+.ei-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 44px;
+  padding: 0 1.25rem;
+  border-radius: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.2s, border-color 0.2s, color 0.2s;
+}
+.ei-btn:active { transform: translateY(1px) scale(0.98); }
+.ei-btn-primary { background: var(--color-tertiary); color: #0a0a0a; }
+.ei-btn-primary:hover { background: #ffa733; }
+.ei-btn-ghost {
+  border: 1px solid color-mix(in srgb, var(--color-outline-variant) 90%, transparent);
+  color: var(--color-primary);
+}
+.ei-btn-ghost:hover { border-color: var(--color-tertiary); color: var(--color-tertiary); }
+
+.ei-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-weight: 600;
+  color: var(--color-tertiary);
+  text-underline-offset: 4px;
+}
+.ei-link:hover { text-decoration: underline; }
+
+.ei-tab {
+  position: relative;
+  min-height: 48px;
+  padding: 0 0.875rem;
+  font-size: 0.875rem;
+  color: var(--color-on-surface-variant);
+  transition: color 0.2s;
+}
+.ei-tab:hover { color: var(--color-primary); }
+.ei-tab::after {
+  content: "";
+  position: absolute;
+  left: 0.875rem;
+  right: 0.875rem;
+  bottom: -1px;
+  height: 2px;
+  background: var(--color-tertiary);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.ei-tab.is-on { color: var(--color-primary); }
+.ei-tab.is-on::after { transform: scaleX(1); }
+
+.ei-seg {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--color-outline-variant) 70%, transparent);
+}
+.ei-seg button {
+  min-height: 40px;
+  padding: 0 0.875rem;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-on-surface-variant);
+  transition: background-color 0.2s, color 0.2s;
+}
+.ei-seg button:hover { color: var(--color-primary); }
+.ei-seg button.is-on { background: var(--color-tertiary); color: #0a0a0a; }
+
+/* lineup rungs: the selected engine is lit */
+.ei-rung { transition: background-color 0.3s; }
+.ei-rung:hover { background: rgba(255, 255, 255, 0.025); }
+.ei-rung.is-on { background: rgba(255, 145, 0, 0.07); }
+
+/* ---- tables ---- */
+.ei-th {
+  padding: 1rem 1.25rem;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-on-surface-variant);
+  vertical-align: bottom;
+}
+.ei-th button { letter-spacing: -0.01em; }
+.ei-td { padding: 0.875rem 1.25rem; vertical-align: top; transition: background-color 0.3s; }
+
+/* ---- motion ---- */
 @keyframes ei-swap {
   from { opacity: 0; transform: translate3d(0, 10px, 0); }
   to { opacity: 1; transform: none; }
 }
 .ei-swap { animation: ei-swap 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
 
-/* bars grow from the left by transform, never by width */
-.ei-bar { transform-origin: left; transition: transform 0.7s cubic-bezier(0.16, 1, 0.3, 1); }
-
-/* sections rise into place as they scroll in: scroll-driven, no JS.
-   Browsers without view timelines just show the section. */
+.ei-sec { scroll-margin-top: 8rem; }
+/* sections rise in as they enter: scroll-driven, no JS; older browsers just show them */
 @supports (animation-timeline: view()) {
   @keyframes ei-rise {
-    from { opacity: 0; transform: translate3d(0, 28px, 0); }
+    from { opacity: 0; transform: translate3d(0, 24px, 0); }
     to { opacity: 1; transform: none; }
   }
-  .ei-reveal {
+  .ei-sec {
     animation: ei-rise linear both;
     animation-timeline: view();
-    animation-range: entry 0% entry 40%;
+    animation-range: entry 0% entry 35%;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ei-swap, .ei-reveal { animation: none; }
-  .ei-bar { transition: none; }
+  .ei-swap, .ei-sec { animation: none; }
+  .ei-btn, .ei-tab::after, .ei-rung, .ei-td { transition: none; }
+}
 }
