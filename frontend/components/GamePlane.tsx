@@ -6,11 +6,13 @@ import * as THREE from "three";
 import { useGLTF, ContactShadows, Bounds, Center } from "@react-three/drei";
 import SafeEnvironment from "@/components/SafeEnvironment";
 
-const MODEL_PATH = "/models/blackout-plane.glb";
+const MODEL_PATH = "/models/blackout-fighter.glb";
 
-// Only the body/fuselage materials get tinted - canopy_glass and rubber are left
-// alone so a recolored plane still looks like a real aircraft.
-const BODY_MATERIAL_NAMES = new Set(["matte_black", "gunmetal", "gloss_black"]);
+// Only the paint gets tinted: paint_black is the airframe (fuselage, wings, tail),
+// gloss_black the spinner, prop and canopy frame. Glass, rubber, the gunmetal
+// exhausts, the cockpit and the nav lights keep their own materials, so a
+// recolored plane still looks like a real aircraft.
+const BODY_MATERIAL_NAMES = new Set(["paint_black", "gloss_black"]);
 
 function PlaneMesh({ tintColor }: { tintColor?: string }) {
   const { scene } = useGLTF(MODEL_PATH);

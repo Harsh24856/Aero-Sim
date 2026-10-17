@@ -440,7 +440,7 @@ export async function createWorld(o: WorldOptions): Promise<World> {
   scene.add(planeRig);
   const tailLocal = new THREE.Vector3(0, 0, -8);
   try {
-    const gltf = await loader.loadAsync("/models/blackout-plane.glb");
+    const gltf = await loader.loadAsync("/models/blackout-fighter.glb");
     const model = gltf.scene;
     const box = new THREE.Box3().setFromObject(model);
     const size = box.getSize(new THREE.Vector3());
