@@ -1,0 +1,110 @@
+{
+ "916": {
+  "chop 0.75>0.15 @1500": {
+   "max_det": 0.976,
+   "alarm_s": 17,
+   "last_alarm_s": 20
+  },
+  "chop full>0.15 @6000": {
+   "max_det": 0.99,
+   "alarm_s": 42,
+   "last_alarm_s": 46
+  },
+  "chop full>0.15 6000>1000 m": {
+   "max_det": 0.987,
+   "alarm_s": 80,
+   "last_alarm_s": 84
+  },
+  "advance 0.15>full @1500": {
+   "max_det": 0.992,
+   "alarm_s": 73,
+   "last_alarm_s": 125
+  },
+  "small 0.75>0.50 @1500": {
+   "max_det": 0.571,
+   "alarm_s": 1,
+   "last_alarm_s": 68
+  }
+ },
+ "915": {
+  "chop 0.75>0.15 @1500": {
+   "max_det": 0.335,
+   "alarm_s": 0,
+   "last_alarm_s": 0
+  },
+  "chop full>0.15 @6000": {
+   "max_det": 0.91,
+   "alarm_s": 13,
+   "last_alarm_s": 21
+  },
+  "chop full>0.15 6000>1000 m": {
+   "max_det": 0.98,
+   "alarm_s": 76,
+   "last_alarm_s": 80
+  },
+  "advance 0.15>full @1500": {
+   "max_det": 0.974,
+   "alarm_s": 60,
+   "last_alarm_s": 125
+  },
+  "small 0.75>0.50 @1500": {
+   "max_det": 0.08,
+   "alarm_s": 0,
+   "last_alarm_s": 0
+  }
+ },
+ "914": {
+  "chop 0.75>0.15 @1500": {
+   "max_det": 0.588,
+   "alarm_s": 1,
+   "last_alarm_s": 13
+  },
+  "chop full>0.15 @6000": {
+   "max_det": 0.957,
+   "alarm_s": 71,
+   "last_alarm_s": 148
+  },
+  "chop full>0.15 6000>1000 m": {
+   "max_det": 0.386,
+   "alarm_s": 0,
+   "last_alarm_s": 0
+  },
+  "advance 0.15>full @1500": {
+   "max_det": 0.626,
+   "alarm_s": 11,
+   "last_alarm_s": 140
+  },
+  "small 0.75>0.50 @1500": {
+   "max_det": 0.042,
+   "alarm_s": 0,
+   "last_alarm_s": 0
+  }
+ },
+ "912": {
+  "chop 0.75>0.15 @1500": {
+   "max_det": 0.457,
+   "alarm_s": 0,
+   "last_alarm_s": 0
+  },
+  "chop full>0.15 @6000": {
+   "max_det": 0.517,
+   "alarm_s": 1,
+   "last_alarm_s": 150
+  },
+  "chop full>0.15 6000>1000 m": {
+   "max_det": 0.09,
+   "alarm_s": 0,
+   "last_alarm_s": 0
+  },
+  "advance 0.15>full @1500": {
+   "max_det": 0.569,
+   "alarm_s": 6,
+   "last_alarm_s": 140
+  },
+  "small 0.75>0.50 @1500": {
+   "max_det": 0.244,
+   "alarm_s": 0,
+   "last_alarm_s": 0
+  }
+ }
+}
