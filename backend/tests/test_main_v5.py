@@ -42,6 +42,114 @@ class TestMainV5(unittest.TestCase):
         held = main.without_removed(AI, fault="oil_pump_degradation")
         self.assertEqual(held["families_present"], [])
 
+    def _fly(self, legs):
+        """legs: (seconds, throttle); returns the hold result for each second."""
+        main.state["ai_last_sample_time"] = None
+        main.state["ai_settle_until"] = 0.0
+        main.state["ai_throttle_hist"] = []
+        out, t = [], 0
+        for secs, thr in legs:
+            for _ in range(secs):
+                t += 1
+                out.append(main.hold_alerts_outside_envelope(
+                    {"time": t, "airspeed": 45.0, "throttle": thr}, AI))
+        return out
+
+    def test_throttle_chop_holds_alerts(self):
+        # Live 916: a chop from full power to 0.15 gave "FAULT 100%" on a healthy engine.
+        r = self._fly([(200, 0.75), (int(main.THROTTLE_HOLD_S) + 5, 0.15)])
+        self.assertFalse(r[199].get("settling", False))
+        self.assertTrue(r[200]["settling"])
+        self.assertEqual(r[200]["settle_reason"], "throttle")
+        self.assertTrue(r[200 + int(main.THROTTLE_HOLD_S) - 2]["settling"])
+        self.assertFalse(r[-1].get("settling", False))
+
+    def test_throttle_advance_holds_alerts(self):
+        # 916: 0.15 -> full gave "FAULT" until the step left the 128 s window.
+        r = self._fly([(200, 0.15), (5, 1.0)])
+        self.assertEqual(r[200]["settle_reason"], "throttle")
+        self.assertEqual(r[200]["settle_window_s"], main.AI_WINDOW_S)
+
+    def test_small_throttle_change_does_not_hold(self):
+        r = self._fly([(200, 0.75), (60, 0.50)])
+        self.assertFalse(any(x.get("settling") for x in r))
+
+    def test_slow_throttle_reduction_does_not_hold(self):
+        # The training missions ease the throttle down; a 0.6 drop over a minute is in-envelope.
+        r = self._fly([(200, 0.75)] + [(1, 0.75 - 0.01 * i) for i in range(1, 61)])
+        self.assertFalse(any(x.get("settling") for x in r))
+
+    def test_takeoff_hold_names_its_reason(self):
+        main.state["ai_last_sample_time"] = None
+        main.state["ai_settle_until"] = 0.0
+        held = main.hold_alerts_outside_envelope({"time": 10, "airspeed": 5.0, "throttle": 1.0}, AI)
+        self.assertEqual(held["settle_reason"], "takeoff")
+
+    def test_throttle_hold_freezes_rul_and_keeps_its_floor(self):
+        main.reset_rul_filter()
+        ok = {**AI, "tbo_hours": 2000.0}
+        for t in range(1, 61):
+            shown = main.smooth_rul({"time": t, "wear": 0.5}, {**ok, "rul_hours": 900.0})["rul_hours"]
+        held = main.smooth_rul({"time": 61, "wear": 0.5},
+                               {**ok, "rul_hours": 1400.0, "settling": True, "settle_reason": "throttle"})
+        self.assertTrue(held["rul_ready"])
+        self.assertEqual(held["rul_hours"], shown)
+        after = main.smooth_rul({"time": 62, "wear": 0.5}, {**ok, "rul_hours": 1400.0})
+        self.assertLessEqual(after["rul_hours"], shown)
+
+    def test_throttle_hold_rul_still_counts_down_hours_flown(self):
+        # Live 916: the frozen gauge read 1,678 h beside a 1,677 h calendar countdown.
+        main.reset_rul_filter()
+        ok = {**AI, "tbo_hours": 2000.0}
+        shown = main.smooth_rul({"time": 1, "wear": 0.5}, {**ok, "rul_hours": 900.0})["rul_hours"]
+        held = main.smooth_rul({"time": 61, "wear": 0.5005},
+                               {**ok, "rul_hours": 1400.0, "settling": True, "settle_reason": "throttle"})
+        self.assertAlmostEqual(held["rul_hours"], shown - 1.0, places=3)
+
+    def test_display_smoothing_damps_cruise_flicker(self):
+        # Live 916 cruise: the detector jumped between 0.7% and 50% second to second.
+        main.reset_display_filter()
+        shown = []
+        for t in range(1, 121):
+            raw = 0.5 if t % 2 else 0.007
+            r = main.smooth_display({"time": t}, {**AI, "detection_confidence": raw,
+                                                  "fault_detected": raw >= 0.5})
+            shown.append(r)
+        self.assertTrue(all(0.15 < r["detection_confidence"] < 0.35 for r in shown[30:]))
+        self.assertFalse(any(r["fault_detected"] for r in shown))
+        self.assertEqual(shown[-1]["detection_confidence_raw"], 0.007)
+
+    def test_display_smoothing_still_raises_a_real_alarm(self):
+        main.reset_display_filter()
+        for t in range(1, 61):
+            main.smooth_display({"time": t}, {**AI, "detection_confidence": 0.01, "fault_detected": False})
+        hits = [t for t in range(61, 91)
+                if main.smooth_display({"time": t}, {**AI, "detection_confidence": 1.0,
+                                                     "fault_detected": True})["fault_detected"]]
+        self.assertLessEqual(hits[0] - 61, 8)
+        last = main.smooth_display({"time": 91}, {**AI, "detection_confidence": 1.0, "fault_detected": True})
+        self.assertGreater(last["detection_confidence"], 0.9)
+
+    def test_display_smoothing_health(self):
+        main.reset_display_filter()
+        for t, h in zip(range(1, 61), [89.0, 93.0] * 30):
+            r = main.smooth_display({"time": t}, {**AI, "health_percent": h})
+        self.assertAlmostEqual(r["health_percent"], 91.0, delta=0.5)
+        self.assertEqual(r["health_percent_raw"], 93.0)
+
+    def test_display_smoothing_restarts_on_new_flight_and_after_a_hold(self):
+        main.reset_display_filter()
+        for t in range(1, 61):
+            main.smooth_display({"time": t}, {**AI, "detection_confidence": 1.0})
+        fresh = main.smooth_display({"time": 2}, {**AI, "detection_confidence": 0.02})
+        self.assertLess(fresh["detection_confidence"], 0.02)
+        held = {**AI, "settling": True, "detection_confidence": 0.0, "health_percent": None}
+        self.assertEqual(main.smooth_display({"time": 3}, held), held)
+        after = main.smooth_display({"time": 4}, {**AI, "detection_confidence": 0.9, "health_percent": 70.0})
+        self.assertLess(after["detection_confidence"], 0.1)
+        self.assertFalse(after["fault_detected"])
+        self.assertEqual(after["health_percent"], 70.0)
+
     def test_can_overlay_912_turbo_residuals_stay_zero(self):
         main.twin = UAVEngineTwinV5(engine_model="Rotax_912_ULS", seed=1)
         out = None
