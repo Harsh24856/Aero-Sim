@@ -276,7 +276,11 @@ For each engine with a changed artifact, run in order:
 
 | Engine | Air filter: test misses / share invisible | Oil pump: share invisible | Oil degradation: share invisible | Path / weights |
 |---|---|---|---|---|
-| 916 | | | | |
-| 915 | | | | |
-| 912 | n/a (no turbo, recall 0.71) | | | |
-| 914 | | | | |
+| 916 | 250 / 43% | 100% (F1 0.45) | 81% (F1 0.54) | **W**: `air_filter_fouling=2.0`; oil not weighted (misses invisible) |
+| 915 | 167 / 27% (precision 0.40) | 63% (F1 0.66) | 45% (F1 0.65) | `air_filter_fouling=2.0,oil_pump_degradation=1.5,oil_degradation=1.5` |
+| 912 | not targeted (F1 0.69) | 24% (F1 0.83, above 0.75) | 71% (F1 0.61) | no fine-tune (the weak oil fault's misses are invisible) |
+| 914 | not targeted | 62% (F1 0.68) | 58% (F1 0.80, above 0.75) | no fine-tune (the weak oil fault's misses are invisible) |
+
+Test split; F1 from each engine's card. Task 7 (relabel) is not taken. Across engines, 58-100% of oil misses
+are windows the per-instrument rule calls invisible: oil faults are labelled present before any instrument
+shows them. That points to a per-instrument relabel for the oil faults on every engine, in a later round.

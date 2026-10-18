@@ -62,7 +62,7 @@ def check_same_windows(a: np.ndarray, b: np.ndarray) -> None:
         raise SystemExit("the two caches hold different windows - relabel from the same source cache")
 
 
-def fault_report(engine: str, fault: str, vs_key: str) -> dict:
+def fault_report(engine: str, faults: list, vs_key: str) -> dict:
     """miss_visibility for one fault on val and test: labels of cache/<engine> (what the
     model was trained and scored on) against cache/<vs_key> (e.g. relabel_v5b
     --per-channel-faults --out <vs_key>)."""
@@ -73,14 +73,15 @@ def fault_report(engine: str, fault: str, vs_key: str) -> dict:
     sp = Specialists(Cache(p["cache"]), p["art"])
     new = Cache(os.path.join(HERE, "cache", vs_key))
     cal = json.load(open(os.path.join(p["art"], "calibration.json")))
-    j = FAULT_NAMES.index(fault)
-    out = {"engine": engine, "fault": fault, "vs": vs_key}
+    out = {"engine": engine, "vs": vs_key, "faults": {f: {} for f in faults}}
     for split in ("val", "test"):
         ids = sp.cache.end_ids([split], jitter=False)
         check_same_windows(np.asarray(sp.cache.ends[ids])[:, :2], np.asarray(new.ends[ids])[:, :2])
-        s = _split_outputs(sp, ids, cal["temperature"], cal["cutoffs"])
-        y_new = new.labels(np.asarray(new.ends[ids]), f"fmv_{fault}")
-        out[split] = miss_visibility(s["y_diag"][:, j], s["pred"][:, j], y_new)
+        s = _split_outputs(sp, ids, cal["temperature"], cal["cutoffs"])      # one pass for every fault
+        for f in faults:
+            j = FAULT_NAMES.index(f)
+            y_new = new.labels(np.asarray(new.ends[ids]), f"fmv_{f}")
+            out["faults"][f][split] = miss_visibility(s["y_diag"][:, j], s["pred"][:, j], y_new)
     return out
 
 
@@ -145,11 +146,12 @@ def _fmt(r):
 if __name__ == "__main__":
     if "--fault" in sys.argv:
         a = sys.argv
-        r = fault_report(a[1], a[a.index("--fault") + 1], a[a.index("--vs") + 1])
-        for split in ("val", "test"):
-            m = r[split]
-            print(f"== {r['engine']} {r['fault']} {split}: {m['misses']} missed windows, "
-                  f"{m['invisible']} invisible by {r['vs']} labels ({m['share_invisible']:.0%})")
+        r = fault_report(a[1], a[a.index("--fault") + 1].split(","), a[a.index("--vs") + 1])
+        for f, by in r["faults"].items():
+            for split in ("val", "test"):
+                m = by[split]
+                print(f"== {r['engine']} {f} {split}: {m['misses']} missed windows, "
+                      f"{m['invisible']} invisible by {r['vs']} labels ({m['share_invisible']:.0%})")
         sys.exit(0)
     r = report(sys.argv[1])
     print(f"== {r['engine']}")
