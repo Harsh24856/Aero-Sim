@@ -61,6 +61,13 @@ class TestHistoryInCacheAndRul(unittest.TestCase):
         self.assertEqual(legacy.shape[1], 1 + 14 + 1 + 6 + 1 + 1 + ctx.shape[1])
         np.testing.assert_array_equal(legacy, rul_v5.rul_inputs(o, seq, ctx, self.v5.contract, hist=np.ones((64, 3))))
 
+    def test_family_cols_matches_rul_inputs_layout(self):
+        seq, ctx, _ = self.v5.batch(np.arange(64))
+        o = fake_outputs(64)
+        X = rul_v5.rul_inputs(o, seq, ctx, self.v5.contract)
+        cols = rul_v5.family_cols(o["severity"].shape[1], o["family"].shape[1])
+        np.testing.assert_array_equal(X[:, cols], np.asarray(o["family"]))
+
     def test_rul_inputs_adds_three_hist_columns(self):
         seq, ctx, E = self.v6.batch(np.arange(64))
         o = fake_outputs(64)
@@ -183,6 +190,42 @@ class TestTrendGatedRUL(unittest.TestCase):
 
     def test_blend(self):
         self.assertAlmostEqual(rul_v5.TrendGatedRUL(self.Gated(), weight=0.5).predict(self._X(0.9, 0.1))[0], 0.3)
+
+    # per-family gate: family probabilities in columns 2-3 of the stub inputs
+    FAM = slice(2, 4)
+
+    def _Xf(self, fam0, fam1, trend=0.1):
+        X = self._X(0.9, trend)
+        X[0, 2], X[0, 3] = fam0, fam1
+        return X
+
+    def test_family_none_is_todays_trend_model(self):
+        rng = np.random.default_rng(0)
+        X = rng.random((50, 40))
+        X[:, -3] = rng.random(50) * 0.5
+        np.testing.assert_allclose(rul_v5.TrendGatedRUL(self.Gated(), 0.5, families=None, fam_cols=self.FAM).predict(X),
+                                   rul_v5.TrendGatedRUL(self.Gated(), 0.5).predict(X))
+
+    def test_trend_only_for_allowed_family(self):
+        m = rul_v5.TrendGatedRUL(self.Gated(), weight=0.5, families=(0,), fam_cols=self.FAM)
+        self.assertAlmostEqual(m.predict(self._Xf(0.9, 0.1))[0], 0.3)      # family 0: blend 0.5*0.1 + 0.5*0.5
+        self.assertAlmostEqual(m.predict(self._Xf(0.1, 0.9))[0], 0.5)      # family 1: base only
+
+    def test_no_confident_family_uses_base(self):
+        m = rul_v5.TrendGatedRUL(self.Gated(), weight=0.5, families=(0, 1), fam_cols=self.FAM)
+        self.assertAlmostEqual(m.predict(self._Xf(0.3, 0.3))[0], 0.5)
+
+    def test_model_pickled_before_families_still_predicts(self):
+        # live exports hold TrendGatedRUL objects pickled without the new attributes
+        old = rul_v5.TrendGatedRUL.__new__(rul_v5.TrendGatedRUL)
+        old.gated, old.weight = self.Gated(), 0.5
+        self.assertAlmostEqual(old.predict(self._Xf(0.1, 0.9))[0], 0.3)
+
+    def test_all_families_allowed_equals_todays_model_when_confident(self):
+        m = rul_v5.TrendGatedRUL(self.Gated(), weight=0.5, families=(0, 1), fam_cols=self.FAM)
+        today = rul_v5.TrendGatedRUL(self.Gated(), weight=0.5)
+        for X in (self._Xf(0.9, 0.1), self._Xf(0.2, 0.8)):
+            self.assertAlmostEqual(m.predict(X)[0], today.predict(X)[0])
 
 
 class TestRulScoredAsServed(unittest.TestCase):
