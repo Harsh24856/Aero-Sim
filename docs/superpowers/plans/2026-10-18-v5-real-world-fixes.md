@@ -40,7 +40,7 @@ For P2, the new mission must contain **throttle steps** (instant moves of 0.4-0.
 
 ## Remaining work, phase by phase
 
-Status: P1 and P1b are done in PR #29, which is waiting for the user to merge. P2-P4 are still to do.
+Status: P1 and P1b are done in PR #29, which is open and waiting for the user to merge. Next is Step 0, then P2. P3 and P4 are still to do.
 
 P1b result (2026-10-18). Live flights from the PR branch, with the stack started from the worktree and the same models as live, on the full profile:
 - **916:** FAULT shown on 0 of 170 polls. The raw detector was at or above 0.5 on 38 polls, all inside throttle holds.
@@ -51,54 +51,64 @@ P1b result (2026-10-18). Live flights from the PR branch, with the stack started
 - **Margin:** on the 916, after the advance to full throttle, the raw alarm lasted until +121 s. The 128 s hold covers it, but only just.
 - **Baseline:** `scripts/transient_v5.py` and its baseline are committed (`validation_v5/artifacts/transient_v5_baseline.json`). 10 of 20 cases fail the 5 s gate. That is P2's target.
 
-### P1b: ship P1 and check it live (about 30 min)
+### Step 0: land P1 (user, about 15 min)
 
-1. When CI is green, merge PR #29. Then pull into the main checkout. This follows the memory rule: the live stack runs from the main checkout.
-2. Restart the backend. The AI service does not change.
-3. Fly the same Playwright profile on the 916 as in the first flight:
-   - take-off;
-   - 75% cruise at 1,500 m;
-   - full power at 4,000 m, then at 6,000 m;
-   - throttle 0.15 at 1,000 m;
-   - full throttle again.
-   Expected:
-   - the cockpit shows "settling after a large throttle change" instead of FAULT;
-   - no detection flicker in cruise;
-   - remaining life never rises.
-4. Also fly the 915 once through the same profile.
-5. Make the offline measurement permanent: put the chop-sweep and replay scripts into
-   `scripts/transient_v5.py`. They are now in the scratchpad. The script prints, for each
-   engine and each throttle step, the maximum detection and how many seconds detection is
-   at or above 0.5. P2 and P3 use it as their gate.
+1. **User:** merge PR #29. The permission check will not let me merge to `main` without the user's review.
+2. **Me:** pull into the main checkout and start the stack from there. On 2026-10-18 the stack was found stopped: no listeners on 3000, 8000 or 8100.
+3. **Me:** fly the 916 once to check the merged build. Expected result as in P1b: FAULT on 0 polls.
 
-Done when: the live flight shows no false FAULT, and `transient_v5.py` is committed with a baseline.
+### P2: teach the models throttle steps and idle descents (overnight, 916 first)
 
-### P2: teach the models throttle steps and idle descents (about 1.5 h of work, 3-4 h of machine time)
+Engine order is 916, 915, 914, 912, by the size of the false alarm (the user chose to start with the 916). Each task ends with a commit, and each engine ends with an accept/keep line in this plan.
 
-1. **Generator** (`generate_dataset_v5.py`). Add two arguments:
-   - `--start-id N`: today's 6,000 flights are not touched. New flights are numbered from 6,000, with their own RNG streams.
-   - `--missions a,b`: new flights draw only from the named missions.
+**P2.1 Generator (TDD, about 45 min)** — `backend/generate_dataset_v5.py`
+- New argument `--start-id N`: new flights are numbered from N (6,000), each with its own RNG stream. Today's flights do not move.
+- New argument `--missions a,b`: new flights draw only from the named missions.
+- New missions (metadata only, so the model inputs and the scaler do not change):
+  - `throttle_steps`: 1,500-3,500 m; an instant throttle move of 0.4-0.85, either way, every 60-180 s.
+  - `idle_descent`: from 4,000-6,500 m down to 500 m at throttle 0.10-0.20, then full throttle again.
+- At a step, the throttle bypasses the 0.12 per second lag.
+- Tests:
+  - a flight with an ID below 6,000 is identical to today's (compare a hash of one generated flight with and without the new arguments);
+  - a `throttle_steps` flight has a throttle move of 0.4 or more within 2 s;
+  - an `idle_descent` flight starts above 4,000 m and reaches throttle 0.2 or less.
 
-   Two new missions (they are metadata only, so the model inputs and the scaler do not change):
-   - `throttle_steps`: at 1,500-3,500 m, the throttle moves instantly by 0.4-0.85, in either direction, every 60-180 s. This is the measured cause.
-   - `idle_descent`: from 4,000-6,500 m down to 500 m at throttle 0.10-0.20, then full throttle again. This covers the remaining 914 gap at 6,000 m.
+**P2.2 Data (about 1 h of machine time, CPU)**
+- Generate 900 flights per engine (15%) into `data/rotax_v5/<e>_steps/`, all four engines in parallel (`--jobs 4`, under `caffeinate`).
+- Spot-check with `transient_v5.py`-style plots: the steps are visible in the telemetry.
 
-   Both missions bypass the throttle lag (0.12 per second) at the step instants.
+**P2.3 Cache (TDD, about 1 h)** — `validation_v5/pipeline_v5.py`
+- New argument `--scaler-from <live contract_v5.json>`: the live scaler is reused, so the deployed contract does not change.
+- New argument `--extra <dir>`: the new flights are appended, with the same split rule (12/3/2/3 slots), into a new cache `cache/<e>s`.
+- Tests:
+  - the scaler equals the live one;
+  - the old flights' windows are byte-identical;
+  - new flights land in all four splits.
+- Check the share of windows that contain a step. If it is under 8%, oversample the new flights in `end_ids` (one argument, `--extra-weight`).
 
-   Tests:
-   - the first 6,000 flights are byte-identical to today's (check a hash of one file);
-   - a `throttle_steps` flight contains a throttle move of 0.4 or more within 2 s.
-2. **Generate** 900 flights per engine (15%), all four engines in parallel with `--jobs 4`. The 916 rate was 6,000 flights in 5.2 h, so this takes about 50-60 min if the CPU keeps up.
-3. **Cache**. `pipeline_v5.py` gets a new argument, `--scaler-from <old contract>`, so the new cache keeps the live scaler. The deployed contract must not change. Test: rebuilding with `--scaler-from` gives a cache whose scaler is the old one.
-4. **Fine-tune**: `specialists_v5.py <e>b --finetune detect,sensor,diag`, 12 epochs, keeping the current weights unless validation improves. Order: the 916 first, then the 915, 914 and 912 (the user's rule is 914 first through every new phase; ask whether it still applies to a fine-tune). About 30 min per engine.
-5. **Acceptance per engine**:
-   - `ab_v5.py` against live: win or tie.
-   - `transient_v5.py`: detection at or above 0.5 for 5 s or less after each step (today the 916 measures 15-80 s).
-   - No test-card gate flips from PASS to FAIL.
-   - e2e: no new failures.
-6. **Ship**: export, parity, PR, merge, restart. Then lower `THROTTLE_HOLD_S` to what `transient_v5.py` shows each engine needs. If every engine passes, remove the hold.
+**P2.4 Fine-tune (about 30-40 min per engine, GPU)**
+- Run `specialists_v5.py <e>s --finetune detection,sensor,diagnosis` with 12 epochs and `keep_current=True`, so the current weights stay unless validation improves.
+- The sensor head is included because the live false alarm also raised an `engine_rpm` spike flag.
+- Before starting, confirm from the live export's manifest which cache the live heads came from, and fine-tune from exactly those weights.
 
-Done when: the four engines are accepted or kept, and the hold is shortened or removed.
+**P2.5 Acceptance per engine (about 45 min per engine)** — all must hold:
+- `transient_v5.py`: at most 5 s of detection at or above 0.5 in every case (916 today: 17-80 s);
+- `ab_v5.py` against live: a win or a tie;
+- no test-card gate flips from PASS to FAIL;
+- e2e: no new failures (the 915 `turbo_high` failure is already known);
+- export parity: the GPU and CPU give the same answers.
+
+If an engine fails, it keeps its live models and the hold stays.
+
+**P2.6 Ship (about 30 min)**
+- Export, PR, user merges, main checkout, restart.
+- For engines that pass, lower `THROTTLE_HOLD_S` to their measured need. If all four pass, remove the hold.
+- Fly the Playwright profile again on the 916 and the 915.
+
+**Risks:**
+- **Step windows too rare to matter:** the oversample argument in P2.3 handles this.
+- **The fine-tune trades away fault recall:** the A/B gate catches this.
+- **Mac sleep:** use `caffeinate` and check `pmset` if a run stalls (memory note).
 
 ### P3: physics realism (separate decision, about 2 days of machine time)
 
@@ -124,4 +134,4 @@ Keep P4 in separate runs from P2, so each A/B result has one cause.
 
 ## Order
 
-P1b now, then P2 (overnight), P4 when convenient, and P3 only as a separate decision. Every phase ends with `transient_v5.py` and a Playwright flight against the same baseline.
+Step 0 (merge PR #29), then P2 overnight (916 first), P4 when convenient, and P3 only as a separate decision. Every phase ends with `transient_v5.py` and a Playwright flight against the same baseline.
