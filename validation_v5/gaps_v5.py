@@ -47,6 +47,43 @@ def confusion_share(y: np.ndarray, pred: np.ndarray, a: int, b: int) -> float:
     return float((pred[on, b] & ~pred[on, a]).mean()) if on.any() else 0.0
 
 
+def miss_visibility(y_old: np.ndarray, pred: np.ndarray, y_new: np.ndarray) -> dict:
+    """Of the windows the model misses under the current labels (y_old 1, pred 0), how
+    many a stricter labelling (y_new) calls not visible at all."""
+    y_old, pred, y_new = (np.asarray(a).astype(bool) for a in (y_old, pred, y_new))
+    miss = y_old & ~pred
+    n, inv = int(miss.sum()), int((miss & ~y_new).sum())
+    return {"misses": n, "invisible": inv, "share_invisible": inv / n if n else 0.0}
+
+
+def check_same_windows(a: np.ndarray, b: np.ndarray) -> None:
+    """Two caches compared window by window must hold the same window ends."""
+    if not np.array_equal(np.asarray(a), np.asarray(b)):
+        raise SystemExit("the two caches hold different windows - relabel from the same source cache")
+
+
+def fault_report(engine: str, fault: str, vs_key: str) -> dict:
+    """miss_visibility for one fault on val and test: labels of cache/<engine> (what the
+    model was trained and scored on) against cache/<vs_key> (e.g. relabel_v5b
+    --per-channel-faults --out <vs_key>)."""
+    from degradation_v5 import FAULT_NAMES
+    from pipeline_v5 import Cache
+    from specialists_v5 import Specialists, paths
+    p = paths(engine)
+    sp = Specialists(Cache(p["cache"]), p["art"])
+    new = Cache(os.path.join(HERE, "cache", vs_key))
+    cal = json.load(open(os.path.join(p["art"], "calibration.json")))
+    j = FAULT_NAMES.index(fault)
+    out = {"engine": engine, "fault": fault, "vs": vs_key}
+    for split in ("val", "test"):
+        ids = sp.cache.end_ids([split], jitter=False)
+        check_same_windows(np.asarray(sp.cache.ends[ids])[:, :2], np.asarray(new.ends[ids])[:, :2])
+        s = _split_outputs(sp, ids, cal["temperature"], cal["cutoffs"])
+        y_new = new.labels(np.asarray(new.ends[ids]), f"fmv_{fault}")
+        out[split] = miss_visibility(s["y_diag"][:, j], s["pred"][:, j], y_new)
+    return out
+
+
 def _split_outputs(sp, ids: np.ndarray, temps, cuts, bs: int = 512) -> dict:
     from assembly_v5 import apply_temperature, calibrate_severity, gate_severity
     from train_v5 import targets
@@ -106,6 +143,14 @@ def _fmt(r):
 
 
 if __name__ == "__main__":
+    if "--fault" in sys.argv:
+        a = sys.argv
+        r = fault_report(a[1], a[a.index("--fault") + 1], a[a.index("--vs") + 1])
+        for split in ("val", "test"):
+            m = r[split]
+            print(f"== {r['engine']} {r['fault']} {split}: {m['misses']} missed windows, "
+                  f"{m['invisible']} invisible by {r['vs']} labels ({m['share_invisible']:.0%})")
+        sys.exit(0)
     r = report(sys.argv[1])
     print(f"== {r['engine']}")
     for f, row in r["faults"].items():
