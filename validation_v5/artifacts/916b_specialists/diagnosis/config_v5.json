@@ -17,8 +17,5 @@
  "select": {
   "diag_macro_ap": 1.0,
   "family_f1": 0.5
- },
- "fault_weight": {
-  "air_filter_fouling": 2.0
  }
 }
