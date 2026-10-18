@@ -642,7 +642,12 @@ def smooth_rul(sample: dict, result: dict) -> dict:
     if result.get("settling") and result.get("settle_reason") == "throttle" and f["shown"] is not None:
         # Mid-flight hold after a large throttle move: the window holds the step, so the
         # head extrapolates again - but the floor was set by clean windows and stays.
-        # The gauge keeps its last value; resetting here would let it rise afterwards.
+        # The gauge keeps its last value less the hours flown since; resetting here
+        # would let it rise afterwards.
+        if isinstance(wear, (int, float)) and f["wear"] is not None and tbo:
+            f["shown"] = presented(f["shown"] - max(0.0, float(wear) - f["wear"]) * float(tbo))
+            f["wear"] = float(wear)
+        f["t"] = t if isinstance(t, (int, float)) else f["t"]
         out = {**result, "rul_ready": True, "rul_hours_raw": raw, "rul_hours": round(f["shown"], 3)}
         if tbo:
             out["rul_percent_remaining"] = round(max(0.0, min(100.0, 100.0 * f["shown"] / float(tbo))), 4)

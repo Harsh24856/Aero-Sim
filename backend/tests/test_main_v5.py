@@ -97,6 +97,15 @@ class TestMainV5(unittest.TestCase):
         after = main.smooth_rul({"time": 62, "wear": 0.5}, {**ok, "rul_hours": 1400.0})
         self.assertLessEqual(after["rul_hours"], shown)
 
+    def test_throttle_hold_rul_still_counts_down_hours_flown(self):
+        # Live 916: the frozen gauge read 1,678 h beside a 1,677 h calendar countdown.
+        main.reset_rul_filter()
+        ok = {**AI, "tbo_hours": 2000.0}
+        shown = main.smooth_rul({"time": 1, "wear": 0.5}, {**ok, "rul_hours": 900.0})["rul_hours"]
+        held = main.smooth_rul({"time": 61, "wear": 0.5005},
+                               {**ok, "rul_hours": 1400.0, "settling": True, "settle_reason": "throttle"})
+        self.assertAlmostEqual(held["rul_hours"], shown - 1.0, places=3)
+
     def test_display_smoothing_damps_cruise_flicker(self):
         # Live 916 cruise: the detector jumped between 0.7% and 50% second to second.
         main.reset_display_filter()
