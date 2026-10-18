@@ -17,6 +17,27 @@ Source: the Playwright flight of the Rotax 916 iS on 2026-10-18 (take-off, 75% c
 The mission name is metadata only (`pipeline_v5.py:139`), not a model input. A new mission
 therefore does not change the model's inputs or its scaler.
 
+## P1 outcome (2026-10-18)
+
+Offline replays corrected problem 1's cause. **Low throttle is not the cause. A fast throttle step is.**
+- On a healthy 916, a steady throttle of 0.15 is clean (detection at most 0.2), and an altitude step alone is clean.
+- One throttle step, either way, gives "FAULT" until the step leaves the 128 s window:
+  - 0.75 to 0.15 at 1,500 m: about 15 s.
+  - Full power to 0.15, with a step from 6,000 m to 1,000 m: about 80 s.
+  - 0.15 to full: up to 125 s.
+- The 915 behaves the same. The 914 and 912 are mostly clean.
+- The generator eases the throttle (about 8 s lag) and never steps it.
+
+Shipped instead of the planned throttle floor:
+- **Hold:** a throttle move of 0.4 or more, either way, within 5 s holds alerts for the full 128 s window (`settle_reason: "throttle"`). During this hold, RUL keeps its last value and its floor.
+- **Smoothing:** EMA (10 s) on detection and health. `fault_detected` follows the smoothed detector.
+
+Replay of the live profile through the `main.py` chain: FAULT shown on the 916 for 1 s (raw detector: 202 s), on the 915 for 0 s (raw: 201 s).
+
+Known gap: on the 914, a steady throttle of 0.15 at 6,000 m still alarms after the window clears. This is out of envelope in steady state, so no hold covers it.
+
+For P2, the new mission must contain **throttle steps** (instant moves of 0.4-0.85, either way) and an idle descent from altitude, not only low throttle.
+
 ## Phases
 
 ### P1: stop the false alarm on screen (about 1 h, no retraining)

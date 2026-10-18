@@ -26,6 +26,7 @@ type AiV4 = AiResultV4Fields & {
   settling?: boolean;
   settle_seconds_left?: number;
   settle_window_s?: number;
+  settle_reason?: "takeoff" | "throttle";
   fault_detected?: boolean;
   detection_confidence?: number;
   rul_hours?: number | null;
@@ -85,7 +86,9 @@ export default function DiagnosticsV4({
 
       {settling && (
         <div role="status" className="border border-[#4c3025] bg-[#0d0e0d] p-2 text-[8px] text-[#d9c0ae] md:text-[9px]">
-          AI settling after takeoff - alerts are held until the last 128 s of flight are above 28 m/s
+          {ai?.settle_reason === "throttle"
+            ? "AI settling after a large throttle change - alerts are held until it leaves the last 128 s of flight"
+            : "AI settling after takeoff - alerts are held until the last 128 s of flight are above 28 m/s"}
           {ai?.settle_seconds_left != null ? ` (${Math.ceil(ai.settle_seconds_left)} s)` : ""}.
         </div>
       )}

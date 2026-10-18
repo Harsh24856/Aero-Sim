@@ -334,6 +334,9 @@ state = {
     "recovery_times": [],      # monotonic stamps inside RECOVERY_WINDOW_S
     "last_good_telemetry": None,
     "ai_resync": False,        # the AI's window has a gap: /reset it before the next sample
+    "ai_settle_reason": "takeoff",   # what set ai_settle_until: "takeoff" or "throttle"
+    "ai_settle_window": 128.0,       # the length of that hold, for the cockpit's progress bar
+    "ai_throttle_hist": [],          # (sim time, throttle) over THROTTLE_STEP_WINDOW_S
     "ai_settle_until": 0.0,    # sim time until which AI alerts are held (see hold_alerts_outside_envelope)
     "ai_last_sample_time": None,
     "ai_last_seen_time": None,   # last sample time sent to the AI; a drop means a new flight
@@ -345,6 +348,7 @@ state = {
     "measured_posts": 0,
     "last_data_source": "sim", # a switch sim <-> can restarts the AI window and residuals
     "rul_filter": {"ema": None, "shown": None, "t": None, "wear": None},   # see smooth_rul
+    "display_filter": {"det": None, "health": None, "t": None},           # see smooth_display
     # ---- engine-failure shutdown (see health_failure_seconds) ----
     "health_zero_since": None,   # sim time health first hit the floor, None while it is above it
     "health_zero_engine_hours": None,  # hour meter at that instant, for the failure message
@@ -438,6 +442,15 @@ async def ai_reset_buffer():
 AI_ENVELOPE_MIN_AIRSPEED_MS = 32.0
 AI_ENVELOPE_MIN_AIRSPEED_MS_V4 = 28.0   # generate_dataset_v4.py's airspeed floor
 AI_WINDOW_S = 128.0
+# The training missions ease the throttle (generate_dataset_v5.py: ~8 s lag, profile
+# segments minutes long); a pilot moves it in one step. Measured on a healthy 916, one
+# step gave "FAULT 100%" (and an engine_rpm spike flag) until the step left the AI's
+# window: 0.75 -> 0.15 at 1,500 m ~15 s, full -> 0.15 with 6,000 -> 1,000 m ~80 s,
+# 0.15 -> full ~125 s. A move of THROTTLE_STEP either way within THROTTLE_STEP_WINDOW_S
+# holds the alerts for the whole window, like the take-off hold.
+THROTTLE_STEP = 0.4
+THROTTLE_STEP_WINDOW_S = 5.0
+THROTTLE_HOLD_S = AI_WINDOW_S
 
 
 def hold_alerts_outside_envelope(sample: dict, result: dict) -> dict:
@@ -451,11 +464,21 @@ def hold_alerts_outside_envelope(sample: dict, result: dict) -> dict:
     last = state["ai_last_sample_time"]
     if last is not None and t < last:           # clock restarted: a new flight
         state["ai_settle_until"] = 0.0
+        state["ai_throttle_hist"] = []
     state["ai_last_sample_time"] = t
     airspeed = sample.get("airspeed")
     floor = AI_ENVELOPE_MIN_AIRSPEED_MS_V4 if V4_FAMILY else AI_ENVELOPE_MIN_AIRSPEED_MS
     if isinstance(airspeed, (int, float)) and airspeed < floor:
         state["ai_settle_until"] = t + AI_WINDOW_S
+        state["ai_settle_reason"], state["ai_settle_window"] = "takeoff", AI_WINDOW_S
+    thr = sample.get("throttle")
+    if isinstance(thr, (int, float)):
+        hist = [(ht, hv) for ht, hv in state["ai_throttle_hist"] if t - ht <= THROTTLE_STEP_WINDOW_S]
+        moved = max((abs(hv - thr) for _, hv in hist), default=0.0)
+        if moved >= THROTTLE_STEP and t + THROTTLE_HOLD_S > state["ai_settle_until"]:
+            state["ai_settle_until"] = t + THROTTLE_HOLD_S
+            state["ai_settle_reason"], state["ai_settle_window"] = "throttle", THROTTLE_HOLD_S
+        state["ai_throttle_hist"] = hist + [(t, float(thr))]
     if result.get("status") != "ok" or t >= state["ai_settle_until"]:
         return result
     if V4_FAMILY:
@@ -465,7 +488,7 @@ def hold_alerts_outside_envelope(sample: dict, result: dict) -> dict:
         return {**result, "settling": True, "fault_detected": False, "detection_confidence": 0.0,
                 "detection_confidence_raw": result.get("detection_confidence"),
                 "settle_seconds_left": max(0.0, round(state["ai_settle_until"] - t, 1)),
-                "settle_window_s": AI_WINDOW_S,
+                "settle_window_s": state["ai_settle_window"], "settle_reason": state["ai_settle_reason"],
                 "fault_modes": {k: {**v, "present": False} for k, v in (result.get("fault_modes") or {}).items()},
                 "fault_modes_raw": result.get("fault_modes"), "faults_present": [],
                 "sensors": {c: {**v, "condition": "none"} for c, v in (result.get("sensors") or {}).items()},
@@ -488,7 +511,7 @@ def hold_alerts_outside_envelope(sample: dict, result: dict) -> dict:
     # envelope pushes ai_settle_until out again, and the bar honestly goes back with it.
     held = {**result, "settling": True, "fault_detected": False, "faulty_channels": [],
             "settle_seconds_left": max(0.0, round(state["ai_settle_until"] - t, 1)),
-            "settle_window_s": AI_WINDOW_S,
+            "settle_window_s": state["ai_settle_window"], "settle_reason": state["ai_settle_reason"],
             "detection_confidence": 0.0, "detection_confidence_raw": result.get("detection_confidence"),
             "severity_percent": {ch: 0.0 for ch in (result.get("severity_percent") or {})},
             "severity_percent_raw": result.get("severity_percent") or {},
@@ -552,6 +575,45 @@ RUL_SMOOTH_S = 60.0
 
 def reset_rul_filter():
     state["rul_filter"] = {"ema": None, "shown": None, "t": None, "wear": None}
+    reset_display_filter()        # every caller is a new flight, engine or source
+
+
+# The detector and health heads also answer each window afresh: in a steady 916 cruise
+# the detector jumped between 0.7% and 50% second to second and health moved +-2%. The
+# cockpit, advisory and database see an EMA of both; fault_detected follows the smoothed
+# detector so the status line and the percentage beside it always agree (a step from 0
+# to 1 still raises it within ~7 s). The model's own values stay in *_raw.
+DISPLAY_SMOOTH_S = 10.0
+
+
+def reset_display_filter():
+    state["display_filter"] = {"det": None, "health": None, "t": None}
+
+
+def smooth_display(sample: dict, result: dict) -> dict:
+    if result.get("status") != "ok" or result.get("settling"):
+        reset_display_filter()           # held: the first clean window seeds the filter
+        return result
+    f, t = state["display_filter"], sample.get("time")
+    if not isinstance(t, (int, float)) or (f["t"] is not None and t < f["t"]):
+        reset_display_filter()           # no clock, or it restarted: a new flight
+        f = state["display_filter"]
+    # One AI sample per second; the first one after a reset counts as one second.
+    a = 1.0 - math.exp(-(1.0 if f["t"] is None else max(0.0, t - f["t"])) / DISPLAY_SMOOTH_S)
+    out = dict(result)
+    det = result.get("detection_confidence")
+    if isinstance(det, (int, float)):
+        # The detector starts from "no evidence" (what the hold shows), so one jumpy
+        # first window cannot raise the alarm on its own.
+        f["det"] = (f["det"] or 0.0) + a * (det - (f["det"] or 0.0))
+        out.update(detection_confidence=round(f["det"], 5), detection_confidence_raw=det,
+                   fault_detected=f["det"] >= 0.5, fault_detected_raw=result.get("fault_detected"))
+    health = result.get("health_percent")
+    if isinstance(health, (int, float)):
+        f["health"] = health if f["health"] is None else f["health"] + a * (health - f["health"])
+        out.update(health_percent=round(f["health"], 4), health_percent_raw=health)
+    f["t"] = t if isinstance(t, (int, float)) else None
+    return out
 
 
 def smooth_rul(sample: dict, result: dict) -> dict:
@@ -576,6 +638,15 @@ def smooth_rul(sample: dict, result: dict) -> dict:
         value = max(0.0, value)
         return min(value, ceiling) if ceiling else value
 
+    f = state["rul_filter"]
+    if result.get("settling") and result.get("settle_reason") == "throttle" and f["shown"] is not None:
+        # Mid-flight hold after a large throttle move: the window holds the step, so the
+        # head extrapolates again - but the floor was set by clean windows and stays.
+        # The gauge keeps its last value; resetting here would let it rise afterwards.
+        out = {**result, "rul_ready": True, "rul_hours_raw": raw, "rul_hours": round(f["shown"], 3)}
+        if tbo:
+            out["rul_percent_remaining"] = round(max(0.0, min(100.0, 100.0 * f["shown"] / float(tbo))), 4)
+        return out
     if result.get("settling"):
         # NO NUMBER AT ALL while the window is not clean. Passing the raw prediction
         # through was worse than useless: on a 914 the gauge read 99.1%, then 99.0%,
@@ -678,7 +749,7 @@ async def ai_worker(queue: asyncio.Queue):
             else:
                 if status == "ok":
                     state["ai_hold"] = None
-                state["last_ai_result"] = smooth_rul(out, hold_alerts_outside_envelope(out, result))
+                state["last_ai_result"] = smooth_rul(out, smooth_display(out, hold_alerts_outside_envelope(out, result)))
         except asyncio.CancelledError:
             raise
         except Exception as e:                      # never let the worker die
