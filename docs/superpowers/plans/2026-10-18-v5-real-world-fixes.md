@@ -40,7 +40,16 @@ For P2, the new mission must contain **throttle steps** (instant moves of 0.4-0.
 
 ## Remaining work, phase by phase
 
-Status: P1 is built and in PR #29 (CI pending). Everything below is still to do.
+Status: P1 and P1b are done in PR #29, which is waiting for the user to merge. P2-P4 are still to do.
+
+P1b result (2026-10-18). Live flights from the PR branch, with the stack started from the worktree and the same models as live, on the full profile:
+- **916:** FAULT shown on 0 of 170 polls. The raw detector was at or above 0.5 on 38 polls, all inside throttle holds.
+- **915:** FAULT shown on 0 of 170 polls (raw: 29).
+- **In cruise:** shown detection was at most 0.06.
+- **RUL:** never rose.
+- **Bug found and fixed:** a frozen RUL did not count down the hours flown. It read 1,678 h beside a 1,677 h calendar.
+- **Margin:** on the 916, after the advance to full throttle, the raw alarm lasted until +121 s. The 128 s hold covers it, but only just.
+- **Baseline:** `scripts/transient_v5.py` and its baseline are committed (`validation_v5/artifacts/transient_v5_baseline.json`). 10 of 20 cases fail the 5 s gate. That is P2's target.
 
 ### P1b: ship P1 and check it live (about 30 min)
 
