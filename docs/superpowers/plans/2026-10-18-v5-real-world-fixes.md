@@ -25,7 +25,7 @@ therefore does not change the model's inputs or its scaler.
    5 min cruise, then 3 min at throttle 0.15. Record detection, faults and sensor flags.
    This confirms whether problem 1 happens on every engine or only on the 916.
 2. **Hold alarms outside the trained throttle envelope.** This uses the same mechanism as
-   the existing ground-roll hold (`hold_alerts_outside_envelope`, `main.py:442`). The new rule:
+   the existing ground-roll hold (`hold_alerts_outside_envelope`, `main.py:443`). The new rule:
    when the throttle is below `AI_ENVELOPE_MIN_THROTTLE = 0.25`, hold the alerts until the
    128 s AI window is clear of those samples. The cockpit already shows "stabilising" with a
    countdown for this state. Tests: one for throttle 0.15 (held), one for throttle 0.30 (not held).
