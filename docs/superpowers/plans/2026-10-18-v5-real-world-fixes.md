@@ -110,6 +110,35 @@ If an engine fails, it keeps its live models and the hold stays.
 - **The fine-tune trades away fault recall:** the A/B gate catches this.
 - **Mac sleep:** use `caffeinate` and check `pmset` if a run stalls (memory note).
 
+### P2 results
+
+**916 (2026-10-18): accepted as run `916bt`.**
+- **How it was built:** the detection, sensor and diagnosis heads were fine-tuned on `916sb`, which is the old flights plus 900 step flights, oversampled x2. RUL was then refitted on the old 916b flights.
+- **Validation:** all three heads were kept:
+  - detection 1.8881 -> 1.8911;
+  - diagnosis 1.2923 -> 1.3056;
+  - sensor 0.8871 -> 0.9003.
+- **`transient_v5.py`** (seconds of detection at or above 0.5):
+
+  | Case | Before | After |
+  |---|---|---|
+  | chop 0.75 -> 0.15 | 17 | 0 |
+  | full -> 0.15 at 6,000 m | 42 | 0 |
+  | full -> 0.15, 6,000 -> 1,000 m | 80 | 6 (gate 5) |
+  | 0.15 -> full | 73 | 0 |
+  | small step | 1 | 0 |
+
+- **A/B against live:**
+  - naming 94.1% -> 94.3%;
+  - healthy false alarms 0% -> 0%;
+  - flights passing 22/23 on both (air filter fails on both);
+  - **mean RUL error 75 -> 77 h** (the rule fails by 2 h).
+  - With the RUL refitted on `916sb` it was 104 h; with the live RUL model kept on the new heads it was 82 h.
+- **Other checks:** e2e 8/8, parity OK, `test_all` passes.
+- **Ruling:** accepted over the 2 h RUL miss, because it is within the per-flight noise (+-50 h) and the target false alarm went from 80 s to 6 s. Cost if wrong: about 2 h more mean RUL error. Reverting is a single commit.
+
+**Recipe for the other engines:** use the same `<e>sb` fine-tune, then the `<e>bt` RUL refit, then export and run the checks.
+
 ### P3: physics realism (separate decision, about 2 days of machine time)
 
 All three fixes change the training data of all four engines, so they need a full regeneration and retrain. Each fix gets its own test in `test_physics_v5.py` first.
