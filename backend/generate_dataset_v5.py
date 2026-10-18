@@ -36,6 +36,9 @@ STORAGE    One parquet row group per flight in data/rotax_v5/<key>/flights_NNN.p
 
     backend/.venv/bin/python backend/generate_dataset_v5.py --engine Rotax_914_ULF --flights 600 --out-dir data/rotax_v5_pilot
     backend/.venv/bin/python backend/generate_dataset_v5.py --all --flights 6000 --jobs 2
+    # P2 extra flights (instant throttle steps), apart from the 6,000 above:
+    backend/.venv/bin/python backend/generate_dataset_v5.py --all --flights 900 --jobs 4 \
+        --start-id 100000 --missions throttle_steps,idle_descent --out-dir data/rotax_v5_steps
 """
 from __future__ import annotations
 
@@ -98,6 +101,15 @@ SENSOR_FAULT_P = 0.60
 LIFE_SCALE_P = 0.40               # share of flights on the live x180 life clock
 FLIGHTS_PER_FILE = 400
 
+# P2 (docs/superpowers/plans/2026-10-18-v5-real-world-fixes.md): a pilot moves the
+# throttle in one step, the missions above only ease it, and the detector false-alarmed
+# for up to 125 s after every large move. These missions step it instantly. They are
+# drawn only for the extra flights (--missions); MISSION_NAMES alone drives the draw for
+# the existing set, so its flights stay byte-identical. mission_id indexes ALL_MISSIONS.
+STEP_MISSIONS = ["throttle_steps", "idle_descent"]
+ALL_MISSIONS = MISSION_NAMES + STEP_MISSIONS
+THR_MIN, STEP_MIN, STEP_MAX = 0.10, 0.40, 0.85
+
 # Stratified split: a fixed slot pattern per stratum (20 slots).
 SPLIT_SLOTS = ["train"] * 12 + ["cal"] * 3 + ["val"] * 2 + ["test"] * 3
 
@@ -117,6 +129,30 @@ def mission_profile(name: str, turbo: bool) -> list:
         prof = [(0.10, 800, 38, 0.95, 7.0), (0.35, 3000, 50, 0.85, 3.0),
                 (0.70, 5600, 56, 0.90, 2.0), (1.00, 1200, 45, 0.45, 4.0)]
     return prof
+
+
+def step_mission(name: str, rng: np.random.Generator, duration: float) -> tuple[list, list]:
+    """Profile (altitude, aoa targets) and throttle schedule [(t_s, throttle, airspeed)];
+    the throttle jumps to each schedule entry at its time."""
+    if name == "throttle_steps":
+        alt = float(rng.uniform(1500.0, 3500.0))
+        thr = float(rng.uniform(0.5, 0.95))
+        sched, t = [(0.0, thr, 35.0 + 15.0 * thr)], 0.0
+        while True:
+            t += float(rng.uniform(60.0, 180.0))
+            if t >= duration:
+                break
+            m = min(float(rng.uniform(STEP_MIN, STEP_MAX)), max(1.0 - thr, thr - THR_MIN))
+            up = thr + m <= 1.0 and (thr - m < THR_MIN or rng.random() < 0.5)
+            thr = thr + m if up else thr - m
+            sched.append((t, thr, 35.0 + 15.0 * thr))
+        return [(1.0, alt, 45.0, thr, 3.0)], sched
+    if name == "idle_descent":
+        hi = float(rng.uniform(4000.0, 6500.0))
+        idle = float(rng.uniform(THR_MIN, 0.20))
+        return ([(0.25, hi, 50.0, 0.95, 2.0), (0.75, 500.0, 38.0, idle, 0.0), (1.0, 800.0, 45.0, 1.0, 4.0)],
+                [(0.0, 0.95, 50.0), (0.25 * duration, idle, 38.0), (0.75 * duration, 1.0, 45.0)])
+    raise ValueError(f"not a step mission: {name}")
 
 
 class EnvWalk:
@@ -157,13 +193,14 @@ def life_stage(start_h: float, tbo: float) -> int:
 # ---------------------------------------------------------------------------
 # One flight
 # ---------------------------------------------------------------------------
-def run_scenario(engine_model: str, scen_id: int, rng: np.random.Generator):
+def run_scenario(engine_model: str, scen_id: int, rng: np.random.Generator, mission: str | None = None):
     spec = P.ENGINE_SPECS[engine_model]
     tbo = spec.tbo_hours
     turbo = spec.turbocharged
 
-    mission = str(rng.choice(MISSION_NAMES, p=mission_weights(turbo)))
-    profile = mission_profile(mission, turbo)
+    mission = mission or str(rng.choice(MISSION_NAMES, p=mission_weights(turbo)))
+    stepped = mission in STEP_MISSIONS
+    profile = None if stepped else mission_profile(mission, turbo)
     env = sample_environment(rng, mission)
     start_h = sample_start_hours(rng, tbo)
     life_scale = TS.LIFE_SCALE if rng.random() < LIFE_SCALE_P else 1.0
@@ -175,6 +212,7 @@ def run_scenario(engine_model: str, scen_id: int, rng: np.random.Generator):
         return [], None
 
     duration = float(rng.uniform(0.45, 1.0) * MAX_SCENARIO_S)
+    profile, schedule = step_mission(mission, rng, duration) if stepped else (profile, None)
     eng = P.PistonEngineV5(engine_model, dt=DT)
     twin = P.PistonEngineV5(engine_model, dt=DT)
     wear = P.PistonEngineV5(engine_model, dt=DT)
@@ -209,14 +247,22 @@ def run_scenario(engine_model: str, scen_id: int, rng: np.random.Generator):
     n_known = deg.n_known(start_h)
     wear_out_known = deg.wear_out_known(start_h)
     wear_limited_start = bool(min(tbo, wear_out_known) < tbo)
-    mission_id = MISSION_NAMES.index(mission)
+    mission_id = ALL_MISSIONS.index(mission)
 
     alt, spd, thr, aoa = mission_target(profile, 0.0)
+    k_sched = 0
+    if schedule:
+        thr, spd = schedule[0][1], schedule[0][2]
     rows = []
     t = 0.0
     while t < duration:
         frac = t / duration
         t_alt, t_spd, t_thr, t_aoa = mission_target(profile, frac)
+        if schedule:
+            while k_sched + 1 < len(schedule) and schedule[k_sched + 1][0] <= t:
+                k_sched += 1
+                thr = schedule[k_sched][1]            # the step: no lag
+            t_thr, t_spd = schedule[k_sched][1], schedule[k_sched][2]
         alt += 0.05 * (t_alt - alt) + rng.normal(0.0, 6.0)
         spd += 0.10 * (t_spd - spd) + rng.normal(0.0, 0.35)
         thr += 0.12 * (t_thr - thr) + rng.normal(0.0, 0.007)
@@ -333,7 +379,8 @@ def engine_seed(engine_model: str, base: int = 5000) -> int:
     return base + (zlib.crc32(engine_model.encode()) % 100_000)
 
 
-def generate_engine(engine_model: str, seed: int, n_flights: int, out_dir: str | None = None) -> dict:
+def generate_engine(engine_model: str, seed: int, n_flights: int, out_dir: str | None = None,
+                    start_id: int = 0, missions: list | None = None) -> dict:
     key = engine_model.split("_")[1]
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     base = out_dir or os.path.join(root, "data", "rotax_v5")
@@ -348,11 +395,12 @@ def generate_engine(engine_model: str, seed: int, n_flights: int, out_dir: str |
     counts: dict = {}
     writer = FlightWriter(out)
     t0 = last = time.time()
-    scen = 0
+    scen = start_id
     rows_total = 0
     while len(writer.index) < n_flights:
         scen_id = scen
-        rows, meta = run_scenario(engine_model, scen_id, rng)
+        rows, meta = run_scenario(engine_model, scen_id, rng,
+                                  mission=str(rng.choice(missions)) if missions else None)
         scen += 1
         if len(rows) < MIN_ROWS:
             continue
@@ -380,7 +428,8 @@ def generate_engine(engine_model: str, seed: int, n_flights: int, out_dir: str |
         "engine_model": engine_model, "key": key, "physics_version": "v5",
         "contract": F.contract(), "label_cols": LABEL_COLS,
         "fault_modes": FAULT_NAMES, "faultable_channels": list(FAULTABLE_CHANNELS),
-        "seed": seed, "flights": len(idx), "rows": int(idx.n_rows.sum()), "attempted": scen,
+        "seed": seed, "flights": len(idx), "rows": int(idx.n_rows.sum()), "attempted": scen - start_id,
+        "start_id": start_id, "missions": missions or "all",
         "generated_s": round(time.time() - t0, 1), "tbo_hours": P.ENGINE_SPECS[engine_model].tbo_hours,
         "splits": {s: {"flights": int((idx.split == s).sum()), "rows": int(idx.n_rows[idx.split == s].sum())}
                    for s in ("train", "cal", "val", "test")},
@@ -403,10 +452,19 @@ def main() -> None:
     ap.add_argument("--flights", type=int, default=6000)
     ap.add_argument("--jobs", type=int, default=1, help="engines generated in parallel")
     ap.add_argument("--out-dir", default=None)
+    ap.add_argument("--start-id", type=int, default=0,
+                    help="first scenario id; extra flights use 100000 (own ids, own seed stream)")
+    ap.add_argument("--missions", default="", help="comma list: draw only these missions, e.g. "
+                    + ",".join(STEP_MISSIONS))
     args = ap.parse_args()
 
     engines = list(P.ENGINE_SPECS) if args.all else [args.engine]
-    jobs = [(e, engine_seed(e), args.flights, args.out_dir) for e in engines]
+    missions = [m for m in args.missions.split(",") if m] or None
+    for m in missions or []:
+        if m not in ALL_MISSIONS:
+            ap.error(f"unknown mission {m!r}; known: {', '.join(ALL_MISSIONS)}")
+    jobs = [(e, engine_seed(e) + args.start_id, args.flights, args.out_dir, args.start_id, missions)
+            for e in engines]
     if args.jobs > 1 and len(jobs) > 1:
         import multiprocessing as mp
         with mp.Pool(min(args.jobs, len(jobs))) as pool:
