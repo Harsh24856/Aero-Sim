@@ -38,65 +38,81 @@ Known gap: on the 914, a steady throttle of 0.15 at 6,000 m still alarms after t
 
 For P2, the new mission must contain **throttle steps** (instant moves of 0.4-0.85, either way) and an idle descent from altitude, not only low throttle.
 
-## Phases
+## Remaining work, phase by phase
 
-### P1: stop the false alarm on screen (about 1 h, no retraining)
+Status: P1 is built and in PR #29 (CI pending). Everything below is still to do.
 
-1. **Reproduce offline.** A scripted flight through `ai_service` on all four engines:
-   5 min cruise, then 3 min at throttle 0.15. Record detection, faults and sensor flags.
-   This confirms whether problem 1 happens on every engine or only on the 916.
-2. **Hold alarms outside the trained throttle envelope.** This uses the same mechanism as
-   the existing ground-roll hold (`hold_alerts_outside_envelope`, `main.py:443`). The new rule:
-   when the throttle is below `AI_ENVELOPE_MIN_THROTTLE = 0.25`, hold the alerts until the
-   128 s AI window is clear of those samples. The cockpit already shows "stabilising" with a
-   countdown for this state. Tests: one for throttle 0.15 (held), one for throttle 0.30 (not held).
-3. **Smooth what the cockpit shows.** Add an EMA (about 10 s) on `detection_confidence` and
-   `health_percent`. The raw values stay available as `*_raw`. To keep alarm latency
-   unchanged, `fault_detected` still uses the raw detector. Test: a steady input gives a
-   smooth output, and a step input reaches 90% within 25 s.
-4. **Check.** Run `scripts/e2e_v5.py` (8/8), the backend tests, and the Playwright flight
-   again, including the idle phase.
+### P1b: ship P1 and check it live (about 30 min)
 
-P1 hides problem 1. It does not fix it. P2 fixes the cause.
+1. When CI is green, merge PR #29. Then pull into the main checkout. This follows the memory rule: the live stack runs from the main checkout.
+2. Restart the backend. The AI service does not change.
+3. Fly the same Playwright profile on the 916 as in the first flight:
+   - take-off;
+   - 75% cruise at 1,500 m;
+   - full power at 4,000 m, then at 6,000 m;
+   - throttle 0.15 at 1,000 m;
+   - full throttle again.
+   Expected:
+   - the cockpit shows "settling after a large throttle change" instead of FAULT;
+   - no detection flicker in cruise;
+   - remaining life never rises.
+4. Also fly the 915 once through the same profile.
+5. Make the offline measurement permanent: put the chop-sweep and replay scripts into
+   `scripts/transient_v5.py`. They are now in the scratchpad. The script prints, for each
+   engine and each throttle step, the maximum detection and how many seconds detection is
+   at or above 0.5. P2 and P3 use it as their gate.
 
-### P2: teach the models low power (about 4-5 h, mostly machine time)
+Done when: the live flight shows no false FAULT, and `transient_v5.py` is committed with a baseline.
 
-1. **Add a mission** `idle_descent` to the generator: throttle targets 0.10-0.20 at
-   35-45 m/s, a descent from 2,500 m to 500 m, with throttle steps up to 0.6 and back.
-   Increase `rapid_throttle` so that some steps go down to 0.15. Lower the training throttle
-   clip from 0.08 only if the physics idles cleanly there (check with the existing
-   `test_ground_idle_near_1400_rpm`).
-2. **Generate extra flights only.** Generate about 15% more flights per engine with the
-   new missions, using the same stratified split and the same scaler (the scaler is taken
-   from the train flights; rebuild the cache with the old scaler, do not refit it).
-   Generation takes about 3 h for the four engines, on the CPU.
-3. **Fine-tune.** Use the existing `specialists_v5.py <e>b --finetune detect,diag` on
-   old + new data. The validation rule keeps the old weights unless validation improves.
-4. **Accept per engine.** The engine passes when `ab_v5.py` against live wins or ties,
-   the new idle replay test passes (detection < 0.5 on a healthy engine at throttle 0.15),
-   and no test-card gate goes from PASS to FAIL.
-5. **Ship.** Export, parity check, e2e, then PR. When P2 ships, the P1 throttle hold can
-   be lowered to the new training floor.
+### P2: teach the models throttle steps and idle descents (about 1.5 h of work, 3-4 h of machine time)
 
-### P3: physics realism (separate round, needs a full regeneration)
+1. **Generator** (`generate_dataset_v5.py`). Add two arguments:
+   - `--start-id N`: today's 6,000 flights are not touched. New flights are numbered from 6,000, with their own RNG streams.
+   - `--missions a,b`: new flights draw only from the named missions.
 
-Problems 3-6 change the physics that all four engines' training data comes from. Fixing
-them means a full regeneration and a full retrain of all four engines (about 2 days of
-machine time, as in the v4 overhaul). Proposed fixes:
+   Two new missions (they are metadata only, so the model inputs and the scaler do not change):
+   - `throttle_steps`: at 1,500-3,500 m, the throttle moves instantly by 0.4-0.85, in either direction, every 60-180 s. This is the measured cause.
+   - `idle_descent`: from 4,000-6,500 m down to 500 m at throttle 0.10-0.20, then full throttle again. This covers the remaining 914 gap at 6,000 m.
 
-- **Lambda schedule (problem 4):** on EFI engines (912 iS, 915 iS, 916 iS), lambda 1.0 up to
-  about 85% power, then rich to 0.88 at full power. Carburetted engines keep today's model.
-- **RPM limit (problems 3 and 6):** model the 914, 915 and 916 with a constant-speed
-  propeller (a governor holds the commanded rpm, 5,800 at maximum). Or, as a smaller
-  change, keep the fixed-pitch propeller, size it for sea level, and add an rpm limit.
-- **Coolant thermostat (problem 5):** a coolant thermostat that starts to open at 80 °C.
-  The hot-day certification test must still pass.
+   Both missions bypass the throttle lag (0.12 per second) at the step instants.
 
-Recommendation: do not start P3 until the user decides. It makes all current models
-obsolete. Batch it with the next planned full retrain.
+   Tests:
+   - the first 6,000 flights are byte-identical to today's (check a hash of one file);
+   - a `throttle_steps` flight contains a throttle move of 0.4 or more within 2 s.
+2. **Generate** 900 flights per engine (15%), all four engines in parallel with `--jobs 4`. The 916 rate was 6,000 flights in 5.2 h, so this takes about 50-60 min if the CPU keeps up.
+3. **Cache**. `pipeline_v5.py` gets a new argument, `--scaler-from <old contract>`, so the new cache keeps the live scaler. The deployed contract must not change. Test: rebuilding with `--scaler-from` gives a cache whose scaler is the old one.
+4. **Fine-tune**: `specialists_v5.py <e>b --finetune detect,sensor,diag`, 12 epochs, keeping the current weights unless validation improves. Order: the 916 first, then the 915, 914 and 912 (the user's rule is 914 first through every new phase; ask whether it still applies to a fine-tune). About 30 min per engine.
+5. **Acceptance per engine**:
+   - `ab_v5.py` against live: win or tie.
+   - `transient_v5.py`: detection at or above 0.5 for 5 s or less after each step (today the 916 measures 15-80 s).
+   - No test-card gate flips from PASS to FAIL.
+   - e2e: no new failures.
+6. **Ship**: export, parity, PR, merge, restart. Then lower `THROTTLE_HOLD_S` to what `transient_v5.py` shows each engine needs. If every engine passes, remove the hold.
 
-## Order and recommendation
+Done when: the four engines are accepted or kept, and the hold is shortened or removed.
 
-P1 now (small, safe, visible on every descent). Then P2 overnight. P3 only as its own
-decision. Each phase ends with the Playwright flight again, so we check against the same
-real-world baseline.
+### P3: physics realism (separate decision, about 2 days of machine time)
+
+All three fixes change the training data of all four engines, so they need a full regeneration and retrain. Each fix gets its own test in `test_physics_v5.py` first.
+- **Mixture** (problem 4): on EFI engines, lambda is 1.0 up to about 85% power, then enriches to 0.88 at full power. Test: lambda in 75% cruise is between 0.97 and 1.03.
+- **RPM** (problems 3 and 6): a constant-speed propeller governor on the 914, 915 and 916 (rpm held at the commanded value, 5,800 at most). Test: full throttle from 0 m to 6,000 m stays at 5,800 rpm or below, and take-off rpm is at least 5,500.
+- **Coolant thermostat** (problem 5): starts to open at 80 °C. Test: cruise coolant is between 80 and 95 °C, and the hot-day certification test still passes.
+
+Then:
+- regenerate all four engines (`--all --jobs 4`, about 5-6 h);
+- retrain everything with `run_v5` (914 first);
+- run the full test card, A/B and e2e;
+- re-fly with Playwright.
+
+The P2 missions carry over. Batch P3 with the next planned full retrain.
+
+### P4: known model backlog (optional, can run alongside P2)
+
+- **Oil-fault labels**: 58-100% of missed oil faults are labelled as present before any instrument sees them. Fine-tune on the per-instrument relabel (`relabel_v5b.py`, which already exists). Gate: A/B against live.
+- **915 RUL trend**: switch the trend per fault instead of per family. This fixes the e2e `turbo_high` failure (RUL below calendar on only 19%).
+
+Keep P4 in separate runs from P2, so each A/B result has one cause.
+
+## Order
+
+P1b now, then P2 (overnight), P4 when convenient, and P3 only as a separate decision. Every phase ends with `transient_v5.py` and a Playwright flight against the same baseline.
