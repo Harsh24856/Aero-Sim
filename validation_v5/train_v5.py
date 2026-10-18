@@ -257,7 +257,8 @@ class Trainer:
             best, best_w = self.score(*self.predict(val_ids)[:2])["select"], self.model.get_weights()
         for ep in range(epochs):
             t0 = time.time()
-            ids = self.cache.end_ids(["train"], seed=self.cfg["seed"], epoch=epoch0 + ep)
+            ids = self.cache.end_ids(["train"], seed=self.cfg["seed"], epoch=epoch0 + ep,
+                                     extra_weight=self.cfg.get("extra_weight", 1))
             if max_train_windows:
                 ids = ids[:max_train_windows]
             tot = np.zeros(len(HEADS))

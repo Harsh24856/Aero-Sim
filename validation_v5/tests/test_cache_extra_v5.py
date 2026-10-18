@@ -61,6 +61,21 @@ class TestExtraCache(unittest.TestCase):
         self.assertEqual(self.b.contract["source"], os.path.abspath(self.base))
         self.assertEqual(self.b.contract["extra_sources"], [os.path.abspath(self.steps)])
 
+    def test_extra_weight_repeats_only_the_extra_flights_training_windows(self):
+        # 6.6% of the 916's training windows held a step: too rare to move a fine-tune.
+        splits = ["train", "cal", "val", "test"]
+        extra = set(self.b.flights.flight[self.b.flights.scenario_id >= 100000])
+        def count(ids):
+            fl = self.b.ends[ids, 0].astype(int)
+            return sum(f in extra for f in fl), sum(f not in extra for f in fl)
+        n1 = count(self.b.end_ids(splits, seed=1))
+        n2 = count(self.b.end_ids(splits, seed=1, extra_weight=2))
+        # each random offset gives a flight +-1 window, so compare ratios, not counts
+        self.assertAlmostEqual(n2[0] / n1[0], 2.0, delta=0.05)
+        self.assertAlmostEqual(n2[1] / n1[1], 1.0, delta=0.05)
+        self.assertEqual(len(self.b.end_ids(splits, jitter=False, extra_weight=2)),
+                         len(self.b.end_ids(splits, jitter=False)))    # evaluation grid untouched
+
     def test_relabel_reads_every_source_and_keeps_the_live_thresholds(self):
         # The live 916 runs on v5b labels; the extra cache must be relabelled with the
         # SAME per-channel sensor thresholds, or the old flights' labels shift too.

@@ -301,13 +301,13 @@ def training_summary(art: str) -> str:
 
 
 def finetune_head(cache: Cache, art: str, head: str, fault_weight: dict, epochs: int = 12,
-                  patience: int = 3, max_windows: int = 20000, verbose: int = 1) -> dict:
+                  patience: int = 3, max_windows: int = 20000, verbose: int = 1, extra_weight: int = 1) -> dict:
     """Continue training a trained head instead of starting over: all layers at
     min(1e-4, lr/5) with a warm-up (train_protocol's last stage), `fault_weight` on the
     diagnosis loss. The loaded weights are the version to beat on validation
     (fit keep_current); the head is saved only if they were beaten."""
     out = os.path.join(art, head)
-    tr = Trainer.load(cache, out, overrides={"fault_weight": fault_weight})
+    tr = Trainer.load(cache, out, overrides={"fault_weight": fault_weight, "extra_weight": extra_weight})
     before = float(tr.score(*tr.predict(cache.end_ids(["val"], jitter=False))[:2])["select"])
     bs = tr.cfg["batch"]
     steps = max(1, (max_windows or len(cache.end_ids(["train"], jitter=False))) // bs)
@@ -318,6 +318,7 @@ def finetune_head(cache: Cache, art: str, head: str, fault_weight: dict, epochs:
     if kept:
         tr.save(out)
     rec = {"before": before, "after": after, "kept": bool(kept), "fault_weight": fault_weight,
+           "extra_weight": extra_weight,
            "epochs_run": len(res["history"])}
     run_v5.dump(rec, os.path.join(out, "finetune.json"))
     return rec
@@ -342,6 +343,8 @@ def main() -> None:
     ap.add_argument("--finetune", default="", help="comma list of trained heads to fine-tune (not retrain)")
     ap.add_argument("--fault-weight", default="", help="diagnosis loss weights, e.g. air_filter_fouling=2.0")
     ap.add_argument("--ft-epochs", type=int, default=12, help="epochs per fine-tune (training uses --epochs)")
+    ap.add_argument("--extra-weight", type=int, default=1,
+                    help="fine-tune: training windows per P2 extra flight (scenario id >= 100000)")
     ap.add_argument("--verbose", type=int, default=1, choices=(0, 1, 2),
                     help="0 silent, 1 a line per epoch, 2 also training loss, best marker, quarter-epoch progress")
     a = ap.parse_args()
@@ -372,7 +375,8 @@ def main() -> None:
         t0 = time.time()
         fw = parse_weights(a.fault_weight) if h == "diagnosis" else {}
         say(f"{h:9s} fine-tune  {a.ft_epochs} epochs, fault weights {fw or 'none'}")
-        rec = finetune_head(cache, p["art"], h, fw, epochs=a.ft_epochs, max_windows=a.max_windows, verbose=a.verbose)
+        rec = finetune_head(cache, p["art"], h, fw, epochs=a.ft_epochs, max_windows=a.max_windows, verbose=a.verbose,
+                            extra_weight=a.extra_weight)
         say(f"{h:9s} fine-tune done in {(time.time() - t0) / 60:.1f} min: {rec['before']:.4f} -> {rec['after']:.4f}, "
             + ("kept" if rec["kept"] else "not better - loaded weights stay"))
         stale = stale or rec["kept"]

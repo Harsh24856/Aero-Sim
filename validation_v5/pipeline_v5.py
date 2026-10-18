@@ -193,6 +193,9 @@ def _context(g: pd.DataFrame, tbo: float) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
+EXTRA_ID0 = 100000          # generate_dataset_v5 --start-id for the P2 extra flights
+
+
 class Cache:
     """Read side: windows for training and evaluation."""
 
@@ -206,16 +209,20 @@ class Cache:
         self.col = {c: i for i, c in enumerate(END_COLS)}
         self.ctx_slice = slice(2, 2 + len(CTX_COLS))
 
-    def end_ids(self, splits, seed: int = 0, epoch: int = 0, jitter: bool = True) -> np.ndarray:
+    def end_ids(self, splits, seed: int = 0, epoch: int = 0, jitter: bool = True,
+                extra_weight: int = 1) -> np.ndarray:
         """One window end per STRIDE seconds of every flight in `splits`, at a
         random (seeded) multiple-of-16 offset, shuffled. jitter=False gives the
-        fixed evaluation grid."""
+        fixed evaluation grid. extra_weight > 1 (training only) draws that many
+        offsets for each P2 extra flight (scenario id >= EXTRA_ID0)."""
         rng = np.random.default_rng((seed, epoch))
         per = STRIDE // END_STEP
         out = []
         for _, f in self.flights[self.flights.split.isin(list(splits))].iterrows():
-            off = int(rng.integers(0, per)) if jitter else per - 1
-            out.append(np.arange(f.end0 + off, f.end0 + f.n_ends, per))
+            reps = extra_weight if jitter and f.scenario_id >= EXTRA_ID0 else 1
+            for _ in range(reps):
+                off = int(rng.integers(0, per)) if jitter else per - 1
+                out.append(np.arange(f.end0 + off, f.end0 + f.n_ends, per))
         ids = np.concatenate(out) if out else np.zeros(0, int)
         if jitter:
             rng.shuffle(ids)
