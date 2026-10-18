@@ -1,0 +1,9 @@
+{
+ "before": 1.3038739957397132,
+ "after": 1.3053572366811466,
+ "kept": true,
+ "fault_weight": {
+  "air_filter_fouling": 2.0
+ },
+ "epochs_run": 4
+}
