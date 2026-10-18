@@ -39,8 +39,8 @@ PRIMARY = {"detection": "recall_at_p95", "diagnosis": "macro_f1", "severity": "m
 
 
 def engine_key(run_key: str) -> str:
-    """914b -> 914: the run tag carries the label version, the export does not."""
-    return run_key.rstrip("b")
+    """The engine folder a run exports to: its leading digits (916b, 916sb -> 916)."""
+    return run_key[:len(run_key) - len(run_key.lstrip("0123456789"))]
 
 
 def export(run_key: str, out_root: str | None = None) -> str:

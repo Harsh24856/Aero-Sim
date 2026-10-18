@@ -96,5 +96,13 @@ class TestExtraCache(unittest.TestCase):
             shutil.rmtree(run_v5.paths(key + "_b")["cache"], ignore_errors=True)
 
 
+
+class TestExportKey(unittest.TestCase):
+    def test_extra_flight_runs_export_to_the_engine_folder(self):
+        from export_v5 import engine_key
+        for run, key in (("916", "916"), ("916b", "916"), ("916sb", "916"), ("914s", "914")):
+            self.assertEqual(engine_key(run), key, run)
+
+
 if __name__ == "__main__":
     unittest.main()
