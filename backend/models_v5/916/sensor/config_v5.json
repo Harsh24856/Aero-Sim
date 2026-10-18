@@ -15,5 +15,7 @@
  ],
  "select": {
   "sensor_macro_f1": 1.0
- }
+ },
+ "fault_weight": {},
+ "extra_weight": 2
 }

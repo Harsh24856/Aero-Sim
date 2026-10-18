@@ -633,9 +633,13 @@
  ],
  "end_step": 16,
  "stride": 64,
- "rows": 19478898,
- "ends": 1172597,
+ "rows": 22430978,
+ "ends": 1350375,
  "source": "/Users/harsh/Documents/UAV_Engine/.claude/worktrees/project-testing-skills-plan-691644/data/rotax_v5/916",
+ "extra_sources": [
+  "/Users/harsh/Documents/UAV_Engine/.claude/worktrees/project-testing-skills-plan-691644/data/rotax_v5_steps/916"
+ ],
+ "scaler_from": "/Users/harsh/Documents/UAV_Engine/.claude/worktrees/project-testing-skills-plan-691644/validation_v5/cache/916b/contract_v5.json",
  "labels": "v5b",
  "relabel": {
   "z_fault": 1.0,
