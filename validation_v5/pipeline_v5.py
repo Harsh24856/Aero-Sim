@@ -66,16 +66,28 @@ def _read_flights(src: str):
             yield r, pf.read_row_group(int(r.row_group)).to_pandas()
 
 
-def build_cache(src: str, dst: str) -> dict:
+def build_cache(src: str | list, dst: str, scaler_from: str | None = None) -> dict:
     """Build the window cache for one engine. Two passes: statistics on train
-    flights, then the scaled arrays."""
+    flights, then the scaled arrays.
+
+    src may be a list of dataset directories (one engine): their flights are appended
+    in order, so the first directory's part of the cache is identical to a cache of it
+    alone. scaler_from: a contract_v5.json whose scalers are reused instead of fitted -
+    the P2 extra flights are fine-tuned on the scaling the live models were trained on."""
     t0 = time.time()
     os.makedirs(dst, exist_ok=True)
-    with open(os.path.join(src, "manifest.json")) as fh:
-        man = json.load(fh)
+    srcs = [src] if isinstance(src, str) else list(src)
+    mans = [json.load(open(os.path.join(s, "manifest.json"))) for s in srcs]
+    if len({m["engine_model"] for m in mans}) != 1:
+        raise ValueError(f"one engine per cache: {[m['engine_model'] for m in mans]}")
+    man = mans[0]
     tbo = man["tbo_hours"]
-    idx = pd.read_parquet(os.path.join(src, "index.parquet"))
+    idx = pd.concat([pd.read_parquet(os.path.join(s, "index.parquet")) for s in srcs])
     n_rows = int(idx.n_rows.sum())
+
+    def flights_in_order():
+        for s in srcs:
+            yield from _read_flights(s)
 
     # -- pass 1: scaler (train flights), counts ------------------------------
     s1 = np.zeros(F.N_FEATURES)
@@ -85,7 +97,7 @@ def build_cache(src: str, dst: str) -> dict:
     c2 = np.zeros(len(CTX_COLS))
     cn = 0
     n_ends = 0
-    for r, g in _read_flights(src):
+    for r, g in ([] if scaler_from else flights_in_order()):
         A = g[F.FEATURE_COLS].to_numpy(np.float64, copy=True)
         A[:, RES_SLICE] /= RES_SIGMA
         ends = np.arange(WINDOW - 1, len(g), END_STEP)
@@ -99,12 +111,19 @@ def build_cache(src: str, dst: str) -> dict:
         c1 += C.sum(0)
         c2 += (C * C).sum(0)
         cn += len(C)
-    mean = s1 / n
-    std = np.sqrt(np.maximum(s2 / n - mean ** 2, 1e-12))
-    std[std < 1e-6] = 1.0                       # constant features (e.g. 912 turbo channels)
-    cmean = c1 / cn
-    cstd = np.sqrt(np.maximum(c2 / cn - cmean ** 2, 1e-12))
-    cstd[cstd < 1e-9] = 1.0
+    if scaler_from:
+        with open(scaler_from) as fh:
+            live = json.load(fh)
+        mean, std = np.array(live["scaler"]["mean"]), np.array(live["scaler"]["std"])
+        cmean, cstd = np.array(live["ctx_scaler"]["mean"]), np.array(live["ctx_scaler"]["std"])
+        n_ends = int(sum(len(range(WINDOW - 1, k, END_STEP)) for k in idx.n_rows))
+    else:
+        mean = s1 / n
+        std = np.sqrt(np.maximum(s2 / n - mean ** 2, 1e-12))
+        std[std < 1e-6] = 1.0                   # constant features (e.g. 912 turbo channels)
+        cmean = c1 / cn
+        cstd = np.sqrt(np.maximum(c2 / cn - cmean ** 2, 1e-12))
+        cstd[cstd < 1e-9] = 1.0
 
     # -- pass 2: arrays ---------------------------------------------------------
     X = np.lib.format.open_memmap(os.path.join(dst, "X.npy"), mode="w+", dtype=np.float16,
@@ -115,7 +134,7 @@ def build_cache(src: str, dst: str) -> dict:
     row = 0
     e = 0
     has_hist = has_log = None
-    for fi, (r, g) in enumerate(_read_flights(src)):
+    for fi, (r, g) in enumerate(flights_in_order()):
         g = g.sort_values("t")
         if has_hist is None:
             has_hist = all(c in g.columns for c in F.HIST_COLS)
@@ -154,7 +173,11 @@ def build_cache(src: str, dst: str) -> dict:
                             "residual_sigma": RES_SIGMA.tolist(), "residuals_divided_by_sigma_first": True},
                     ctx_cols=CTX_COLS, ctx_scaler={"mean": cmean.tolist(), "std": cstd.tolist()},
                     label_cols=LABEL_COLS, end_cols=END_COLS, end_step=END_STEP, stride=STRIDE,
-                    rows=n_rows, ends=n_ends, source=os.path.abspath(src))
+                    rows=n_rows, ends=n_ends, source=os.path.abspath(srcs[0]))
+    if len(srcs) > 1:
+        contract["extra_sources"] = [os.path.abspath(s) for s in srcs[1:]]
+    if scaler_from:
+        contract["scaler_from"] = os.path.abspath(scaler_from)
     with open(os.path.join(dst, "contract_v5.json"), "w") as fh:
         json.dump(contract, fh, indent=1)
     return {"rows": n_rows, "ends": n_ends, "flights": len(flights), "seconds": round(time.time() - t0, 1)}
@@ -219,5 +242,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Build the v5 window cache for one engine.")
     ap.add_argument("src", help="data/rotax_v5/<key>")
     ap.add_argument("dst", help="cache directory")
+    ap.add_argument("--extra", nargs="*", default=[], help="more dataset dirs of the same engine, appended")
+    ap.add_argument("--scaler-from", default=None, help="contract_v5.json whose scalers to reuse")
     a = ap.parse_args()
-    print(build_cache(a.src, a.dst))
+    print(build_cache([a.src] + a.extra, a.dst, scaler_from=a.scaler_from))
