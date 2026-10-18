@@ -33,6 +33,14 @@
    "gain_vs_calendar": 0.6313877106205035,
    "within_flight_rises_gt_2pct": 0
   },
+  "gated_gbt+trend0.5+fam": {
+   "wear_limited_mae_pct": 9.653070738850014,
+   "tbo_limited_mae_pct": 3.0977112168634418,
+   "calendar_wear_limited_mae_pct": 26.904886340950604,
+   "all_mae_pct": 5.29176618985371,
+   "gain_vs_calendar": 0.6412149593749612,
+   "within_flight_rises_gt_2pct": 0
+  },
   "gated_gbt+trend1": {
    "wear_limited_mae_pct": 10.260161626267237,
    "tbo_limited_mae_pct": 3.19697824217256,
@@ -40,7 +48,15 @@
    "all_mae_pct": 5.561000013524447,
    "gain_vs_calendar": 0.6186506236731151,
    "within_flight_rises_gt_2pct": 0
+  },
+  "gated_gbt+trend1+fam": {
+   "wear_limited_mae_pct": 9.623332666965284,
+   "tbo_limited_mae_pct": 3.0977112168634418,
+   "calendar_wear_limited_mae_pct": 26.904886340950604,
+   "all_mae_pct": 5.281812965429176,
+   "gain_vs_calendar": 0.642320263129375,
+   "within_flight_rises_gt_2pct": 0
   }
  },
- "chosen": "gated_gbt"
+ "chosen": "gated_gbt+trend1+fam"
 }

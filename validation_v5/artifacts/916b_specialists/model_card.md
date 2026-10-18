@@ -9,7 +9,7 @@
 | Severity: error on real faults | 0.077 (0.065-0.091); baseline 0.169 | FAIL | abs:bias_on_fault = 0.04524 fails <= 0.03 (CI None, None) |
 | Sensor fault: macro F1 | 0.892 (0.878-0.905); baseline 0.433 | PASS | - |
 | Health: error | 0.027 (0.025-0.029); baseline 0.114 | PASS | - |
-| RUL: error on wear-limited engines, % of TBO | 11.1% (9.7-12.6%); baseline 28.6% | PASS | - |
+| RUL: error on wear-limited engines, % of TBO | 11.1% (9.6-12.6%); baseline 28.6% | PASS | - |
 
 ## Diagnosis by fault
 
@@ -46,7 +46,7 @@ Labels here are v5b (relabel_v5b.py); the joint model was scored on the v5 label
 | Severity: error on real faults | 0.077 | - | 0.169 | - |
 | Sensor fault: macro F1 | 0.892 | - | 0.433 | - |
 | Health: error | 0.027 | - | 0.114 | - |
-| RUL: error on wear-limited engines, % of TBO | 11.138 | - | 28.627 | - |
+| RUL: error on wear-limited engines, % of TBO | 11.089 | - | 28.627 | - |
 
 ## Training, per specialist (validation flights)
 

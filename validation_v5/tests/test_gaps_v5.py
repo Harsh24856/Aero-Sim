@@ -41,5 +41,23 @@ class TestConfusionShare(unittest.TestCase):
         self.assertAlmostEqual(gaps_v5.confusion_share(y, pred, 0, 1), 2 / 3)
 
 
+
+class TestMissVisibility(unittest.TestCase):
+    def test_miss_visibility_counts_invisible_misses(self):
+        y_old = np.array([1, 1, 1, 0])
+        pred = np.array([0, 0, 1, 0])
+        y_new = np.array([0, 1, 1, 0])
+        self.assertEqual(gaps_v5.miss_visibility(y_old, pred, y_new),
+                         {"misses": 2, "invisible": 1, "share_invisible": 0.5})
+
+    def test_miss_visibility_without_misses_is_zero(self):
+        y = np.array([1, 0])
+        self.assertEqual(gaps_v5.miss_visibility(y, y, y)["share_invisible"], 0.0)
+
+    def test_check_same_windows_rejects_different_ends(self):
+        with self.assertRaises(SystemExit):
+            gaps_v5.check_same_windows(np.array([1, 2, 3]), np.array([1, 2, 4]))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -43,6 +43,10 @@ import evaluate as E  # noqa: E402
 import features_v5 as F  # noqa: E402
 import physics_v5 as P  # noqa: E402
 from pipeline_v5 import CTX_COLS  # noqa: E402
+from degradation_v5 import FAULT_NAMES  # noqa: E402
+from observability_v5 import FAMILIES  # noqa: E402  (o["family"] order: model_architectures_v5.FAMILY_NAMES)
+
+N_FAMILIES = len(FAMILIES)
 
 MARGIN_CH = ["cht", "egt", "oil_temp", "oil_pressure", "engine_rpm"]
 
@@ -213,8 +217,11 @@ def fit_rul(trainer, out_dir: str | None = None, cal_ids: np.ndarray | None = No
               key=lambda t: score(report(GatedRUL(cands["gbt"], clf, t).predict(Xv, pwl))))
     cands["gated_gbt"] = GatedRUL(cands["gbt"], clf, float(thr))
     if cache.contract.get("log_cols"):              # W2: the measured trend where fault-limited
+        fc = family_cols(len(FAULT_NAMES), N_FAMILIES)
         for w in (0.5, 1.0):
             cands[f"gated_gbt+trend{w:g}"] = TrendGatedRUL(cands["gated_gbt"], w)
+            fams = helpful_families(Xv, yv, wlv, cands["gated_gbt"], cands[f"gated_gbt+trend{w:g}"], fc)
+            cands[f"gated_gbt+trend{w:g}+fam"] = TrendGatedRUL(cands["gated_gbt"], w, families=fams, fam_cols=fc)
     for name, m in cands.items():
         res[name] = report(m.predict(Xv))
     res["gated_gbt"]["threshold"] = float(thr)
@@ -241,6 +248,28 @@ class GatedRUL:
         return np.where(p >= self.threshold, self.reg.predict(X), 1e3)
 
 
+def family_cols(n_faults: int, n_families: int) -> slice:
+    """Where rul_inputs puts o["family"]: after health (1), severity (n_faults) and
+    engine_fault (1)."""
+    return slice(n_faults + 2, n_faults + 2 + n_families)
+
+
+def helpful_families(X: np.ndarray, y: np.ndarray, wl: np.ndarray, base, trended, fam_cols: slice,
+                     min_windows: int = 30) -> tuple:
+    """Families whose wear-limited windows (argmax family, probability >= 0.5, at
+    least `min_windows` of them) get a lower mean absolute error from `trended` than
+    from `base`."""
+    fam = X[:, fam_cols]
+    top, conf = fam.argmax(1), fam.max(1) >= 0.5
+    pb, pt = base.predict(X), trended.predict(X)
+    keep = []
+    for f in range(fam.shape[1]):
+        m = wl & conf & (top == f)
+        if m.sum() >= min_windows and np.abs(pt[m] - y[m]).mean() < np.abs(pb[m] - y[m]).mean():
+            keep.append(f)
+    return tuple(keep)
+
+
 class TrendGatedRUL:
     """W2: `gated`'s RUL, except where its own classifier judges the engine fault-limited
     AND the logbook measured the fault's growth (logbook_trend < TREND_CAP, rul_inputs'
@@ -249,8 +278,12 @@ class TrendGatedRUL:
     on the fleet the trend is noisier (unknown fault depth) and the trees ignored it.
     Kept only if it wins on validation (fit_rul)."""
 
-    def __init__(self, gated, weight: float):
-        self.gated, self.weight = gated, weight
+    def __init__(self, gated, weight: float, families: tuple | None = None, fam_cols: slice | None = None):
+        """families: the fault-family indices (o["family"] order) the trend may answer
+        for, judged on validation (fit_rul); None = every family, as before. Turbo
+        degradation shows only above critical altitude, so inspections under-see its
+        growth and its trend read ~340 h on a 150 h fault (915 turbo_high)."""
+        self.gated, self.weight, self.families, self.fam_cols = gated, weight, families, fam_cols
 
     def predict(self, X):
         X = np.asarray(X)
@@ -258,6 +291,10 @@ class TrendGatedRUL:
         base = self.gated.predict(X, p)
         trend = X[:, -3]
         use = (p >= self.gated.threshold) & (trend < TREND_CAP)
+        families = getattr(self, "families", None)          # objects pickled before families: None
+        if families is not None:
+            fam = X[:, self.fam_cols]
+            use &= np.isin(fam.argmax(1), list(families)) & (fam.max(1) >= 0.5)
         return np.where(use, self.weight * trend + (1.0 - self.weight) * base, base)
 
 

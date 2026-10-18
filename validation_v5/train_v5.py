@@ -93,6 +93,16 @@ def class_balanced_weights(counts: np.ndarray, beta: float = 0.999) -> np.ndarra
     return (w / w.sum() * len(counts)).astype(np.float32)
 
 
+def fault_weights(names: list[str], weights: dict, applicable: list[str]) -> np.ndarray:
+    """Per-fault weight on the diagnosis loss: 0 for faults this engine cannot have,
+    1 otherwise, `weights[name]` where given. A weight for a fault the engine lacks is
+    an error, not a silent no-op."""
+    bad = sorted(set(weights) - set(applicable))
+    if bad:
+        raise ValueError(f"fault_weight names faults this engine does not have: {bad}")
+    return np.array([float(weights.get(n, 1.0)) if n in applicable else 0.0 for n in names], np.float32)
+
+
 # ---------------------------------------------------------------------------
 class Trainer:
     def __init__(self, cache: Cache, cfg: dict):
@@ -102,6 +112,8 @@ class Trainer:
         app = set(applicable_faults(spec.turbocharged, spec.intercooled))
         self.fault_mask = tf.constant([[1.0 if n in app else 0.0 for n in FAULT_NAMES]])
         self.applicable = [n for n in FAULT_NAMES if n in app]
+        # diagnosis loss only: fault_mask also masks severity, which keeps equal weights
+        self.fault_w = tf.constant([fault_weights(FAULT_NAMES, cfg.get("fault_weight", {}), self.applicable)])
         self.model = M.build_model(channels=cfg["channels"], num_layers=cfg["layers"],
                                    dropout=cfg["dropout"], input_dropout=cfg["input_dropout"],
                                    head_hidden=cfg["head_hidden"],
@@ -120,7 +132,7 @@ class Trainer:
     def losses(self, out, y):
         bce = tf.keras.losses.binary_crossentropy
         l_det = tf.reduce_mean(bce(y["detection"], out["detection"]))
-        per = tf.keras.backend.binary_crossentropy(y["diagnosis"], out["diagnosis"]) * self.fault_mask
+        per = tf.keras.backend.binary_crossentropy(y["diagnosis"], out["diagnosis"]) * self.fault_w
         l_diag = tf.reduce_sum(per) / (tf.reduce_sum(self.fault_mask) * tf.cast(tf.shape(per)[0], tf.float32))
         l_fam = tf.reduce_mean(bce(y["family"], out["family"]))
         t, p = y["severity"], out["severity"]
@@ -321,10 +333,11 @@ class Trainer:
             json.dump(self.cfg, fh, indent=1)
 
     @classmethod
-    def load(cls, cache: Cache, out_dir: str) -> "Trainer":
+    def load(cls, cache: Cache, out_dir: str, overrides: dict | None = None) -> "Trainer":
+        """overrides: merged into the saved config before building (fine-tuning)."""
         with open(os.path.join(out_dir, "config_v5.json")) as fh:
             cfg = json.load(fh)
-        tr = cls(cache, cfg)
+        tr = cls(cache, {**cfg, **(overrides or {})})
         tr.model.load_weights(os.path.join(out_dir, "model_v5.weights.h5"))
         return tr
 

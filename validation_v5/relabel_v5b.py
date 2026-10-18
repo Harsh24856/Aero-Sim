@@ -120,9 +120,11 @@ def relabel_flight(g, ends_local: np.ndarray, faults: list, sensor_faults: list,
 
 
 def build(key: str, z_fault: float, z_sensor: float, per_channel_faults: bool = False,
-          z_effect_floor: float = 1.0) -> dict:
+          z_effect_floor: float = 1.0, out_key: str | None = None) -> dict:
+    """out_key: write cache/<out_key> instead of cache/<key>b - a relabel to compare
+    against (gaps_v5 --vs) that leaves the training cache untouched."""
     p = run_v5.paths(key)
-    dst = p["cache"] + "b"
+    dst = os.path.join(os.path.dirname(p["cache"]), out_key) if out_key else p["cache"] + "b"
     os.makedirs(dst, exist_ok=True)
     src = Cache(p["cache"])
     for f in ("flights.parquet",):
@@ -179,7 +181,9 @@ if __name__ == "__main__":
                          "generated with the eff_<channel> columns; older data falls back to effect_z)")
     ap.add_argument("--z-effect-floor", type=float, default=1.0,
                     help="lowest per-channel engine-fault bar with --per-channel-faults (sigma)")
+    ap.add_argument("--out", default=None,
+                    help="write cache/<OUT> instead of cache/<engine>b (the training cache stays as it is)")
     ap.add_argument("--z-sensor", type=float, default=3.0,
                     help="floor for the per-channel sensor bias/drift threshold (sigma)")
     a = ap.parse_args()
-    print(build(a.engine, a.z_fault, a.z_sensor, a.per_channel_faults, a.z_effect_floor))
+    print(build(a.engine, a.z_fault, a.z_sensor, a.per_channel_faults, a.z_effect_floor, a.out))
