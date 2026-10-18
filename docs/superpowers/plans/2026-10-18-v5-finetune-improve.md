@@ -284,3 +284,19 @@ For each engine with a changed artifact, run in order:
 Test split; F1 from each engine's card. Task 7 (relabel) is not taken. Across engines, 58-100% of oil misses
 are windows the per-instrument rule calls invisible: oil faults are labelled present before any instrument
 shows them. That points to a per-instrument relabel for the oil faults on every engine, in a later round.
+
+## Outcome (2026-10-18)
+
+**Shipped: the 916's RUL with the per-family trend.** In `ab_v5` against live, mean RUL error fell from 98 h to 75 h (cooling_hot_day 411 to 78 h, x_cooling_degradation 218 to 17 h). Naming, false alarms and flights passing were all equal. The other three engines are unchanged.
+
+| Engine | RUL per-family trend | Diagnosis fine-tune | Shipped |
+|---|---|---|---|
+| 916 | A/B: RUL 98 to 75 h, nothing worse | Air filter ×2: validation select 1.3039 to 1.3054 (kept), but test air-filter recall stayed at 0.33, and combined with RUL it lowered naming from 94.1% to 93.2% (valve leakage 100% to 81%) | the RUL change only |
+| 915 | A/B: 52 to 53 h; turbo_high unchanged (validation still allows the induction family, which holds turbo and air filter) | Air filter ×2, oil ×1.5: no gain (select 1.3491 both) | nothing |
+| 912 | Validation kept today's model | Not run: its weak oil fault's misses are invisible | nothing |
+| 914 | Validation kept today's model | Not run: same reason | nothing |
+
+**What the round showed**
+- Fine-tuning works and is cheap: 7-10 minutes per head, and it can never make validation worse. Loss weights alone do not lift a fault whose test misses are mostly invisible or flight-specific.
+- Across engines, 58-100% of oil misses are labelled present before any instrument shows them. The next real lever is a per-instrument relabel (`relabel_v5b.py --per-channel-faults`) followed by fine-tuning on it, since both tools now exist.
+- The 915's turbo RUL needs the trend gated per fault, not per family, because the turbo and air-filter faults share the induction family.
