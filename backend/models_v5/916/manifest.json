@@ -4,9 +4,9 @@
  "model_version": "v5",
  "labels": "v5b",
  "run": "916b",
- "git_sha": "48055e4",
+ "git_sha": "5046de7",
  "git_dirty": false,
- "exported": "2026-10-17T12:18:58",
+ "exported": "2026-10-18T11:45:09",
  "tbo_hours": 2000.0,
  "window": 128,
  "feature_cols": [
@@ -128,7 +128,7 @@
    "severity": 0.07744622975587845,
    "sensor_fault": 0.8922037984329052,
    "health": 0.026614056508927734,
-   "rul": 11.137841045217774
+   "rul": 11.089110000440991
   },
   "gates": {
    "detection": true,
