@@ -138,5 +138,11 @@
    "health": true,
    "rul": true
   }
+ },
+ "hybrid": {
+  "detection_sensor_from": "915bt",
+  "detection_sensor_git_sha": "f91faaf",
+  "rest_from": "915b",
+  "why": "the candidate's diagnosis lowered fault naming in A/B; only the throttle-step fix (detection, sensor) is taken"
  }
 }
