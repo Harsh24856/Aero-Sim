@@ -42,8 +42,9 @@ class TestMainV5(unittest.TestCase):
         held = main.without_removed(AI, fault="oil_pump_degradation")
         self.assertEqual(held["families_present"], [])
 
-    def _fly(self, legs):
+    def _fly(self, legs, engine="Rotax_912_ULS"):
         """legs: (seconds, throttle); returns the hold result for each second."""
+        main.CURRENT_ENGINE_MODEL = engine
         main.state["ai_last_sample_time"] = None
         main.state["ai_settle_until"] = 0.0
         main.state["ai_throttle_hist"] = []
@@ -69,6 +70,16 @@ class TestMainV5(unittest.TestCase):
         r = self._fly([(200, 0.15), (5, 1.0)])
         self.assertEqual(r[200]["settle_reason"], "throttle")
         self.assertEqual(r[200]["settle_window_s"], main.AI_WINDOW_S)
+
+    def test_engines_trained_on_throttle_steps_are_not_held(self):
+        # P2: the 914 and 916 run detection/sensor nets fine-tuned on step flights.
+        for engine in ("Rotax_914_ULF", "Rotax_916_iS"):
+            r = self._fly([(200, 0.75), (60, 0.15), (60, 1.0)], engine=engine)
+            self.assertFalse(any(x.get("settling") for x in r), engine)
+
+    def test_915_is_still_held(self):
+        r = self._fly([(200, 0.75), (5, 0.15)], engine="Rotax_915_iS")
+        self.assertEqual(r[200]["settle_reason"], "throttle")
 
     def test_small_throttle_change_does_not_hold(self):
         r = self._fly([(200, 0.75), (60, 0.50)])
