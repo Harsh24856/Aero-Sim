@@ -221,6 +221,18 @@ class TestTrendGatedRUL(unittest.TestCase):
         old.gated, old.weight = self.Gated(), 0.5
         self.assertAlmostEqual(old.predict(self._Xf(0.1, 0.9))[0], 0.3)
 
+    # per-FAULT gate (P4): the 915's turbo and air-filter faults share a family, but only
+    # turbo's trend misreads (inspections under-see turbo growth below critical altitude).
+    def test_trend_only_for_allowed_fault_by_severity(self):
+        m = rul_v5.TrendGatedRUL(self.Gated(), weight=0.5, families=(0,), fam_cols=self.FAM,
+                                 min_conf=rul_v5.FAULT_SEV_MIN)
+        self.assertAlmostEqual(m.predict(self._Xf(0.3, 0.1))[0], 0.3)      # fault 0 leads: blend
+        self.assertAlmostEqual(m.predict(self._Xf(0.1, 0.3))[0], 0.5)      # fault 1 leads: base
+        self.assertAlmostEqual(m.predict(self._Xf(0.05, 0.02))[0], 0.5)    # no fault present: base
+
+    def test_fault_cols_match_rul_inputs_layout(self):
+        self.assertEqual(rul_v5.fault_cols(14), slice(1, 15))
+
     def test_all_families_allowed_equals_todays_model_when_confident(self):
         m = rul_v5.TrendGatedRUL(self.Gated(), weight=0.5, families=(0, 1), fam_cols=self.FAM)
         today = rul_v5.TrendGatedRUL(self.Gated(), weight=0.5)
