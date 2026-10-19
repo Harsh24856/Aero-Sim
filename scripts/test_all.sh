@@ -54,7 +54,7 @@ if [ "$AI_PY" = "none" ]; then
   echo "AI_PY=none - skipping the TensorFlow suites"
 elif [ -x "$AI_PY" ]; then
   run "ai test_ai_v5_service" "$AI_PY" -m unittest tests.test_ai_v5_service
-  v5=(test_graph_parity_v5 test_relabel_v5b test_rul_smoothing_v5 test_cutoffs_v6 test_rul_history_v6 test_gaps_v5 test_finetune_v5)
+  v5=(test_graph_parity_v5 test_relabel_v5b test_rul_smoothing_v5 test_cutoffs_v6 test_rul_history_v6 test_gaps_v5 test_finetune_v5 test_cache_extra_v5)
   [ $WITH_CACHE = 1 ] && v5+=(test_pipeline_v5 test_specialists_v5 test_export_parity_v5)
   for m in "${v5[@]}"; do
     run "validation_v5 $m" "$AI_PY" "$ROOT/validation_v5/tests/$m.py"

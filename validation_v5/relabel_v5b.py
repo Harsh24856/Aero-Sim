@@ -120,9 +120,11 @@ def relabel_flight(g, ends_local: np.ndarray, faults: list, sensor_faults: list,
 
 
 def build(key: str, z_fault: float, z_sensor: float, per_channel_faults: bool = False,
-          z_effect_floor: float = 1.0, out_key: str | None = None) -> dict:
+          z_effect_floor: float = 1.0, out_key: str | None = None, thresholds_from: str | None = None) -> dict:
     """out_key: write cache/<out_key> instead of cache/<key>b - a relabel to compare
-    against (gaps_v5 --vs) that leaves the training cache untouched."""
+    against (gaps_v5 --vs) that leaves the training cache untouched.
+    thresholds_from: a v5b contract whose per-channel sensor thresholds are reused instead
+    of re-measured - a cache with extra flights then keeps the old flights' labels."""
     p = run_v5.paths(key)
     dst = os.path.join(os.path.dirname(p["cache"]), out_key) if out_key else p["cache"] + "b"
     os.makedirs(dst, exist_ok=True)
@@ -136,7 +138,11 @@ def build(key: str, z_fault: float, z_sensor: float, per_channel_faults: bool = 
                                      shape=src.ends.shape)
     ends[:] = src.ends[:]
     col = {c: i for i, c in enumerate(END_COLS)}
-    z_ch = {c: max(z_sensor, q) for c, q in healthy_offset_q99(src).items()}
+    if thresholds_from:
+        with open(thresholds_from) as fh:
+            z_ch = json.load(fh)["relabel"]["z_sensor_per_channel"]
+    else:
+        z_ch = {c: max(z_sensor, q) for c, q in healthy_offset_q99(src).items()}
     import features_v5 as F
     # Per-channel engine-fault bar: the channel's healthy spread, never below z_effect_floor
     # (1 sigma = the v5 rule) - not z_sensor, which would raise the bar on quiet channels.
@@ -146,7 +152,10 @@ def build(key: str, z_fault: float, z_sensor: float, per_channel_faults: bool = 
         + [f"fmv_{n}" for n in FAULT_NAMES] + [f"sf_{c}_flag" for c in FAULTABLE_CHANNELS]
     before = {k: 0.0 for k in ("fmv", "sf")}
     after = dict(before)
-    for fi, (r, g) in enumerate(_read_flights(p["data"])):
+    # The cache's own sources (pipeline_v5.build_cache --extra appends more), in order.
+    sources = [src.contract.get("source", p["data"])] + src.contract.get("extra_sources", [])
+    flights = (fg for s in sources for fg in _read_flights(s))
+    for fi, (r, g) in enumerate(flights):
         fr = src.flights.iloc[fi]
         g = g.sort_values("t")
         ends_local = np.arange(WINDOW - 1, len(g), END_STEP)
@@ -185,5 +194,8 @@ if __name__ == "__main__":
                     help="write cache/<OUT> instead of cache/<engine>b (the training cache stays as it is)")
     ap.add_argument("--z-sensor", type=float, default=3.0,
                     help="floor for the per-channel sensor bias/drift threshold (sigma)")
+    ap.add_argument("--thresholds-from", default=None,
+                    help="v5b contract_v5.json whose per-channel sensor thresholds to reuse")
     a = ap.parse_args()
-    print(build(a.engine, a.z_fault, a.z_sensor, a.per_channel_faults, a.z_effect_floor, a.out))
+    print(build(a.engine, a.z_fault, a.z_sensor, a.per_channel_faults, a.z_effect_floor, a.out,
+                a.thresholds_from))

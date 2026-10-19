@@ -3,10 +3,10 @@
  "key": "916",
  "model_version": "v5",
  "labels": "v5b",
- "run": "916b",
- "git_sha": "5046de7",
+ "run": "916bt",
+ "git_sha": "4f89f81",
  "git_dirty": false,
- "exported": "2026-10-18T11:45:09",
+ "exported": "2026-10-18T22:57:49",
  "tbo_hours": 2000.0,
  "window": 128,
  "feature_cols": [
@@ -123,12 +123,12 @@
   "flights": 915,
   "windows": 44183,
   "primary": {
-   "detection": 0.9708989229494615,
-   "diagnosis": 0.802965633351241,
-   "severity": 0.07744622975587845,
-   "sensor_fault": 0.8922037984329052,
-   "health": 0.026614056508927734,
-   "rul": 11.089110000440991
+   "detection": 0.9711578293289147,
+   "diagnosis": 0.8124587990214513,
+   "severity": 0.0764509066939354,
+   "sensor_fault": 0.889577386049844,
+   "health": 0.027299564128170535,
+   "rul": 10.828231636989914
   },
   "gates": {
    "detection": true,
