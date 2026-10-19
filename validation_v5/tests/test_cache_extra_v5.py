@@ -81,6 +81,7 @@ class TestExtraCache(unittest.TestCase):
         # SAME per-channel sensor thresholds, or the old flights' labels shift too.
         key = "_test_extra_relabel"
         cache = run_v5.paths(key)["cache"]
+        os.makedirs(os.path.dirname(cache), exist_ok=True)    # git-ignored: absent on CI
         os.symlink(os.path.join(self.tmp.name, "c_both"), cache)
         try:
             z = {c: 3.5 for c in relabel_v5b.FAULTABLE_CHANNELS}
