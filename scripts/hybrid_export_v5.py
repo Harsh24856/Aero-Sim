@@ -5,15 +5,18 @@ bias. Diagnosis, its calibration, the severity gate, health and RUL stay live, s
 sees the inputs it was fitted on. On the 914 the full candidate lowered fault naming
 (93.7 -> 90.5%), on the 915 it raised RUL error (52 -> 63 h); the hybrid kept both.
 
-    validation/venv/bin/python scripts/hybrid_export_v5.py 914 <candidate export dir> backend/models_v5/914
+    validation/venv/bin/python scripts/hybrid_export_v5.py 914 <candidate export dir> backend/models_v5/914 [git ref]
+
+The git ref holding the live export defaults to origin/main.
 """
 import json, os, pickle, shutil, subprocess, sys
 k, cand, out = sys.argv[1:4]
+ref = sys.argv[4] if len(sys.argv) > 4 else "origin/main"
 live = out + "_live_tmp"
 shutil.rmtree(live, ignore_errors=True)
 tmp = f"/tmp/hyb_{k}"
 shutil.rmtree(tmp, ignore_errors=True); os.makedirs(tmp)
-subprocess.run(f"git archive origin/main backend/models_v5/{k} | tar -x -C {tmp} --strip-components=2",
+subprocess.run(f"git archive {ref} backend/models_v5/{k} | tar -x -C {tmp} --strip-components=2",
                shell=True, check=True, executable="/bin/bash")
 shutil.copytree(f"/tmp/hyb_{k}/{k}", live)
 for h in ("detection", "sensor"):
