@@ -191,9 +191,9 @@ class TestTwinModeFollowsDeployedModel(unittest.TestCase):
         root = self._root({"914": {"twin": "fleet_wear"}})
         self.assertEqual(twin_v5.twin_mode("Rotax_916_iS", root), "fleet_wear")
 
-    def _fast_wearing_engine(self) -> dict:
+    def _fast_wearing_engine(self, engine: str = "Rotax_914_ULF") -> dict:
         import scenarios_v4
-        rec = scenarios_v4.make_engine("Rotax_914_ULF", seed=5)
+        rec = scenarios_v4.make_engine(engine, seed=5)
         rec = {**rec, "engine_hours": 1500.0, "fault_plan": {**rec["fault_plan"], "faults": [],
                "baseline": {"a": FLEET_WEAR[0], "b": FLEET_WEAR[1], "scale": 1.3}}}
         return rec
@@ -204,11 +204,12 @@ class TestTwinModeFollowsDeployedModel(unittest.TestCase):
         return abs(out["res_engine_rpm"]) / SENSOR_SPEC["engine_rpm"]["noise_sd"]
 
     def test_live_twin_calibrated_mode(self):
-        rec = self._fast_wearing_engine()
-        cal = twin_v5.UAVEngineTwinV5(engine_model="Rotax_914_ULF", engine=rec, seed=1,
-                                      models_root=self._root({"914": {"twin": "calibrated_wear"}}))
-        fleet = twin_v5.UAVEngineTwinV5(engine_model="Rotax_914_ULF", engine=rec, seed=1,
-                                        models_root=self._root({"914": {"twin": "fleet_wear"}}))
+        # The fixed-pitch 912: on the governed engines (P3) wear no longer moves rpm.
+        rec = self._fast_wearing_engine("Rotax_912_ULS")
+        cal = twin_v5.UAVEngineTwinV5(engine_model="Rotax_912_ULS", engine=rec, seed=1,
+                                      models_root=self._root({"912": {"twin": "calibrated_wear"}}))
+        fleet = twin_v5.UAVEngineTwinV5(engine_model="Rotax_912_ULS", engine=rec, seed=1,
+                                        models_root=self._root({"912": {"twin": "fleet_wear"}}))
         self.assertEqual(set(cal.history), {"lag_h", "wear_ratio", "sev_max", *F.LOG_COLS})
         self.assertGreater(cal.history["wear_ratio"], 1.0)        # it really does wear faster than the fleet
         self.assertLess(self._rpm_residual(cal), self._rpm_residual(fleet))
@@ -245,13 +246,14 @@ class TestTwinModeFollowsDeployedModel(unittest.TestCase):
         self.assertEqual(out["engine_history"]["wear_ratio"], 0.8)
 
     def test_live_twin_uses_fleet_wear_when_the_model_does(self):
-        root = self._root({"914": {"twin": "fleet_wear"}})
-        rec = {"engine_model": "Rotax_914_ULF", "engine_hours": 1500.0, "tbo_hours": 2000.0, "degradation_seed": 5}
+        # The fixed-pitch 912: on the governed engines (P3) wear no longer moves rpm.
+        root = self._root({"912": {"twin": "fleet_wear"}})
+        rec = {"engine_model": "Rotax_912_ULS", "engine_hours": 1500.0, "tbo_hours": 2000.0, "degradation_seed": 5}
         import scenarios_v4
-        rec = {**scenarios_v4.make_engine("Rotax_914_ULF", seed=5), **rec}
-        fleet = twin_v5.UAVEngineTwinV5(engine_model="Rotax_914_ULF", engine=rec, seed=1, models_root=root)
-        legacy = twin_v5.UAVEngineTwinV5(engine_model="Rotax_914_ULF", engine=rec, seed=1,
-                                         models_root=self._root({"914": {}}))
+        rec = {**scenarios_v4.make_engine("Rotax_912_ULS", seed=5), **rec}
+        fleet = twin_v5.UAVEngineTwinV5(engine_model="Rotax_912_ULS", engine=rec, seed=1, models_root=root)
+        legacy = twin_v5.UAVEngineTwinV5(engine_model="Rotax_912_ULS", engine=rec, seed=1,
+                                         models_root=self._root({"912": {}}))
         res = {}
         for name, tw in (("fleet", fleet), ("legacy", legacy)):
             for _ in range(int(30 / tw.dt)):

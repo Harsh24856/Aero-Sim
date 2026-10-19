@@ -31,10 +31,11 @@ def flight(scen_id, seed, mission=None):
 
 class TestOldFlightsUnchanged(unittest.TestCase):
     def test_existing_missions_are_byte_identical(self):
-        # Exact hashes before the P2 change (commit d94c383, macOS): 323fcf2730d211b9 and
-        # edee8353975b6cb9; they still matched after it. Pinned rounded to 3 decimals so a
-        # different libm (CI runs Linux) cannot flip the last bit of a long integration.
-        for sid, want in ((0, "883159220b4e3c9f"), (1, "bf56f40638da1019")):
+        # Pins the existing flights so adding missions cannot move them. Rounded to 3
+        # decimals so a different libm (CI runs Linux) cannot flip the last bit of a long
+        # integration. Re-pinned for the P3 physics (mixture, governor, thermostat), which
+        # changes every flight on purpose.
+        for sid, want in ((0, "c638da6316ea8c23"), (1, "8f41fc655fc9c8ab")):
             rows, _ = G.run_scenario("Rotax_916_iS", sid, np.random.default_rng(123))
             got = hashlib.sha256(np.round(np.asarray(rows, np.float64), 3).tobytes()).hexdigest()[:16]
             self.assertEqual(got, want, sid)

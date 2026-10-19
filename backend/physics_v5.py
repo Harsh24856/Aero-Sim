@@ -54,6 +54,7 @@ builder.
 """
 from __future__ import annotations
 
+import dataclasses
 import math
 
 import physics_v4 as V4
@@ -65,6 +66,39 @@ from physics_v4 import (  # noqa: F401  re-exported so v5 callers need one impor
 )
 
 PHYSICS_VERSION = "v5"
+
+# -- P3 realism (docs/superpowers/plans/2026-10-18-v5-real-world-fixes.md) ------------
+# From a Playwright flight of the 916: lambda sat at 0.89 in every phase, the turbo
+# engines over-sped to 5,970 rpm at altitude yet made only ~5,000 rpm on take-off, and
+# cruise coolant ran at 55 C.
+# MIXTURE. An iS engine's ECU runs closed loop at stoichiometric in cruise and enriches
+# only at high power. The per-flight target_lambda (mixture spread) survives only as a
+# small trim residual.
+EFI_LEAN_TO_THR, EFI_RICH_LAMBDA, EFI_TRIM = 0.85, 0.88, 0.25
+# GOVERNOR. The turbo engines drive a constant-speed propeller: fine pitch below the
+# set speed, coarser pitch above it to absorb the power. One combined lever, so the
+# set speed follows throttle up to 5,800 rpm (take-off). FINE_PITCH_CQ sizes the
+# propeller so full take-off power would over-speed without the governor.
+GOV_RPM_MAX, GOV_RPM_0, GOV_RPM_PER_THR = 5800.0, 4300.0, 1500.0
+GOV_N, GOV_K_MAX, FINE_PITCH_CQ = 8.0, 4.0, 0.72
+# COOLANT THERMOSTAT. Bypasses the radiator until the coolant is warm (Rotax wants
+# 80-110 C); opens fully by 90 C. A 15% leak keeps a cold engine from boiling over.
+COOL_TSTAT_OPEN_C, COOL_TSTAT_FULL_C, COOL_TSTAT_LEAK = 80.0, 90.0, 0.15
+# Governed installations: the idle stop is set lower (a fine-pitch propeller absorbs
+# less torque at idle; 0.82 puts ground idle back at 1,400 rpm on all three), and the
+# radiator and oil cooler are sized for the take-off power the governor now allows
+# (the v4 sizing was calibrated on a fixed-pitch climb at ~5,200 rpm).
+GOV_IDLE_MAP_SCALE, GOV_COOLING = 0.82, 1.15
+
+
+def efi_lambda(throttle: float, target_lambda: float) -> float:
+    """Closed-loop lambda: 1.0 up to EFI_LEAN_TO_THR, rich to EFI_RICH_LAMBDA at full."""
+    x = min(1.0, max(0.0, (throttle - EFI_LEAN_TO_THR) / (1.0 - EFI_LEAN_TO_THR)))
+    return 1.0 + x * (EFI_RICH_LAMBDA - 1.0) + EFI_TRIM * (target_lambda - 0.89)
+
+
+def governor_rpm(throttle: float) -> float:
+    return min(GOV_RPM_MAX, GOV_RPM_0 + GOV_RPM_PER_THR * throttle)
 
 # -- ignition ----------------------------------------------------------------
 # Effective spark retard (in the knock model's units) per unit of ignition loss.
@@ -146,6 +180,9 @@ class PistonEngineV5(V4.PistonEngineV4):
 
     def __init__(self, engine_model: str = "Rotax_914_ULF", dt: float = 0.01):
         super().__init__(engine_model, dt)
+        if self.spec.turbocharged:                          # governed (P3)
+            self.spec = dataclasses.replace(self.spec,
+                                            idle_map_frac=self.spec.idle_map_frac * GOV_IDLE_MAP_SCALE)
         # Rated exhaust flow, the EGT probe model's reference (full throttle, rated
         # speed, sea level, standard day, healthy).
         rated = self._cycle(Inputs(altitude_m=0.0, throttle=1.0), Health(),
@@ -214,7 +251,7 @@ class PistonEngineV5(V4.PistonEngineV4):
         stoich = AFR_STOICH * (1 - u.fuel_ethanol_frac) + AFR_STOICH_ETHANOL * u.fuel_ethanol_frac
         lhv = LHV_AVGAS * (1 - u.fuel_ethanol_frac) + LHV_ETHANOL * u.fuel_ethanol_frac
         if s.fuel_injected:
-            lam = u.target_lambda
+            lam = efi_lambda(u.throttle, u.target_lambda)
         else:
             lam = u.target_lambda * (rho_amb / 1.225) ** CARB_DENSITY_EXP
         lam = min(max(lam, 0.65), 1.25)
@@ -296,6 +333,27 @@ class PistonEngineV5(V4.PistonEngineV4):
         }
 
     # ------------------------------------------------------------------
+    def _coolant_opening(self) -> float:
+        x = (self.coolant_k - 273.15 - COOL_TSTAT_OPEN_C) / (COOL_TSTAT_FULL_C - COOL_TSTAT_OPEN_C)
+        return COOL_TSTAT_LEAK + (1.0 - COOL_TSTAT_LEAK) * min(1.0, max(0.0, x))
+
+    # ------------------------------------------------------------------
+    def _propeller(self, cyc: dict, u: Inputs, h: Health, rho: float) -> dict:
+        """Turbo engines: a constant-speed propeller (P3). Fine pitch absorbs
+        FINE_PITCH_CQ of the fixed-pitch torque; above the set speed the pitch
+        coarsens until it absorbs the engine's torque, with (rpm/set)^GOV_N pulling the
+        speed back to the set point. Blade erosion keeps costing thrust per unit torque
+        (an extra prop_eff_mod), since the governor would otherwise make it invisible."""
+        p = super()._propeller(cyc, u, h, rho)
+        if not self.spec.turbocharged:
+            return p
+        q_fine = p["prop_torque_nm"] * FINE_PITCH_CQ
+        need = cyc["brake_torque_nm"] * self.spec.gear_ratio * (cyc["rpm"] / governor_rpm(u.throttle)) ** GOV_N
+        k = min(GOV_K_MAX, max(1.0, need / max(q_fine, 1e-6)))
+        return {**p, "prop_torque_nm": k * q_fine,
+                "thrust_n": k * p["thrust_n"] * FINE_PITCH_CQ * h.prop_eff_mod}
+
+    # ------------------------------------------------------------------
     def _thermal(self, cyc: dict, u: Inputs, h: Health) -> None:
         """v4's thermal network with the wall-heat share taken from the cycle, so
         late (ignition-degraded) burning heats the exhaust instead of the head."""
@@ -304,6 +362,8 @@ class PistonEngineV5(V4.PistonEngineV4):
         # term of the v4 network (which does not read exhaust power) untouched.
         scaled = dict(cyc)
         scaled["exhaust_power_w"] = cyc["exhaust_power_w"] * cyc.get("wall_frac", 0.32) / 0.32
+        if self.spec.turbocharged:                          # cooling sized for governed take-off (P3)
+            u = dataclasses.replace(u, cooling_airflow_factor=u.cooling_airflow_factor * GOV_COOLING)
         super()._thermal(scaled, u, h)
 
     # ------------------------------------------------------------------

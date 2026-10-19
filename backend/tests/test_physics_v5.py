@@ -106,19 +106,59 @@ class RotaxFigures(unittest.TestCase):
             self.assertLess(above["manifold_pressure_kpa"], s.max_map_pa / 1000.0 - 5.0, eng)
 
 
-class HealthyIsV4(unittest.TestCase):
-    def test_healthy_engine_identical_to_v4_except_egt(self):
-        # Standard days only: v5 changed the knock reference (hot days) and the EGT
-        # probe model; everything else about a healthy engine is v4.
-        keys = ["engine_rpm", "power_kw", "cht", "coolant_temp", "oil_temp",
-                "oil_pressure", "fuel_flow", "manifold_pressure_kpa", "wastegate_position"]
+class P3Realism(unittest.TestCase):
+    """Plan 2026-10-18-v5-real-world-fixes P3, from the Playwright 916 flight: lambda sat
+    at 0.89 in every phase, the turbo engines over-sped to 5,970 rpm at altitude and
+    reached only ~5,000 rpm on take-off, and coolant ran at 55 C in cruise."""
+    EFI = [e for e in ENGINES if P.ENGINE_SPECS[e].fuel_injected]
+    CRUISE = dict(altitude_m=1500.0, airspeed_ms=45.0, throttle=0.75)
+
+    def test_efi_cruise_is_stoichiometric_and_full_power_rich(self):
+        for eng in self.EFI:
+            self.assertTrue(0.97 <= settle(eng, P.Inputs(**self.CRUISE))["lambda"] <= 1.03, eng)
+            full = settle(eng, P.Inputs(altitude_m=1500.0, airspeed_ms=45.0, throttle=1.0))
+            self.assertLessEqual(full["lambda"], 0.90, eng)
+
+    def test_carburetted_mixture_unchanged(self):
+        for eng in [e for e in ENGINES if e not in self.EFI]:
+            u = P.Inputs(**self.CRUISE)
+            self.assertAlmostEqual(settle(eng, u)["lambda"], settle(eng, u, cls=V4.PistonEngineV4)["lambda"],
+                                   delta=0.01, msg=eng)
+
+    def test_governed_take_off_reaches_rated_rpm(self):
+        for eng in TURBO:
+            o = settle(eng, P.Inputs(altitude_m=0.0, airspeed_ms=38.0, throttle=1.0))
+            self.assertTrue(5500.0 <= o["engine_rpm"] <= 5810.0, (eng, o["engine_rpm"]))
+
+    def test_governor_never_overspeeds_at_altitude(self):
+        for eng in TURBO:
+            for alt in (4000.0, 6000.0):
+                o = settle(eng, P.Inputs(altitude_m=alt, airspeed_ms=45.0, throttle=1.0))
+                self.assertLessEqual(o["engine_rpm"], 5810.0, (eng, alt))
+
+    def test_912_keeps_its_fixed_pitch_propeller(self):
+        u = P.Inputs(altitude_m=0.0, airspeed_ms=38.0, throttle=1.0)
+        self.assertAlmostEqual(settle("Rotax_912_ULS", u)["engine_rpm"],
+                               settle("Rotax_912_ULS", u, cls=V4.PistonEngineV4)["engine_rpm"], delta=20.0)
+
+    def test_coolant_thermostat_holds_cruise_coolant(self):
         for eng in ENGINES:
-            for alt, thr in [(0, 1.0), (1500, 0.7), (3000, 0.5), (5500, 0.9)]:
-                u = P.Inputs(altitude_m=alt, airspeed_ms=45, throttle=thr)
-                a = settle(eng, u, cls=V4.PistonEngineV4)
-                b = settle(eng, u)
-                for k in keys:
-                    self.assertEqual(a[k], b[k], (eng, alt, thr, k))
+            c = settle(eng, P.Inputs(**self.CRUISE), n=900)["coolant_temp"]
+            self.assertTrue(80.0 <= c <= 95.0, (eng, c))
+
+
+class HealthyIsV4(unittest.TestCase):
+    def test_healthy_912_at_full_power_is_v4(self):
+        # P3 moved every engine on purpose: the coolant thermostat (v4 ran coolant at
+        # 17-23 C at altitude, so warm oil now cuts friction - up to +9% part-throttle
+        # power), the iS mixture schedule and the governed engines' speed. What stays
+        # v4 is the one engine and point P3 leaves alone: the 912 at full power at sea
+        # level, where the thermostat is wide open in both.
+        u = P.Inputs(altitude_m=0.0, airspeed_ms=45.0, throttle=1.0)
+        a = settle("Rotax_912_ULS", u, cls=V4.PistonEngineV4)
+        b = settle("Rotax_912_ULS", u)
+        for k in ("engine_rpm", "power_kw", "fuel_flow", "manifold_pressure_kpa"):
+            self.assertAlmostEqual(a[k], b[k], delta=0.01 * abs(a[k]), msg=k)
 
 
 class IgnitionVsCombustion(unittest.TestCase):
@@ -146,16 +186,20 @@ class IgnitionVsCombustion(unittest.TestCase):
 class Mixture(unittest.TestCase):
     def test_egt_peaks_near_stoichiometric(self):
         # EGT-mixture curve: rich of peak it is lower, lean of peak it falls again.
-        for eng in ("Rotax_915_iS", "Rotax_916_iS"):          # injected: lambda = target
-            egt = {lam: settle(eng, P.Inputs(altitude_m=1500.0, airspeed_ms=45.0, throttle=0.7,
+        # Carburetted engines at sea level, standard day: lambda = target (an iS engine's
+        # ECU now holds its own schedule, P3).
+        for eng in ("Rotax_912_ULS", "Rotax_914_ULF"):
+            egt = {lam: settle(eng, P.Inputs(altitude_m=0.0, airspeed_ms=45.0, throttle=0.7,
                                              target_lambda=lam), n=900)["egt"]
                    for lam in (0.88, 1.00, 1.15)}
             self.assertGreater(egt[1.00] - egt[0.88], 30.0, eng)
             self.assertLess(egt[1.15], egt[1.00] - 30.0, eng)
 
     def test_fouled_injector_leans_a_rich_engine_egt_up_power_kept(self):
-        u = P.Inputs(altitude_m=3000.0, airspeed_ms=45.0, throttle=0.7)
-        for eng in ("Rotax_912_ULS", "Rotax_915_iS"):
+        # Rich: the carburetted 912 at cruise, the iS 915 only at full power (P3: its
+        # cruise is stoichiometric, where leaning cools the exhaust instead).
+        for eng, thr in (("Rotax_912_ULS", 0.7), ("Rotax_915_iS", 1.0)):
+            u = P.Inputs(altitude_m=3000.0, airspeed_ms=45.0, throttle=thr)
             b = settle(eng, u, n=900)
             o = settle(eng, u, P.Health(injector_flow_mod=0.89), n=900)
             self.assertLess(o["fuel_flow"], b["fuel_flow"] - 0.5, eng)
@@ -185,7 +229,9 @@ class OilFamily(unittest.TestCase):
         cool, _ = self._deficit(P.Health(oil_quality_mod=0.55), 0.10, 30.0)
         hot, _ = self._deficit(P.Health(oil_quality_mod=0.55), 0.8, 45.0,
                                isa_dev_c=25.0, cooling_airflow_factor=0.8)
-        self.assertGreater(hot, cool + 0.15)
+        # P3: the coolant thermostat now holds idle oil near 86 C (Rotax normal) instead
+        # of letting it run cold, so the cool point is warmer: +0.13 over 30 C of oil.
+        self.assertGreater(hot, cool + 0.10)
 
     def test_pressures_stay_in_rotax_band(self):
         for h in (P.Health(oil_pump_mod=0.6), P.Health(friction_mod=1.6), P.Health(oil_quality_mod=0.55)):

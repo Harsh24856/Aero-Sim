@@ -716,6 +716,10 @@ class PistonEngineV4:
     # ------------------------------------------------------------------
     # L6 / L7 / L8 - thermal, lubrication, electrical
     # ------------------------------------------------------------------
+    def _coolant_opening(self) -> float:
+        """Radiator share of coolant flow. v4 has no coolant thermostat; v5 (P3) does."""
+        return 1.0
+
     def _thermal(self, cyc: dict, u: Inputs, h: Health) -> None:
         s, dt = self.spec, self.dt
 
@@ -738,7 +742,7 @@ class PistonEngineV4:
         # one. Without this scaling the 916 ran to 168 degC CHT against a 135
         # degC limit, purely because it inherited the 914's radiator.
         size = s.rated_power_w / 84_500.0          # 914 is the calibration point
-        ua_cool = UA_COOL * size * ram * h.cooling_mod
+        ua_cool = UA_COOL * size * ram * h.cooling_mod * self._coolant_opening()
         # OIL THERMOSTAT. A cooling system certified for a hot-day full-power
         # climb has far more capacity than a standard-day cruise needs, and
         # without regulation it ran cruise oil at 73-82 C, below the 90-110 C
