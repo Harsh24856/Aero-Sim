@@ -16,5 +16,7 @@
  "select": {
   "det_auc": 1.0,
   "det_recall_p95": 1.0
- }
+ },
+ "fault_weight": {},
+ "extra_weight": 2
 }

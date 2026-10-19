@@ -451,6 +451,12 @@ AI_WINDOW_S = 128.0
 THROTTLE_STEP = 0.4
 THROTTLE_STEP_WINDOW_S = 5.0
 THROTTLE_HOLD_S = AI_WINDOW_S
+# P2 (plan 2026-10-18-v5-real-world-fixes): the 914 and 916 now run detection/sensor nets
+# fine-tuned on flights with instant throttle steps; scripts/transient_v5.py and a replay
+# of the live Playwright profile through this chain show no FAULT after any step, so they
+# are not held. The 915 (same fine-tune) still showed FAULT for 11 s after full power at
+# 6,000 m chopped to idle with a 5,000 m altitude step; the 912 kept its live models.
+THROTTLE_HOLD_ENGINES = {"Rotax_912_ULS", "Rotax_915_iS"}
 
 
 def hold_alerts_outside_envelope(sample: dict, result: dict) -> dict:
@@ -475,7 +481,8 @@ def hold_alerts_outside_envelope(sample: dict, result: dict) -> dict:
     if isinstance(thr, (int, float)):
         hist = [(ht, hv) for ht, hv in state["ai_throttle_hist"] if t - ht <= THROTTLE_STEP_WINDOW_S]
         moved = max((abs(hv - thr) for _, hv in hist), default=0.0)
-        if moved >= THROTTLE_STEP and t + THROTTLE_HOLD_S > state["ai_settle_until"]:
+        if (moved >= THROTTLE_STEP and CURRENT_ENGINE_MODEL in THROTTLE_HOLD_ENGINES
+                and t + THROTTLE_HOLD_S > state["ai_settle_until"]):
             state["ai_settle_until"] = t + THROTTLE_HOLD_S
             state["ai_settle_reason"], state["ai_settle_window"] = "throttle", THROTTLE_HOLD_S
         state["ai_throttle_hist"] = hist + [(t, float(thr))]

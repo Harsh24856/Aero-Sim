@@ -139,6 +139,28 @@ If an engine fails, it keeps its live models and the hold stays.
 
 **Recipe for the other engines:** use the same `<e>sb` fine-tune, then the `<e>bt` RUL refit, then export and run the checks.
 
+**All engines (2026-10-19).** A full candidate changes the diagnosis and family outputs that RUL reads, and it cost naming or RUL on every engine. The fix is `scripts/hybrid_export_v5.py`: the live export plus only the candidate's detection and sensor nets, detection GBT and sensor bias.
+
+Table columns:
+- **transient s:** seconds of detection at or above 0.5, for chop 0.75, chop at 6,000 m, chop at 6,000 -> 1,000 m, advance, small step.
+- **naming, RUL error:** A/B against the export before P2.
+
+| Engine | Shipped | transient s (before -> after) | naming | RUL error | Throttle hold |
+|---|---|---|---|---|---|
+| 916 | hybrid (916bt det/sensor) | 17/42/80/73/1 -> 0/0/0/0/0 | 94.1 -> 94.1% | 75 -> 75 h | **removed** |
+| 914 | hybrid (914bt det/sensor) | 0/71/0/11/0 -> 0/0/0/0/0 | 93.7 -> 93.7% | 94 -> 94 h | **removed** |
+| 915 | hybrid (915bt det/sensor) | 0/13/76/60/0 -> 0/0/0/3/0 | 82.6 -> 82.6% | 52 -> 52 h | kept (see below) |
+| 912 | live, unchanged | 0/1/0/6/0 | candidate 88.9 -> 87.0% | candidate 90 -> 106 h | kept |
+
+Notes:
+- **Full candidates, A/B:**
+  - 916bt: naming 94.3%, RUL 77 h;
+  - 915bt: naming 84.0%, RUL 63 h (61 h on the live RUL model);
+  - 914bt: naming 90.5%, RUL 90 h;
+  - 912bt: naming 87.0%, RUL 106 h.
+- **Replay through `main.py`:** the live Playwright profile was replayed through the `main.py` chain with no hold. FAULT was shown on the 916 for 0 s, the 914 for 0 s, and the 915 for **11 s**. The 915's raw detection was about 0.6 for 23 s after full power at 6,000 m was chopped to idle with an instant 5,000 m altitude step. So the 915 keeps the hold: `THROTTLE_HOLD_ENGINES = {912, 915}`.
+- **Flights failing on both live and candidate:** air filter (all engines) and the 915 `turbo_high` RUL in e2e.
+
 ### P3: physics realism (separate decision, about 2 days of machine time)
 
 All three fixes change the training data of all four engines, so they need a full regeneration and retrain. Each fix gets its own test in `test_physics_v5.py` first.
