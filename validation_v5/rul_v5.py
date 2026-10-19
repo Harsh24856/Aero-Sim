@@ -222,8 +222,15 @@ def fit_rul(trainer, out_dir: str | None = None, cal_ids: np.ndarray | None = No
             cands[f"gated_gbt+trend{w:g}"] = TrendGatedRUL(cands["gated_gbt"], w)
             fams = helpful_families(Xv, yv, wlv, cands["gated_gbt"], cands[f"gated_gbt+trend{w:g}"], fc)
             cands[f"gated_gbt+trend{w:g}+fam"] = TrendGatedRUL(cands["gated_gbt"], w, families=fams, fam_cols=fc)
+            sc = fault_cols(len(FAULT_NAMES))
+            faults = helpful_families(Xv, yv, wlv, cands["gated_gbt"], cands[f"gated_gbt+trend{w:g}"], sc,
+                                      min_conf=FAULT_SEV_MIN)
+            cands[f"gated_gbt+trend{w:g}+fault"] = TrendGatedRUL(cands["gated_gbt"], w, families=faults,
+                                                                 fam_cols=sc, min_conf=FAULT_SEV_MIN)
     for name, m in cands.items():
         res[name] = report(m.predict(Xv))
+        if getattr(m, "families", None) is not None:
+            res[name]["allowed"] = [int(i) for i in m.families]     # family or fault indices
     res["gated_gbt"]["threshold"] = float(thr)
     best = min(res, key=lambda k: score(res[k]))
     out = {"candidates": res, "chosen": best}
@@ -254,13 +261,21 @@ def family_cols(n_faults: int, n_families: int) -> slice:
     return slice(n_faults + 2, n_faults + 2 + n_families)
 
 
+FAULT_SEV_MIN = 0.08          # generate_dataset_v5 FAULT_PRESENT_SEV: a fault is under way
+
+
+def fault_cols(n_faults: int) -> slice:
+    """Where rul_inputs puts o["severity"]: right after health (1)."""
+    return slice(1, 1 + n_faults)
+
+
 def helpful_families(X: np.ndarray, y: np.ndarray, wl: np.ndarray, base, trended, fam_cols: slice,
-                     min_windows: int = 30) -> tuple:
+                     min_windows: int = 30, min_conf: float = 0.5) -> tuple:
     """Families whose wear-limited windows (argmax family, probability >= 0.5, at
     least `min_windows` of them) get a lower mean absolute error from `trended` than
     from `base`."""
     fam = X[:, fam_cols]
-    top, conf = fam.argmax(1), fam.max(1) >= 0.5
+    top, conf = fam.argmax(1), fam.max(1) >= min_conf
     pb, pt = base.predict(X), trended.predict(X)
     keep = []
     for f in range(fam.shape[1]):
@@ -278,12 +293,16 @@ class TrendGatedRUL:
     on the fleet the trend is noisier (unknown fault depth) and the trees ignored it.
     Kept only if it wins on validation (fit_rul)."""
 
-    def __init__(self, gated, weight: float, families: tuple | None = None, fam_cols: slice | None = None):
+    def __init__(self, gated, weight: float, families: tuple | None = None, fam_cols: slice | None = None,
+                 min_conf: float = 0.5):
         """families: the fault-family indices (o["family"] order) the trend may answer
         for, judged on validation (fit_rul); None = every family, as before. Turbo
         degradation shows only above critical altitude, so inspections under-see its
-        growth and its trend read ~340 h on a 150 h fault (915 turbo_high)."""
+        growth and its trend read ~340 h on a 150 h fault (915 turbo_high).
+        Per FAULT (P4): fam_cols = fault_cols(...), the severity columns, and min_conf =
+        FAULT_SEV_MIN - turbo and air filter share a family but only turbo's trend misreads."""
         self.gated, self.weight, self.families, self.fam_cols = gated, weight, families, fam_cols
+        self.min_conf = min_conf
 
     def predict(self, X):
         X = np.asarray(X)
@@ -294,7 +313,7 @@ class TrendGatedRUL:
         families = getattr(self, "families", None)          # objects pickled before families: None
         if families is not None:
             fam = X[:, self.fam_cols]
-            use &= np.isin(fam.argmax(1), list(families)) & (fam.max(1) >= 0.5)
+            use &= np.isin(fam.argmax(1), list(families)) & (fam.max(1) >= getattr(self, "min_conf", 0.5))
         return np.where(use, self.weight * trend + (1.0 - self.weight) * base, base)
 
 

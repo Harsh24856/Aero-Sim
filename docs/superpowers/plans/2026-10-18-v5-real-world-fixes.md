@@ -180,6 +180,10 @@ The P2 missions carry over. Batch P3 with the next planned full retrain.
 
 - **Oil-fault labels**: 58-100% of missed oil faults are labelled as present before any instrument sees them. Fine-tune on the per-instrument relabel (`relabel_v5b.py`, which already exists). Gate: A/B against live.
 - **915 RUL trend**: switch the trend per fault instead of per family. This fixes the e2e `turbo_high` failure (RUL below calendar on only 19%).
+  - **Done 2026-10-19, no gain.** `fit_rul` now has `+fault` candidates.
+  - On the 915 (run `915bp`, on the live 915b heads), validation chose `gated_gbt+trend0.5+fault` (wear-limited error 9.18% against 9.31%). But the trend stays allowed for turbo, because validation says it helps there.
+  - A/B: RUL 52 -> 52 h, and `turbo_high` still fails at 19%. Not shipped.
+  - **Real cause:** the wear-limited classifier calls the turbo_high flight calendar-limited 81% of the time. The trend is not the cause. The next lever is that classifier (turbo windows above critical altitude).
 
 Keep P4 in separate runs from P2, so each A/B result has one cause.
 
