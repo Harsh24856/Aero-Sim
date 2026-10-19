@@ -179,6 +179,15 @@ The P2 missions carry over. Batch P3 with the next planned full retrain.
 ### P4: known model backlog (optional, can run alongside P2)
 
 - **Oil-fault labels**: 58-100% of missed oil faults are labelled as present before any instrument sees them. Fine-tune on the per-instrument relabel (`relabel_v5b.py`, which already exists). Gate: A/B against live.
+  - **Tried on the 914 (2026-10-19): rejected.** The diagnosis was fine-tuned on `914pc` (the per-instrument relabel) and validation kept it (1.3413 -> 1.3539). It was shipped as a hybrid that keeps the live detection and sensor nets.
+  - A/B against live:
+    - naming **93.7% -> 78.3%**;
+    - oil pump named exactly 100% -> 25% (74% wrong);
+    - oil degradation 53% -> 0%;
+    - air filter 74% -> 0%;
+    - RUL 94 -> 104 h.
+  - The stricter labels teach the model to hold back on oil and air-filter faults, and on the test flights it then names the wrong one. The 912, 915 and 916 were not run (the queue was stopped) and the 914 stays live.
+  - Better labels on validation do not mean better naming in flight. A next attempt needs the e2e presets judged on the same visibility rule, or only a partial relabel (for example oil degradation only).
 - **915 RUL trend**: switch the trend per fault instead of per family. This fixes the e2e `turbo_high` failure (RUL below calendar on only 19%).
 
 Keep P4 in separate runs from P2, so each A/B result has one cause.
